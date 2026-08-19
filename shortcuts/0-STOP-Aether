@@ -1,0 +1,11 @@
+#!/data/data/com.termux/files/usr/bin/bash
+
+echo "Stopping Aether..."
+pkill -x aether 2>/dev/null || true
+
+if command -v termux-wake-unlock >/dev/null 2>&1; then
+    termux-wake-unlock >/dev/null 2>&1 || true
+fi
+
+echo "Aether stopped."
+sleep 1

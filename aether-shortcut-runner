@@ -1,0 +1,331 @@
+#!/data/data/com.termux/files/usr/bin/bash
+
+MODE="$1"
+
+clear
+echo "================================"
+echo "        AETHER CORE"
+echo "================================"
+echo "Mode: $MODE"
+echo
+
+pkill -x aether 2>/dev/null || true
+sleep 1
+
+command -v termux-wake-lock >/dev/null 2>&1 &&
+    termux-wake-lock >/dev/null 2>&1 || true
+
+case "$MODE" in
+
+MASQUE)
+    ARGS=(
+        --masque
+        -4
+        --bind 127.0.0.1:1819
+        --scan balanced
+        --noize firewall
+        --quick-reconnect
+    )
+    ;;
+
+WG)
+    ARGS=(
+        --wg
+        -4
+        --bind 127.0.0.1:1819
+        --scan balanced
+        --noize balanced
+        --keepalive 5
+        --quick-reconnect
+    )
+    ;;
+
+GOOL)
+    ARGS=(
+        --gool
+        -4
+        --bind 127.0.0.1:1819
+        --scan balanced
+        --noize balanced
+        --keepalive 5
+        --quick-reconnect
+    )
+    ;;
+
+*)
+    echo "Unknown mode: $MODE"
+    exit 1
+    ;;
+esac
+
+LOG="$HOME/aether-${MODE,,}.log"
+
+country_name() {
+    case "$1" in
+        IR) echo "Iran" ;;
+        DE) echo "Germany" ;;
+        NL) echo "Netherlands" ;;
+        FR) echo "France" ;;
+        GB) echo "United Kingdom" ;;
+        US) echo "United States" ;;
+        CA) echo "Canada" ;;
+        IT) echo "Italy" ;;
+        FI) echo "Finland" ;;
+        SE) echo "Sweden" ;;
+        NO) echo "Norway" ;;
+        CH) echo "Switzerland" ;;
+        AT) echo "Austria" ;;
+        ES) echo "Spain" ;;
+        BE) echo "Belgium" ;;
+        PL) echo "Poland" ;;
+        RO) echo "Romania" ;;
+        CZ) echo "Czechia" ;;
+        TR) echo "Turkey" ;;
+        AE) echo "UAE" ;;
+        SG) echo "Singapore" ;;
+        JP) echo "Japan" ;;
+        HK) echo "Hong Kong" ;;
+        IN) echo "India" ;;
+        RU) echo "Russia" ;;
+        "") echo "Unknown" ;;
+        *) echo "$1" ;;
+    esac
+}
+
+get_exit_info() {
+    local trace
+
+    trace="$(curl -4 \
+        --silent \
+        --max-time 15 \
+        --socks5-hostname 127.0.0.1:1819 \
+        https://www.cloudflare.com/cdn-cgi/trace \
+        2>/dev/null || true)"
+
+    CHECK_IP="$(printf '%s\n' "$trace" |
+        sed -n 's/^ip=//p' | head -n1)"
+
+    CHECK_CC="$(printf '%s\n' "$trace" |
+        sed -n 's/^loc=//p' | head -n1)"
+}
+
+aether "${ARGS[@]}" >"$LOG" 2>&1 &
+PIPE_PID=$!
+
+WATCH_PID=""
+
+cleanup() {
+    [ -n "$WATCH_PID" ] &&
+        kill "$WATCH_PID" 2>/dev/null || true
+
+    pkill -x aether 2>/dev/null || true
+
+    kill "$PIPE_PID" 2>/dev/null || true
+
+    command -v termux-wake-unlock >/dev/null 2>&1 &&
+        termux-wake-unlock >/dev/null 2>&1 || true
+}
+
+trap cleanup INT TERM EXIT
+
+echo
+echo "Waiting for Aether SOCKS5..."
+
+READY=0
+
+for i in $(seq 1 120); do
+
+    if ! kill -0 "$PIPE_PID" 2>/dev/null; then
+        echo
+        echo "Aether stopped."
+        exit 1
+    fi
+
+    if (echo >/dev/tcp/127.0.0.1/1819) \
+        >/dev/null 2>&1; then
+
+        READY=1
+        break
+    fi
+
+    sleep 1
+done
+
+if [ "$READY" != "1" ]; then
+    echo
+    echo "SOCKS5 did not become ready."
+    exit 1
+fi
+
+echo
+echo "================================"
+echo "       AETHER CONNECTED"
+echo " SOCKS5: 127.0.0.1:1819"
+echo "================================"
+
+echo
+echo "Checking exit IP..."
+
+get_exit_info
+
+CURRENT_IP="$CHECK_IP"
+CURRENT_CC="$CHECK_CC"
+
+echo
+echo "================================"
+
+if [ -n "$CURRENT_IP" ]; then
+
+    CURRENT_COUNTRY="$(country_name "$CURRENT_CC")"
+
+    echo " Exit IP : $CURRENT_IP"
+    echo " Country : $CURRENT_COUNTRY ($CURRENT_CC)"
+
+else
+
+    echo " Exit IP : Unknown"
+    echo " Country : Unknown"
+
+fi
+
+echo "================================"
+
+
+watch_aether_events() {
+
+    local need_check=0
+    local new_ip
+    local new_cc
+    local old_country
+    local new_country
+
+    tail -n 0 -F "$LOG" 2>/dev/null |
+    while IFS= read -r line; do
+
+        case "$line" in
+
+            *"reconnecting"*|\
+            *"Restarting after network change"*|\
+            *"blacklisting and rescanning"*)
+
+                need_check=1
+                ;;
+
+        esac
+
+
+        [ "$need_check" -eq 1 ] || continue
+
+
+        SUCCESS=0
+
+        case "$MODE" in
+
+            GOOL)
+
+                case "$line" in
+                    *"[inner] wireguard tunnel validated"*|\
+                    *"socks5 server listening"*)
+                        SUCCESS=1
+                        ;;
+                esac
+                ;;
+
+            WG)
+
+                case "$line" in
+                    *"wireguard tunnel validated"*|\
+                    *"socks5 server listening"*)
+                        SUCCESS=1
+                        ;;
+                esac
+                ;;
+
+            MASQUE)
+
+                case "$line" in
+                    *"socks5 server listening"*)
+                        SUCCESS=1
+                        ;;
+                esac
+                ;;
+
+        esac
+
+
+        [ "$SUCCESS" -eq 1 ] || continue
+
+        sleep 1
+
+        get_exit_info
+
+        new_ip="$CHECK_IP"
+        new_cc="$CHECK_CC"
+
+        [ -n "$new_ip" ] || continue
+
+        need_check=0
+
+        if [ "$new_ip" != "$CURRENT_IP" ]; then
+
+            old_country="$(country_name "$CURRENT_CC")"
+            new_country="$(country_name "$new_cc")"
+
+            echo
+            echo "================================"
+            echo "       EXIT IP CHANGED"
+            echo "================================"
+            echo " Old IP  : $CURRENT_IP"
+            echo " New IP  : $new_ip"
+            echo
+            echo " Country : $old_country ($CURRENT_CC)"
+            echo "        -> $new_country ($new_cc)"
+            echo " Time    : $(date '+%H:%M:%S')"
+            echo "================================"
+
+            CURRENT_IP="$new_ip"
+            CURRENT_CC="$new_cc"
+
+        fi
+
+    done
+}
+
+
+watch_aether_events &
+WATCH_PID=$!
+
+
+echo
+echo "Aether is monitoring connection..."
+echo
+echo "Returning to Home..."
+
+am start \
+    -a android.intent.action.MAIN \
+    -c android.intent.category.HOME \
+    >/dev/null 2>&1 || true
+
+
+while true; do
+
+    wait "$PIPE_PID"
+    RC=$?
+
+    if [ "$RC" -ne 101 ]; then
+        exit "$RC"
+    fi
+
+    {
+        echo
+        echo "Aether exited with code 101."
+        echo "Restarting after network change..."
+        date
+    } >> "$LOG"
+
+    sleep 2
+
+    aether "${ARGS[@]}" >>"$LOG" 2>&1 &
+    PIPE_PID=$!
+
+done
