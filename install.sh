@@ -60,12 +60,14 @@ mkdir -p "$HOME/.shortcuts"
 
 STAMP="$(date +%Y%m%d-%H%M%S)"
 
-backup_file() {
+BACKUP_DIR="$HOME/.saman-aether-backups/$STAMP"
+mkdir -p "$BACKUP_DIR"
 
+backup_file() {
     FILE="$1"
 
     if [ -e "$FILE" ]; then
-        cp -a "$FILE" "$FILE.backup-$STAMP"
+        cp -a "$FILE" "$BACKUP_DIR/$(basename "$FILE")"
     fi
 }
 
