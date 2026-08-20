@@ -1,46 +1,49 @@
-# Saman Aether
+# Saman Aether 🚀
 
-Termux shortcuts for the official Aether core.
+Easy Aether installation and Termux:Widget shortcuts for Android.
 
-## Install
+نصب آسان Aether در Termux به همراه میانبرهای آماده برای Termux:Widget.
 
-```bash
+## Features / امکانات
+
+-   Automatic Aether installation and update
+-   Termux:Widget shortcuts
+-   MASQUE / WireGuard / GOOL modes
+-   SOCKS5 local proxy: `127.0.0.1:1819`
+
+## Quick Install
+
+Run in Termux:
+
+``` bash
 curl -fsSL https://raw.githubusercontent.com/velnox4827/saman-aether/main/install.sh | bash
 ```
 
-No Downloads folder or `termux-setup-storage` is required.
+## Termux:Widget Shortcuts
 
-## Shortcuts
+    0-STOP-Aether
+    1-Aether-MASQUE
+    2-Aether-WG
+    3-Aether-GOOL
 
-- Aether MASQUE
-- Aether WG
-- Aether GOOL
-- STOP Aether
+## SOCKS5
 
-SOCKS5:
-
-```text
-127.0.0.1:1819
-```
+    Host: 127.0.0.1
+    Port: 1819
+    Protocol: SOCKS5
 
 ## Update
 
-Run the same installation command again:
+Run the install command again.
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/velnox4827/saman-aether/main/install.sh | bash
-```
+## Uninstall shortcuts
 
-## Remove shortcuts
-
-```bash
+``` bash
 curl -fsSL https://raw.githubusercontent.com/velnox4827/saman-aether/main/install.sh | bash -s -- uninstall
 ```
 
-The uninstall option removes the Saman shortcuts and runner, but leaves the official Aether binary installed.
+## Projects
 
-## Aether
+Saman Aether: https://github.com/velnox4827/saman-aether
 
-Uses the official Aether project from:
-
-`CluvexStudio/Aether`
+Official Aether: https://github.com/CluvexStudio/Aether
