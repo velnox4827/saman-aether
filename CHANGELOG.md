@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.1.5
+
+Android App Info icon cache-busting patch.
+
+- Keeps all Saman Tunnel v1.1 features unchanged
+- Uses a brand-new application icon resource ID: `saman_app_icon_v115`
+- Manifest now points directly to the selected Saman Tunnel logo
+- Avoids reusing the cached `ic_launcher` resource ID on some Xiaomi/MIUI devices
+- Keeps package name and update compatibility unchanged
+
+
 ## v1.1.3
 
 Kotlin compilation patch.
