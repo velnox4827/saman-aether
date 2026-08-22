@@ -35,7 +35,7 @@
 - نمایش وضعیت Battery Optimization و میانبر تنظیمات باتری
 - **Check update** مستقیم از GitHub Releases
 - جلوگیری از Startهای پشت‌سرهم هنگام Connecting
-- Build جدید با **compileSdk 36 / AGP 9.3 / Gradle 9.5**
+- Build پایدار با **compileSdk 36 / AGP 8.13.2 / Gradle 8.13**
 
 > `compileSdk` در نسخه 1.1.1 روی Android 16 (API 36) پایدار شده است؛ `targetSdk` نیز فعلاً 35 باقی مانده تا سازگاری کامل حفظ شود.
 

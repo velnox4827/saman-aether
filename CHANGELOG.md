@@ -1,5 +1,20 @@
 # Changelog
 
+## v1.1.2
+
+Stable Android build-tooling fix.
+
+- Keeps every Saman Tunnel v1.1 feature unchanged
+- compileSdk 36
+- targetSdk 35
+- Android Gradle Plugin 8.13.2
+- Gradle 8.13
+- Kotlin 2.3.21
+- Migrates deprecated `kotlinOptions.jvmTarget` to `compilerOptions`
+- Uses stable Android SDK Platform 36 and Build Tools 35.0.0
+- Keeps the tested NDK 26.3.11579264 for Aether native builds
+
+
 ## v1.1.1
 
 Build compatibility patch for the v1.1 feature release.
