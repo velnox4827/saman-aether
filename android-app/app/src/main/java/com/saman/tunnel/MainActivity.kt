@@ -18,6 +18,7 @@ import android.os.Looper
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowInsets
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -62,7 +63,7 @@ class MainActivity : Activity() {
         window.statusBarColor = Color.WHITE
         window.navigationBarColor = Color.rgb(247, 248, 250)
 
-        LogStore.append(this, "APP", "MainActivity created - compact UI v0.3.1")
+        LogStore.append(this, "APP", "MainActivity created - compact UI v0.3.2")
         buildUi()
         showVersions()
         requestNotificationsIfNeeded()
@@ -95,14 +96,39 @@ class MainActivity : Activity() {
     }
 
     private fun buildUi() {
+        val baseLeft = dp(14)
+        val baseTop = dp(8)
+        val baseRight = dp(14)
+        val baseBottom = dp(10)
+
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(canvas)
-            setPadding(dp(14), dp(10), dp(14), dp(10))
+            setPadding(baseLeft, baseTop, baseRight, baseBottom)
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
             )
+
+            setOnApplyWindowInsetsListener { view, insets ->
+                val topInset = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    insets.getInsets(WindowInsets.Type.statusBars()).top
+                } else {
+                    @Suppress("DEPRECATION")
+                    insets.systemWindowInsetTop
+                }
+
+                view.setPadding(
+                    baseLeft,
+                    topInset + baseTop,
+                    baseRight,
+                    baseBottom
+                )
+
+                insets
+            }
+
+            requestApplyInsets()
         }
 
         // Header
