@@ -17,10 +17,10 @@ jobs:
 
     steps:
       - name: Checkout Saman Tunnel
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Java 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
@@ -31,12 +31,16 @@ jobs:
       - name: Install Android SDK packages
         run: |
           yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager             "platforms;android-35"             "build-tools;35.0.0"             "ndk;26.3.11579264"             "cmake;3.22.1"
+          sdkmanager \
+            "platforms;android-37" \
+            "build-tools;36.0.0" \
+            "ndk;26.3.11579264" \
+            "cmake;3.22.1"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: "8.9"
+          gradle-version: "9.5.0"
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -62,7 +66,8 @@ jobs:
           cd "$RUNNER_TEMP/Aether/aether"
           cargo ndk -t arm64-v8a --platform 24 build --release --lib
           mkdir -p "$GITHUB_WORKSPACE/android-app/app/src/main/jniLibs/arm64-v8a"
-          cp target/aarch64-linux-android/release/libaether.so             "$GITHUB_WORKSPACE/android-app/app/src/main/jniLibs/arm64-v8a/libaether.so"
+          cp target/aarch64-linux-android/release/libaether.so \
+            "$GITHUB_WORKSPACE/android-app/app/src/main/jniLibs/arm64-v8a/libaether.so"
 
       - name: Restore release signing key
         env:
@@ -78,7 +83,11 @@ jobs:
           KEY_ALIAS: ${{ secrets.SAMAN_RELEASE_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.SAMAN_RELEASE_KEY_PASSWORD }}
         run: |
-          gradle :app:assembleRelease             -PSAMAN_KEYSTORE_FILE="$RUNNER_TEMP/saman-tunnel-release.jks"             -PSAMAN_KEYSTORE_PASSWORD="$STORE_PASSWORD"             -PSAMAN_KEY_ALIAS="$KEY_ALIAS"             -PSAMAN_KEY_PASSWORD="$KEY_PASSWORD"
+          gradle :app:assembleRelease \
+            -PSAMAN_KEYSTORE_FILE="$RUNNER_TEMP/saman-tunnel-release.jks" \
+            -PSAMAN_KEYSTORE_PASSWORD="$STORE_PASSWORD" \
+            -PSAMAN_KEY_ALIAS="$KEY_ALIAS" \
+            -PSAMAN_KEY_PASSWORD="$KEY_PASSWORD"
 
       - name: Verify native dependencies and APK signature
         run: |
@@ -96,7 +105,7 @@ jobs:
           unzip -l "$APK" | grep -q "lib/arm64-v8a/libaether.so"
           unzip -l "$APK" | grep -q "lib/arm64-v8a/libsamanbridge.so"
 
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose "$APK"
 
       - name: Prepare release files
         run: |
@@ -110,15 +119,26 @@ jobs:
 
           Standalone Android frontend for Aether Core.
 
-          - No Termux required
-          - MASQUE / WireGuard / GOOL
+          ## v1.1 highlights
+
+          - System-following Light / Dark theme
+          - Official textless adaptive Android app icon
+          - MASQUE HTTP/3 (QUIC) and HTTP/2 selection
+          - Quick diagnostics: Last 20 / Last 40 lines
+          - Save full diagnostics as TXT
+          - Battery optimization shortcut/status
+          - Manual GitHub update checker
+          - Start-button debounce to avoid duplicate connection jobs
+          - compileSdk 37
+          - AGP 9.3 / Gradle 9.5
+          - Aether Core v1.7.0 pinned to a reproducible source commit
           - Local SOCKS5: 127.0.0.1:1819
-          - Diagnostics TXT export
           - arm64-v8a
           - Minimum Android 7 (API 24)
-          - Aether Core v1.7.0 (pinned source commit)
 
-          Please report problems and suggestions through GitHub Issues.
+          Please report problems and suggestions through GitHub Issues or the Telegram community.
+
+          Telegram: https://t.me/SamanTunnel
 
           **Privacy note:** review diagnostics files before posting them publicly because they may contain IP addresses and connection endpoints.
 
@@ -131,4 +151,10 @@ jobs:
         run: |
           TAG="${GITHUB_REF_NAME}"
           APK="Saman-Tunnel-${TAG}-arm64.apk"
-          gh release create "$TAG"             "$APK"             "${APK}.sha256"             --repo "$GITHUB_REPOSITORY"             --title "Saman Tunnel $TAG"             --notes-file /tmp/release-notes.md             --latest
+          gh release create "$TAG" \
+            "$APK" \
+            "${APK}.sha256" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Saman Tunnel $TAG" \
+            --notes-file /tmp/release-notes.md \
+            --latest

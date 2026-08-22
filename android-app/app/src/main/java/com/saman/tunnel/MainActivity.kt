@@ -8,13 +8,18 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
+import android.os.Settings
+import android.os.SystemClock
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -25,52 +30,76 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.InetSocketAddress
+import java.net.Proxy
+import java.net.URL
+import kotlin.math.max
 
 class MainActivity : Activity() {
 
     companion object {
         private const val REQUEST_SAVE_DIAGNOSTICS = 2002
+        private const val RELEASES_API =
+            "https://api.github.com/repos/velnox4827/saman-aether/releases/latest"
     }
-
 
     private lateinit var modeView: TextView
     private lateinit var statusView: TextView
     private lateinit var statusBadge: TextView
     private lateinit var versionView: TextView
+    private lateinit var batteryView: TextView
+    private lateinit var updateView: TextView
 
     private val handler = Handler(Looper.getMainLooper())
+    private var lastStartTap = 0L
 
     private val refresh = object : Runnable {
         override fun run() {
             refreshState()
-            handler.postDelayed(this, 800)
+            handler.postDelayed(this, 900)
         }
     }
 
-    private val blue = Color.rgb(45, 111, 218)
-    private val green = Color.rgb(22, 157, 101)
-    private val purple = Color.rgb(111, 55, 205)
-    private val red = Color.rgb(211, 54, 54)
-    private val orange = Color.rgb(235, 116, 26)
-    private val ink = Color.rgb(24, 33, 50)
-    private val muted = Color.rgb(100, 108, 122)
-    private val line = Color.rgb(224, 228, 235)
-    private val canvas = Color.rgb(248, 249, 251)
+    private val isDark: Boolean
+        get() = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+            Configuration.UI_MODE_NIGHT_YES
+
+    private val canvas: Int get() =
+        if (isDark) Color.rgb(11, 15, 23) else Color.rgb(248, 249, 251)
+    private val card: Int get() =
+        if (isDark) Color.rgb(27, 33, 44) else Color.WHITE
+    private val cardSoft: Int get() =
+        if (isDark) Color.rgb(22, 28, 38) else Color.rgb(251, 252, 254)
+    private val ink: Int get() =
+        if (isDark) Color.rgb(238, 242, 249) else Color.rgb(24, 33, 50)
+    private val muted: Int get() =
+        if (isDark) Color.rgb(166, 174, 188) else Color.rgb(100, 108, 122)
+    private val line: Int get() =
+        if (isDark) Color.rgb(54, 62, 76) else Color.rgb(224, 228, 235)
+
+    private val blue = Color.rgb(68, 145, 255)
+    private val green = Color.rgb(35, 190, 128)
+    private val purple = Color.rgb(158, 89, 255)
+    private val red = Color.rgb(235, 78, 78)
+    private val orange = Color.rgb(244, 142, 50)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        window.statusBarColor = Color.WHITE
-        window.navigationBarColor = Color.rgb(247, 248, 250)
+        window.statusBarColor = canvas
+        window.navigationBarColor = canvas
 
-        LogStore.append(this, "APP", "MainActivity created - compact UI v0.3.2")
+        LogStore.append(this, "APP", "MainActivity created")
         buildUi()
         showVersions()
+        refreshBatteryStatus()
         requestNotificationsIfNeeded()
     }
 
     override fun onResume() {
         super.onResume()
+        refreshBatteryStatus()
         handler.post(refresh)
     }
 
@@ -90,16 +119,14 @@ class MainActivity : Activity() {
     ): GradientDrawable = GradientDrawable().apply {
         setColor(fill)
         cornerRadius = dp(radius).toFloat()
-        if (strokeColor != null) {
-            setStroke(dp(strokeWidth), strokeColor)
-        }
+        if (strokeColor != null) setStroke(dp(strokeWidth), strokeColor)
     }
 
     private fun buildUi() {
         val baseLeft = dp(14)
         val baseTop = dp(8)
         val baseRight = dp(14)
-        val baseBottom = dp(10)
+        val baseBottom = dp(8)
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -118,13 +145,19 @@ class MainActivity : Activity() {
                     insets.systemWindowInsetTop
                 }
 
+                val bottomInset = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    insets.getInsets(WindowInsets.Type.navigationBars()).bottom
+                } else {
+                    @Suppress("DEPRECATION")
+                    insets.systemWindowInsetBottom
+                }
+
                 view.setPadding(
                     baseLeft,
                     topInset + baseTop,
                     baseRight,
-                    baseBottom
+                    max(baseBottom, bottomInset)
                 )
-
                 insets
             }
 
@@ -135,73 +168,67 @@ class MainActivity : Activity() {
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(2), 0, dp(2), dp(6))
+            setPadding(dp(2), 0, dp(2), dp(5))
         }
 
-        val logo = ImageView(this).apply {
+        header.addView(ImageView(this).apply {
             setImageResource(R.drawable.saman_tunnel_logo)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             adjustViewBounds = true
             contentDescription = "Saman Tunnel logo"
-            layoutParams = LinearLayout.LayoutParams(dp(68), dp(68)).apply {
-                marginEnd = dp(12)
+            layoutParams = LinearLayout.LayoutParams(dp(62), dp(62)).apply {
+                marginEnd = dp(10)
             }
-        }
-        header.addView(logo)
+        })
 
         val headerText = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_VERTICAL
-            layoutParams = LinearLayout.LayoutParams(
-                0,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                1f
-            )
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
 
         headerText.addView(TextView(this).apply {
             text = "Saman Tunnel"
-            textSize = 25f
+            textSize = 24f
             setTextColor(ink)
             setTypeface(typeface, Typeface.BOLD)
             includeFontPadding = false
         })
 
         versionView = TextView(this).apply {
-            text = "App v0.3.0  •  Aether Core …"
+            text = "App …  •  Aether Core …"
             textSize = 12.5f
             setTextColor(muted)
             setPadding(0, dp(4), 0, 0)
             includeFontPadding = false
         }
+
         headerText.addView(versionView)
         header.addView(headerText)
         root.addView(header)
 
-        // Status card
+        // Status
         val statusCard = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            background = rounded(Color.WHITE, 18, line)
-            setPadding(dp(12), dp(9), dp(12), dp(9))
+            background = rounded(card, 18, line)
+            setPadding(dp(12), dp(8), dp(12), dp(8))
             elevation = dp(2).toFloat()
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(78)
+                dp(74)
             ).apply {
-                bottomMargin = dp(9)
+                bottomMargin = dp(8)
             }
         }
 
         statusBadge = TextView(this).apply {
-            text = "…"
+            text = "○"
             gravity = Gravity.CENTER
-            textSize = 24f
-            setTextColor(green)
+            textSize = 23f
             setTypeface(typeface, Typeface.BOLD)
-            background = rounded(Color.rgb(235, 250, 242), 16, Color.rgb(190, 231, 211))
-            layoutParams = LinearLayout.LayoutParams(dp(54), dp(54)).apply {
-                marginEnd = dp(12)
+            layoutParams = LinearLayout.LayoutParams(dp(50), dp(50)).apply {
+                marginEnd = dp(11)
             }
         }
         statusCard.addView(statusBadge)
@@ -209,11 +236,7 @@ class MainActivity : Activity() {
         val statusColumn = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_VERTICAL
-            layoutParams = LinearLayout.LayoutParams(
-                0,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                1f
-            )
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
 
         modeView = TextView(this).apply {
@@ -226,7 +249,7 @@ class MainActivity : Activity() {
 
         statusView = TextView(this).apply {
             text = "Status: Stopped"
-            textSize = 13.5f
+            textSize = 13.2f
             setTextColor(muted)
             setPadding(0, dp(5), 0, 0)
             includeFontPadding = false
@@ -238,76 +261,75 @@ class MainActivity : Activity() {
         statusCard.addView(statusColumn)
         root.addView(statusCard)
 
-        // Modes - one row
+        // Modes
         val modeRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(74)
-            ).apply {
-                bottomMargin = dp(8)
-            }
+                dp(70)
+            ).apply { bottomMargin = dp(7) }
         }
 
-        modeRow.addView(modeTile("◎", "MASQUE", blue, Color.rgb(242, 247, 255)) {
-            start("MASQUE")
+        modeRow.addView(modeTile("◎", "MASQUE", blue, tinted(blue)) {
+            chooseMasqueMode()
         })
-        modeRow.addView(modeTile("◇", "WireGuard", green, Color.rgb(239, 251, 246)) {
+        modeRow.addView(modeTile("◇", "WireGuard", green, tinted(green)) {
             start("WG")
         })
-        modeRow.addView(modeTile("◉", "GOOL", purple, Color.rgb(248, 244, 255)) {
+        modeRow.addView(modeTile("◉", "GOOL", purple, tinted(purple)) {
             start("GOOL")
         })
         root.addView(modeRow)
 
-        // Stop / Copy row
+        // Stop / Copy
         val actionRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(56)
-            ).apply {
-                bottomMargin = dp(8)
-            }
+                dp(52)
+            ).apply { bottomMargin = dp(7) }
         }
 
-        actionRow.addView(actionTile("■  STOP", red, Color.rgb(255, 245, 245)) {
-            stop()
-        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f).apply {
-            marginEnd = dp(5)
-        })
+        actionRow.addView(
+            actionTile("■  STOP", red, if (isDark) Color.rgb(54, 29, 33) else Color.rgb(255, 245, 245)) {
+                stop()
+            },
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f).apply {
+                marginEnd = dp(5)
+            }
+        )
 
-        actionRow.addView(actionTile("▣  Copy SOCKS5", ink, Color.WHITE) {
-            copySocks()
-        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f).apply {
-            marginStart = dp(5)
-        })
-
+        actionRow.addView(
+            actionTile("▣  Copy SOCKS5", ink, card) {
+                copySocks()
+            },
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f).apply {
+                marginStart = dp(5)
+            }
+        )
         root.addView(actionRow)
 
-        // Diagnostics compact card
+        // Diagnostics
         val diagnosticsCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = rounded(Color.WHITE, 18, line)
-            setPadding(dp(10), dp(8), dp(10), dp(9))
+            background = rounded(card, 18, line)
+            setPadding(dp(9), dp(7), dp(9), dp(8))
             elevation = dp(1).toFloat()
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(112)
-            ).apply {
-                bottomMargin = dp(8)
-            }
+                dp(108)
+            ).apply { bottomMargin = dp(7) }
         }
 
         diagnosticsCard.addView(TextView(this).apply {
             text = "Diagnostics"
-            textSize = 14.5f
+            textSize = 14.2f
             setTextColor(ink)
             setTypeface(typeface, Typeface.BOLD)
             includeFontPadding = false
-            setPadding(dp(2), 0, 0, dp(7))
+            setPadding(dp(2), 0, 0, dp(6))
         })
 
         val diagnosticsRow = LinearLayout(this).apply {
@@ -320,36 +342,70 @@ class MainActivity : Activity() {
             )
         }
 
-        diagnosticsRow.addView(diagTile("⇩", "Save TXT", blue) { saveDiagnosticsTxt() })
-        diagnosticsRow.addView(diagTile("⌫", "Clear", orange) { clearLogs() })
+        diagnosticsRow.addView(diagTile("20", "Last 20", blue) { showQuickLog(20) })
+        diagnosticsRow.addView(diagTile("40", "Last 40", purple) { showQuickLog(40) })
+        diagnosticsRow.addView(diagTile("⇩", "Save TXT", green) { saveDiagnosticsTxt() })
         diagnosticsCard.addView(diagnosticsRow)
         root.addView(diagnosticsCard)
 
-        // SOCKS card
+        // Utilities: battery + updater
+        val utilityRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(46)
+            ).apply { bottomMargin = dp(7) }
+        }
+
+        batteryView = utilityTile("Battery: …") { openBatterySettings() }
+        utilityRow.addView(
+            batteryView,
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f).apply {
+                marginEnd = dp(5)
+            }
+        )
+
+        updateView = utilityTile("Check update") { checkForUpdates() }
+        utilityRow.addView(
+            updateView,
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f).apply {
+                marginStart = dp(5)
+            }
+        )
+
+        root.addView(utilityRow)
+
+        // SOCKS
         val socksCard = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            background = rounded(Color.rgb(244, 248, 255), 18, Color.rgb(177, 205, 247))
-            setPadding(dp(14), dp(8), dp(14), dp(8))
+            background = rounded(
+                if (isDark) Color.rgb(19, 35, 57) else Color.rgb(244, 248, 255),
+                18,
+                if (isDark) Color.rgb(48, 87, 133) else Color.rgb(177, 205, 247)
+            )
+            setPadding(dp(13), dp(7), dp(13), dp(7))
             isClickable = true
             isFocusable = true
             setOnClickListener { copySocks() }
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(68)
-            ).apply {
-                bottomMargin = dp(6)
-            }
+                dp(64)
+            ).apply { bottomMargin = dp(4) }
         }
 
         socksCard.addView(TextView(this).apply {
             text = "▦"
             gravity = Gravity.CENTER
-            textSize = 27f
+            textSize = 25f
             setTextColor(blue)
-            background = rounded(Color.rgb(227, 238, 255), 14)
-            layoutParams = LinearLayout.LayoutParams(dp(48), dp(48)).apply {
-                marginEnd = dp(12)
+            background = rounded(
+                if (isDark) Color.rgb(29, 53, 83) else Color.rgb(227, 238, 255),
+                14
+            )
+            layoutParams = LinearLayout.LayoutParams(dp(46), dp(46)).apply {
+                marginEnd = dp(11)
             }
         })
 
@@ -359,7 +415,7 @@ class MainActivity : Activity() {
 
         socksText.addView(TextView(this).apply {
             text = "SOCKS5"
-            textSize = 14f
+            textSize = 13.5f
             setTextColor(blue)
             setTypeface(typeface, Typeface.BOLD)
             includeFontPadding = false
@@ -367,7 +423,7 @@ class MainActivity : Activity() {
 
         socksText.addView(TextView(this).apply {
             text = "127.0.0.1:1819"
-            textSize = 20f
+            textSize = 19f
             setTextColor(ink)
             setTypeface(Typeface.MONOSPACE, Typeface.NORMAL)
             includeFontPadding = false
@@ -376,16 +432,15 @@ class MainActivity : Activity() {
         socksCard.addView(socksText)
         root.addView(socksCard)
 
-        // One-line footer only
         root.addView(TextView(this).apply {
             text = "♢  Bypass only Saman Tunnel in your VPN app."
-            textSize = 11.5f
+            textSize = 10.8f
             setTextColor(muted)
             gravity = Gravity.CENTER
             includeFontPadding = false
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(24)
+                dp(22)
             )
         })
 
@@ -393,50 +448,55 @@ class MainActivity : Activity() {
         refreshState()
     }
 
+    private fun tinted(accent: Int): Int =
+        if (isDark) Color.rgb(
+            (Color.red(accent) * 0.16).toInt(),
+            (Color.green(accent) * 0.16).toInt(),
+            (Color.blue(accent) * 0.16).toInt()
+        ) else Color.argb(18, Color.red(accent), Color.green(accent), Color.blue(accent))
+
     private fun modeTile(
         symbol: String,
         label: String,
         accent: Int,
         fill: Int,
         action: () -> Unit
-    ): View {
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            background = rounded(fill, 17, withAlpha(accent, 90))
-            isClickable = true
-            isFocusable = true
-            setOnClickListener {
-                LogStore.append(this@MainActivity, "UI", "Mode tile tapped: $label")
-                action()
-            }
-            layoutParams = LinearLayout.LayoutParams(
-                0,
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                1f
-            ).apply {
-                marginStart = dp(4)
-                marginEnd = dp(4)
-            }
-
-            addView(TextView(this@MainActivity).apply {
-                text = symbol
-                textSize = 22f
-                gravity = Gravity.CENTER
-                setTextColor(accent)
-                includeFontPadding = false
-            })
-
-            addView(TextView(this@MainActivity).apply {
-                text = label
-                textSize = if (label == "WireGuard") 13.5f else 14f
-                gravity = Gravity.CENTER
-                setTextColor(accent)
-                setTypeface(typeface, Typeface.BOLD)
-                includeFontPadding = false
-                setPadding(0, dp(3), 0, 0)
-            })
+    ): View = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        gravity = Gravity.CENTER
+        background = rounded(fill, 17, withAlpha(accent, if (isDark) 135 else 85))
+        isClickable = true
+        isFocusable = true
+        setOnClickListener {
+            LogStore.append(this@MainActivity, "UI", "Mode tile tapped: $label")
+            action()
         }
+        layoutParams = LinearLayout.LayoutParams(
+            0,
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            1f
+        ).apply {
+            marginStart = dp(4)
+            marginEnd = dp(4)
+        }
+
+        addView(TextView(this@MainActivity).apply {
+            text = symbol
+            textSize = 21f
+            gravity = Gravity.CENTER
+            setTextColor(accent)
+            includeFontPadding = false
+        })
+
+        addView(TextView(this@MainActivity).apply {
+            text = label
+            textSize = if (label == "WireGuard") 13.2f else 13.8f
+            gravity = Gravity.CENTER
+            setTextColor(accent)
+            setTypeface(typeface, Typeface.BOLD)
+            includeFontPadding = false
+            setPadding(0, dp(3), 0, 0)
+        })
     }
 
     private fun actionTile(
@@ -444,18 +504,16 @@ class MainActivity : Activity() {
         accent: Int,
         fill: Int,
         action: () -> Unit
-    ): TextView {
-        return TextView(this).apply {
-            text = label
-            textSize = 14f
-            gravity = Gravity.CENTER
-            setTextColor(accent)
-            setTypeface(typeface, Typeface.BOLD)
-            background = rounded(fill, 17, if (accent == ink) line else withAlpha(accent, 90))
-            isClickable = true
-            isFocusable = true
-            setOnClickListener { action() }
-        }
+    ): TextView = TextView(this).apply {
+        text = label
+        textSize = 13.8f
+        gravity = Gravity.CENTER
+        setTextColor(accent)
+        setTypeface(typeface, Typeface.BOLD)
+        background = rounded(fill, 17, if (accent == ink) line else withAlpha(accent, 100))
+        isClickable = true
+        isFocusable = true
+        setOnClickListener { action() }
     }
 
     private fun diagTile(
@@ -463,72 +521,121 @@ class MainActivity : Activity() {
         label: String,
         accent: Int,
         action: () -> Unit
-    ): View {
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
+    ): View = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        gravity = Gravity.CENTER
+        background = rounded(cardSoft, 14, line)
+        isClickable = true
+        isFocusable = true
+        setOnClickListener { action() }
+        layoutParams = LinearLayout.LayoutParams(
+            0,
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            1f
+        ).apply {
+            marginStart = dp(3)
+            marginEnd = dp(3)
+        }
+
+        addView(TextView(this@MainActivity).apply {
+            text = symbol
+            textSize = if (symbol.length <= 2 && symbol.all { it.isDigit() }) 15f else 19f
             gravity = Gravity.CENTER
-            background = rounded(Color.rgb(251, 252, 254), 14, line)
+            setTextColor(accent)
+            setTypeface(typeface, Typeface.BOLD)
+            includeFontPadding = false
+        })
+
+        addView(TextView(this@MainActivity).apply {
+            text = label
+            textSize = 10.8f
+            gravity = Gravity.CENTER
+            setTextColor(ink)
+            setTypeface(typeface, Typeface.BOLD)
+            includeFontPadding = false
+            setPadding(0, dp(3), 0, 0)
+        })
+    }
+
+    private fun utilityTile(label: String, action: () -> Unit): TextView =
+        TextView(this).apply {
+            text = label
+            textSize = 11.3f
+            gravity = Gravity.CENTER
+            setTextColor(ink)
+            setTypeface(typeface, Typeface.BOLD)
+            background = rounded(card, 15, line)
             isClickable = true
             isFocusable = true
             setOnClickListener { action() }
-            layoutParams = LinearLayout.LayoutParams(
-                0,
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                1f
-            ).apply {
-                marginStart = dp(3)
-                marginEnd = dp(3)
-            }
-
-            addView(TextView(this@MainActivity).apply {
-                text = symbol
-                textSize = 20f
-                gravity = Gravity.CENTER
-                setTextColor(accent)
-                includeFontPadding = false
-            })
-
-            addView(TextView(this@MainActivity).apply {
-                text = label
-                textSize = 11.5f
-                gravity = Gravity.CENTER
-                setTextColor(ink)
-                setTypeface(typeface, Typeface.BOLD)
-                includeFontPadding = false
-                setPadding(0, dp(3), 0, 0)
-            })
         }
-    }
 
     private fun withAlpha(color: Int, alpha: Int): Int =
         Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color))
 
     private fun showVersions() {
-        val appVersion = runCatching {
-            packageManager.getPackageInfo(packageName, 0).versionName
-        }.getOrNull() ?: "unknown"
-
+        val appVersion = currentVersion()
         val coreVersion = runCatching {
             val reply = JSONObject(NativeBridge.version())
-            if (reply.optBoolean("ok")) {
-                reply.optString("version", "unknown")
-            } else {
-                "unavailable"
-            }
+            if (reply.optBoolean("ok")) reply.optString("version", "unknown") else "unavailable"
         }.getOrElse {
             LogStore.append(this, "NATIVE", "Could not read Aether version: ${it.stackTraceToString()}")
             "unavailable"
         }
 
         versionView.text = "App v$appVersion  •  Aether Core v$coreVersion"
+        LogStore.append(this, "VERSION", "app=$appVersion aether=$coreVersion")
+    }
+
+    private fun chooseMasqueMode() {
+        if (isBusy()) {
+            Toast.makeText(this, "Please wait for the current action to finish", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("MASQUE mode")
+            .setItems(
+                arrayOf(
+                    "HTTP/3 (QUIC) — default",
+                    "HTTP/2 — alternative network mode"
+                )
+            ) { _, which ->
+                when (which) {
+                    0 -> start("MASQUE_H3")
+                    1 -> start("MASQUE_H2")
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun isBusy(): Boolean {
+        val status = getSharedPreferences(AetherService.PREFS, MODE_PRIVATE)
+            .getString(AetherService.KEY_STATUS, "") ?: ""
+
+        return status.startsWith("Starting", true) ||
+            status.startsWith("Connecting", true) ||
+            status.startsWith("Stopping", true)
     }
 
     private fun start(mode: String) {
+        if (isBusy()) {
+            Toast.makeText(this, "Connection action already in progress", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastStartTap < 1400L) return
+        lastStartTap = now
+
         LogStore.append(this, "UI", "Start requested: $mode")
+
         val intent = Intent(this, AetherService::class.java).apply {
             action = AetherService.ACTION_START
             putExtra(AetherService.EXTRA_MODE, mode)
         }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(intent)
         } else {
@@ -549,6 +656,34 @@ class MainActivity : Activity() {
         Toast.makeText(this, "127.0.0.1:1819 copied", Toast.LENGTH_SHORT).show()
     }
 
+    private fun showQuickLog(lines: Int) {
+        val text = LogStore.quickLog(this, lines)
+
+        val textView = TextView(this).apply {
+            typeface = Typeface.MONOSPACE
+            textSize = 10.5f
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            setTextColor(ink)
+            setTextIsSelectable(true)
+            this.text = text
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("Last $lines log lines")
+            .setView(ScrollView(this).apply { addView(textView) })
+            .setPositiveButton("Close", null)
+            .setNeutralButton("Copy") { _, _ ->
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("Saman Tunnel log", text))
+                Toast.makeText(this, "Log copied", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Clear") { _, _ ->
+                LogStore.clear(this)
+                Toast.makeText(this, "Diagnostics cleared", Toast.LENGTH_SHORT).show()
+            }
+            .show()
+    }
+
     private fun saveDiagnosticsTxt() {
         LogStore.append(this, "UI", "Save diagnostics TXT requested")
 
@@ -564,17 +699,16 @@ class MainActivity : Activity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
 
-        if (requestCode != REQUEST_SAVE_DIAGNOSTICS || resultCode != RESULT_OK) {
-            return
-        }
-
+        if (requestCode != REQUEST_SAVE_DIAGNOSTICS || resultCode != RESULT_OK) return
         val uri = data?.data ?: return
 
         runCatching {
-            contentResolver.openOutputStream(uri, "wt")?.bufferedWriter(Charsets.UTF_8).use { writer ->
-                requireNotNull(writer) { "Could not open selected file" }
-                writer.write(LogStore.diagnostics(this))
-            }
+            contentResolver.openOutputStream(uri, "wt")
+                ?.bufferedWriter(Charsets.UTF_8)
+                .use { writer ->
+                    requireNotNull(writer) { "Could not open selected file" }
+                    writer.write(LogStore.diagnostics(this))
+                }
 
             LogStore.append(this, "UI", "Diagnostics saved as TXT")
             Toast.makeText(this, "Diagnostics TXT saved", Toast.LENGTH_SHORT).show()
@@ -584,35 +718,172 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun viewLogs() {
-        val textView = TextView(this).apply {
-            typeface = Typeface.MONOSPACE
-            textSize = 10.5f
-            setPadding(dp(14), dp(12), dp(14), dp(12))
-            text = LogStore.diagnostics(this@MainActivity)
-            setTextColor(ink)
+    private fun refreshBatteryStatus() {
+        if (!::batteryView.isInitialized) return
+
+        val unrestricted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+            pm.isIgnoringBatteryOptimizations(packageName)
+        } else {
+            true
         }
 
-        AlertDialog.Builder(this)
-            .setTitle("Saman Tunnel diagnostics")
-            .setView(ScrollView(this).apply { addView(textView) })
-            .setPositiveButton("Close", null)
-            .show()
+        batteryView.text =
+            if (unrestricted) "Battery: Unrestricted" else "Battery: Optimized"
+        batteryView.setTextColor(if (unrestricted) green else orange)
     }
 
-    private fun shareDiagnostics() {
-        LogStore.append(this, "UI", "Diagnostics shared by user")
-        val intent = Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(Intent.EXTRA_SUBJECT, "Saman Tunnel diagnostics")
-            putExtra(Intent.EXTRA_TEXT, LogStore.diagnostics(this@MainActivity))
+    private fun openBatterySettings() {
+        val packageUri = Uri.parse("package:$packageName")
+
+        val intents = listOf(
+            Intent("android.settings.APP_BATTERY_SETTINGS").apply { data = packageUri },
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply { data = packageUri }
+        )
+
+        val target = intents.firstOrNull { it.resolveActivity(packageManager) != null }
+        if (target != null) {
+            startActivity(target)
+        } else {
+            Toast.makeText(this, "Battery settings are not available on this device", Toast.LENGTH_LONG).show()
         }
-        startActivity(Intent.createChooser(intent, "Share diagnostics"))
     }
 
-    private fun clearLogs() {
-        LogStore.clear(this)
-        Toast.makeText(this, "Diagnostics cleared", Toast.LENGTH_SHORT).show()
+    private fun checkForUpdates() {
+        if (updateView.text.toString().startsWith("Checking")) return
+
+        updateView.text = "Checking…"
+        LogStore.append(this, "UPDATE", "Manual update check started")
+
+        Thread {
+            val result = runCatching { fetchLatestRelease() }
+
+            runOnUiThread {
+                updateView.text = "Check update"
+
+                result.onSuccess { release ->
+                    val current = currentVersion()
+                    val latest = release.first.removePrefix("v")
+
+                    if (compareVersions(latest, current) > 0) {
+                        LogStore.append(this, "UPDATE", "Update available current=$current latest=$latest")
+
+                        AlertDialog.Builder(this)
+                            .setTitle("Update available")
+                            .setMessage("Installed: v$current\nLatest: v$latest")
+                            .setPositiveButton("Open GitHub") { _, _ ->
+                                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(release.second)))
+                            }
+                            .setNegativeButton("Later", null)
+                            .show()
+                    } else {
+                        LogStore.append(this, "UPDATE", "Already current=$current latest=$latest")
+
+                        AlertDialog.Builder(this)
+                            .setTitle("Saman Tunnel is up to date")
+                            .setMessage("Installed: v$current\nLatest release: v$latest")
+                            .setPositiveButton("OK", null)
+                            .show()
+                    }
+                }.onFailure {
+                    LogStore.append(this, "UPDATE", "Update check failed: ${it.stackTraceToString()}")
+                    AlertDialog.Builder(this)
+                        .setTitle("Could not check for updates")
+                        .setMessage(it.message ?: "GitHub could not be reached.")
+                        .setPositiveButton("OK", null)
+                        .show()
+                }
+            }
+        }.start()
+    }
+
+    private fun fetchLatestRelease(): Pair<String, String> {
+        val connected = getSharedPreferences(AetherService.PREFS, MODE_PRIVATE)
+            .getString(AetherService.KEY_STATUS, "")
+            ?.startsWith("Connected", true) == true
+
+        val attempts = mutableListOf<Proxy?>()
+        if (connected) {
+            attempts += Proxy(
+                Proxy.Type.SOCKS,
+                InetSocketAddress.createUnresolved("127.0.0.1", 1819)
+            )
+        }
+        attempts += null
+
+        var lastError: Throwable? = null
+
+        for (proxy in attempts) {
+            try {
+                val connection = if (proxy == null) {
+                    URL(RELEASES_API).openConnection()
+                } else {
+                    URL(RELEASES_API).openConnection(proxy)
+                } as HttpURLConnection
+
+                connection.requestMethod = "GET"
+                connection.connectTimeout = 9_000
+                connection.readTimeout = 9_000
+                connection.instanceFollowRedirects = true
+                connection.setRequestProperty("Accept", "application/vnd.github+json")
+                connection.setRequestProperty("User-Agent", "Saman-Tunnel/${currentVersion()}")
+
+                val code = connection.responseCode
+                if (code !in 200..299) {
+                    connection.disconnect()
+                    error("GitHub returned HTTP $code")
+                }
+
+                val body = connection.inputStream.bufferedReader().use { it.readText() }
+                connection.disconnect()
+
+                val json = JSONObject(body)
+                val tag = json.optString("tag_name")
+                val url = json.optString(
+                    "html_url",
+                    "https://github.com/velnox4827/saman-aether/releases/latest"
+                )
+
+                if (tag.isBlank()) error("Latest GitHub release has no tag.")
+                return tag to url
+            } catch (t: Throwable) {
+                lastError = t
+            }
+        }
+
+        throw lastError ?: IllegalStateException("Unable to reach GitHub.")
+    }
+
+    private fun currentVersion(): String =
+        runCatching {
+            packageManager.getPackageInfo(packageName, 0).versionName ?: "0.0.0"
+        }.getOrDefault("0.0.0")
+
+    private fun compareVersions(a: String, b: String): Int {
+        fun parts(v: String): List<Int> =
+            v.removePrefix("v")
+                .split(".")
+                .map { token -> token.takeWhile { it.isDigit() }.toIntOrNull() ?: 0 }
+
+        val pa = parts(a)
+        val pb = parts(b)
+        val count = max(pa.size, pb.size)
+
+        for (i in 0 until count) {
+            val av = pa.getOrElse(i) { 0 }
+            val bv = pb.getOrElse(i) { 0 }
+            if (av != bv) return av.compareTo(bv)
+        }
+
+        return 0
+    }
+
+    private fun prettyMode(mode: String): String = when (mode.uppercase()) {
+        "MASQUE_H3", "MASQUE" -> "MASQUE H3"
+        "MASQUE_H2" -> "MASQUE H2"
+        "WG" -> "WG"
+        "GOOL" -> "GOOL"
+        else -> mode.ifBlank { "—" }
     }
 
     private fun refreshState() {
@@ -620,41 +891,41 @@ class MainActivity : Activity() {
         val mode = prefs.getString(AetherService.KEY_MODE, "") ?: ""
         val status = prefs.getString(AetherService.KEY_STATUS, "Stopped") ?: "Stopped"
 
-        modeView.text = if (mode.isBlank()) "Mode: —" else "Mode: $mode"
+        modeView.text = "Mode: ${prettyMode(mode)}"
         statusView.text = "Status: $status"
 
         when {
-            status.startsWith("Connected", ignoreCase = true) -> {
+            status.startsWith("Connected", true) -> {
                 statusBadge.text = "✓"
                 statusBadge.setTextColor(green)
                 statusBadge.background = rounded(
-                    Color.rgb(235, 250, 242),
+                    if (isDark) Color.rgb(22, 60, 48) else Color.rgb(235, 250, 242),
                     16,
-                    Color.rgb(190, 231, 211)
+                    if (isDark) Color.rgb(42, 112, 87) else Color.rgb(190, 231, 211)
                 )
                 statusView.setTextColor(green)
             }
 
-            status.startsWith("Error", ignoreCase = true) -> {
+            status.startsWith("Error", true) -> {
                 statusBadge.text = "!"
                 statusBadge.setTextColor(red)
                 statusBadge.background = rounded(
-                    Color.rgb(255, 239, 239),
+                    if (isDark) Color.rgb(67, 30, 34) else Color.rgb(255, 239, 239),
                     16,
-                    Color.rgb(244, 191, 191)
+                    if (isDark) Color.rgb(128, 54, 61) else Color.rgb(244, 191, 191)
                 )
                 statusView.setTextColor(red)
             }
 
-            status.contains("Connecting", ignoreCase = true) ||
-                status.contains("Starting", ignoreCase = true) ||
-                status.contains("Reconnecting", ignoreCase = true) -> {
+            status.contains("Starting", true) ||
+                status.contains("Connecting", true) ||
+                status.contains("checking SOCKS5", true) -> {
                 statusBadge.text = "…"
                 statusBadge.setTextColor(blue)
                 statusBadge.background = rounded(
-                    Color.rgb(238, 246, 255),
+                    if (isDark) Color.rgb(24, 47, 76) else Color.rgb(238, 246, 255),
                     16,
-                    Color.rgb(188, 213, 245)
+                    if (isDark) Color.rgb(51, 91, 139) else Color.rgb(188, 213, 245)
                 )
                 statusView.setTextColor(blue)
             }
@@ -662,11 +933,7 @@ class MainActivity : Activity() {
             else -> {
                 statusBadge.text = "○"
                 statusBadge.setTextColor(muted)
-                statusBadge.background = rounded(
-                    Color.rgb(244, 246, 249),
-                    16,
-                    line
-                )
+                statusBadge.background = rounded(cardSoft, 16, line)
                 statusView.setTextColor(muted)
             }
         }
@@ -681,4 +948,3 @@ class MainActivity : Activity() {
         }
     }
 }
-

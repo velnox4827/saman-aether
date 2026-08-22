@@ -7,8 +7,8 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
-        android:icon="@drawable/saman_tunnel_logo"
-        android:roundIcon="@drawable/saman_tunnel_logo"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:allowBackup="true"
         android:label="Saman Tunnel"
         android:supportsRtl="true"

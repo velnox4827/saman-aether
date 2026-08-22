@@ -23,6 +23,22 @@
 
 ---
 
+## Saman Tunnel v1.1
+
+نسخه 1.1 علاوه بر قابلیت‌های قبلی شامل این موارد است:
+
+- تم خودکار **Light / Dark** بر اساس تنظیمات خود Android
+- آیکن رسمی بدون نوشته برای Launcher و App info
+- انتخاب دو حالت **MASQUE HTTP/3 (QUIC)** و **MASQUE HTTP/2**
+- مشاهده سریع **20 یا 40 خط آخر Log**
+- ذخیره کامل Diagnostics در فایل TXT
+- نمایش وضعیت Battery Optimization و میانبر تنظیمات باتری
+- **Check update** مستقیم از GitHub Releases
+- جلوگیری از Startهای پشت‌سرهم هنگام Connecting
+- Build جدید با **compileSdk 37 / AGP 9.3 / Gradle 9.5**
+
+> `targetSdk` در این نسخه عمداً روی 35 نگه داشته شده تا رفتارهای جدید Android 17 بدون تست کافی به کاربران تحمیل نشود.
+
 ## فارسی
 
 ### Saman Tunnel چیست؟

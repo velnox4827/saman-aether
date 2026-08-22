@@ -17,11 +17,17 @@ object LogStore {
     fun append(context: Context, tag: String, message: String) {
         runCatching {
             val file = File(context.filesDir, APP_LOG)
+
             if (file.exists() && file.length() > MAX_APP_BYTES) {
                 val text = file.readText()
                 file.writeText(text.takeLast(512 * 1024))
             }
-            val ts = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US).format(Date())
+
+            val ts = SimpleDateFormat(
+                "yyyy-MM-dd HH:mm:ss.SSS",
+                Locale.US
+            ).format(Date())
+
             file.appendText("[$ts] [$tag] $message\n")
         }
     }
@@ -32,7 +38,10 @@ object LogStore {
         }.getOrNull()
 
         val appVersion = pkg?.versionName ?: "unknown"
-        val prefs = context.getSharedPreferences(AetherService.PREFS, Context.MODE_PRIVATE)
+        val prefs = context.getSharedPreferences(
+            AetherService.PREFS,
+            Context.MODE_PRIVATE
+        )
         val status = prefs.getString(AetherService.KEY_STATUS, "unknown")
         val mode = prefs.getString(AetherService.KEY_MODE, "—")
 
@@ -48,9 +57,9 @@ object LogStore {
             appendLine()
         }
 
-        val app = tail(File(context.filesDir, APP_LOG), 70_000)
-        val core = tail(File(context.filesDir, CORE_LOG), 100_000)
-        val previousCore = tail(File(context.filesDir, CORE_OLD_LOG), 40_000)
+        val app = tailChars(File(context.filesDir, APP_LOG), 70_000)
+        val core = tailChars(File(context.filesDir, CORE_LOG), 100_000)
+        val previousCore = tailChars(File(context.filesDir, CORE_OLD_LOG), 40_000)
 
         return buildString {
             append(header)
@@ -59,10 +68,38 @@ object LogStore {
             appendLine()
             appendLine("---- AETHER CORE LOG ----")
             appendLine(if (core.isBlank()) "(empty)" else core)
+
             if (previousCore.isNotBlank()) {
                 appendLine()
                 appendLine("---- PREVIOUS AETHER CORE LOG ----")
                 appendLine(previousCore)
+            }
+        }
+    }
+
+    fun quickLog(context: Context, lineCount: Int): String {
+        val prefs = context.getSharedPreferences(
+            AetherService.PREFS,
+            Context.MODE_PRIVATE
+        )
+        val status = prefs.getString(AetherService.KEY_STATUS, "unknown")
+        val mode = prefs.getString(AetherService.KEY_MODE, "—")
+
+        val coreFile = File(context.filesDir, CORE_LOG)
+        val appFile = File(context.filesDir, APP_LOG)
+
+        val coreLines = tailLines(coreFile, lineCount)
+
+        return buildString {
+            appendLine("Saman Tunnel — quick log")
+            appendLine("Mode: $mode")
+            appendLine("Status: $status")
+            appendLine("------------------------")
+
+            if (coreLines.isNotBlank()) {
+                append(coreLines)
+            } else {
+                append(tailLines(appFile, lineCount).ifBlank { "(no logs yet)" })
             }
         }
     }
@@ -75,8 +112,15 @@ object LogStore {
         append(context, "APP", "Diagnostics cleared by user")
     }
 
-    private fun tail(file: File, maxChars: Int): String = runCatching {
+    private fun tailChars(file: File, maxChars: Int): String = runCatching {
         if (!file.exists()) return@runCatching ""
         file.readText().takeLast(maxChars)
+    }.getOrDefault("")
+
+    private fun tailLines(file: File, count: Int): String = runCatching {
+        if (!file.exists()) return@runCatching ""
+        file.readLines()
+            .takeLast(count.coerceAtLeast(1))
+            .joinToString("\n")
     }.getOrDefault("")
 }
