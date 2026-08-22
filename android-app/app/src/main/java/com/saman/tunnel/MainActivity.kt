@@ -18,7 +18,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
-import android.os.Settings
+import android.provider.Settings
 import android.os.SystemClock
 import android.view.Gravity
 import android.view.View
