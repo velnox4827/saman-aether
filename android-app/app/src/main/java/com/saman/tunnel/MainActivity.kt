@@ -2,6 +2,7 @@ package com.saman.tunnel
 
 import android.Manifest
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -19,11 +20,13 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import org.json.JSONObject
 
 class MainActivity : Activity() {
 
     private lateinit var statusView: TextView
     private lateinit var modeView: TextView
+    private lateinit var versionView: TextView
     private val handler = Handler(Looper.getMainLooper())
 
     private val refresh = object : Runnable {
@@ -35,7 +38,9 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        LogStore.append(this, "APP", "MainActivity created")
         buildUi()
+        showVersions()
         requestNotificationsIfNeeded()
     }
 
@@ -58,19 +63,23 @@ class MainActivity : Activity() {
             setPadding(dp(20), dp(28), dp(20), dp(28))
         }
 
-        val title = TextView(this).apply {
+        root.addView(TextView(this).apply {
             text = "Saman Tunnel"
             textSize = 28f
             setTypeface(typeface, Typeface.BOLD)
-        }
-        root.addView(title)
+        })
 
-        val subtitle = TextView(this).apply {
+        root.addView(TextView(this).apply {
             text = "Standalone local proxy core — no Termux required"
             textSize = 15f
-            setPadding(0, dp(6), 0, dp(22))
+            setPadding(0, dp(6), 0, dp(8))
+        })
+
+        versionView = TextView(this).apply {
+            textSize = 13f
+            setPadding(0, 0, 0, dp(18))
         }
-        root.addView(subtitle)
+        root.addView(versionView)
 
         modeView = TextView(this).apply {
             textSize = 16f
@@ -90,25 +99,37 @@ class MainActivity : Activity() {
         root.addView(makeButton("STOP") { stop() })
         root.addView(makeButton("Copy SOCKS5 address") { copySocks() })
 
-        val socks = TextView(this).apply {
+        root.addView(TextView(this).apply {
+            text = "Diagnostics"
+            textSize = 17f
+            setTypeface(typeface, Typeface.BOLD)
+            setPadding(0, dp(18), 0, dp(8))
+        })
+
+        root.addView(makeButton("View logs") { viewLogs() })
+        root.addView(makeButton("Share diagnostics") { shareDiagnostics() })
+        root.addView(makeButton("Clear logs") { clearLogs() })
+
+        root.addView(TextView(this).apply {
+            text = "Logs stay on this device unless you choose Share diagnostics. Logs may contain connection endpoints, IP addresses and error details."
+            textSize = 12f
+            setPadding(0, dp(4), 0, dp(12))
+        })
+
+        root.addView(TextView(this).apply {
             text = "SOCKS5\n127.0.0.1:1819"
             textSize = 18f
             gravity = Gravity.CENTER_HORIZONTAL
             setTypeface(Typeface.MONOSPACE, Typeface.BOLD)
-            setPadding(0, dp(24), 0, dp(12))
-        }
-        root.addView(socks)
+            setPadding(0, dp(18), 0, dp(12))
+        })
 
-        val note = TextView(this).apply {
+        root.addView(TextView(this).apply {
             text = "In your VPN app, bypass/exclude only Saman Tunnel. Termux can stay routed normally."
             textSize = 14f
-        }
-        root.addView(note)
+        })
 
-        val scroll = ScrollView(this).apply {
-            addView(root)
-        }
-        setContentView(scroll)
+        setContentView(ScrollView(this).apply { addView(root) })
         refreshState()
     }
 
@@ -124,7 +145,25 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun showVersions() {
+        val appVersion = runCatching {
+            packageManager.getPackageInfo(packageName, 0).versionName
+        }.getOrNull() ?: "unknown"
+
+        val coreVersion = runCatching {
+            val reply = JSONObject(NativeBridge.version())
+            if (reply.optBoolean("ok")) reply.optString("version", "unknown") else "unavailable"
+        }.getOrElse {
+            LogStore.append(this, "NATIVE", "Could not read Aether version: ${it.stackTraceToString()}")
+            "unavailable"
+        }
+
+        versionView.text = "App v$appVersion  •  Aether Core v$coreVersion"
+        LogStore.append(this, "VERSION", "app=$appVersion aether=$coreVersion")
+    }
+
     private fun start(mode: String) {
+        LogStore.append(this, "UI", "Start requested: $mode")
         val intent = Intent(this, AetherService::class.java).apply {
             action = AetherService.ACTION_START
             putExtra(AetherService.EXTRA_MODE, mode)
@@ -137,16 +176,45 @@ class MainActivity : Activity() {
     }
 
     private fun stop() {
-        val intent = Intent(this, AetherService::class.java).apply {
+        LogStore.append(this, "UI", "Stop requested")
+        startService(Intent(this, AetherService::class.java).apply {
             action = AetherService.ACTION_STOP
-        }
-        startService(intent)
+        })
     }
 
     private fun copySocks() {
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText("SOCKS5", "127.0.0.1:1819"))
         Toast.makeText(this, "127.0.0.1:1819 copied", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun viewLogs() {
+        val textView = TextView(this).apply {
+            typeface = Typeface.MONOSPACE
+            textSize = 11f
+            setPadding(24, 20, 24, 20)
+            text = LogStore.diagnostics(this@MainActivity)
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Saman Tunnel diagnostics")
+            .setView(ScrollView(this).apply { addView(textView) })
+            .setPositiveButton("Close", null)
+            .show()
+    }
+
+    private fun shareDiagnostics() {
+        LogStore.append(this, "UI", "Diagnostics shared by user")
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_SUBJECT, "Saman Tunnel diagnostics")
+            putExtra(Intent.EXTRA_TEXT, LogStore.diagnostics(this@MainActivity))
+        }
+        startActivity(Intent.createChooser(intent, "Share diagnostics"))
+    }
+
+    private fun clearLogs() {
+        LogStore.clear(this)
+        Toast.makeText(this, "Diagnostics cleared", Toast.LENGTH_SHORT).show()
     }
 
     private fun refreshState() {

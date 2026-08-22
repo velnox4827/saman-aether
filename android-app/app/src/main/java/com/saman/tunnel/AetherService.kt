@@ -21,25 +21,20 @@ class AetherService : Service() {
         const val ACTION_START = "com.saman.tunnel.START"
         const val ACTION_STOP = "com.saman.tunnel.STOP"
         const val EXTRA_MODE = "mode"
-
         const val PREFS = "saman_tunnel"
         const val KEY_STATUS = "status"
         const val KEY_MODE = "mode"
-
         private const val CHANNEL_ID = "saman_tunnel_core"
         private const val NOTIFICATION_ID = 1819
     }
 
     private val executor = Executors.newSingleThreadExecutor()
-
-    @Volatile
-    private var jobId: Long = 0L
-
-    @Volatile
-    private var generation: Long = 0L
+    @Volatile private var jobId: Long = 0L
+    @Volatile private var generation: Long = 0L
 
     override fun onCreate() {
         super.onCreate()
+        LogStore.append(this, "SERVICE", "Service created")
         createNotificationChannel()
     }
 
@@ -48,6 +43,7 @@ class AetherService : Service() {
             ACTION_STOP -> stopCore()
             ACTION_START -> {
                 val mode = intent.getStringExtra(EXTRA_MODE) ?: "WG"
+                LogStore.append(this, "SERVICE", "Start command mode=$mode")
                 beginForeground("Starting $mode…")
                 startCore(mode)
             }
@@ -58,10 +54,13 @@ class AetherService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        LogStore.append(this, "SERVICE", "Service destroying; jobId=$jobId")
         generation++
         if (jobId != 0L) {
             runCatching { NativeBridge.cancelJob(jobId) }
+                .onFailure { LogStore.append(this, "NATIVE", "cancel onDestroy failed: ${it.stackTraceToString()}") }
             runCatching { NativeBridge.freeJob(jobId) }
+                .onFailure { LogStore.append(this, "NATIVE", "free onDestroy failed: ${it.stackTraceToString()}") }
             jobId = 0L
         }
         executor.shutdownNow()
@@ -74,6 +73,7 @@ class AetherService : Service() {
 
         val previous = jobId
         if (previous != 0L) {
+            LogStore.append(this, "CORE", "Cancelling previous job=$previous")
             runCatching { NativeBridge.cancelJob(previous) }
             runCatching { NativeBridge.freeJob(previous) }
             jobId = 0L
@@ -82,7 +82,11 @@ class AetherService : Service() {
         executor.execute {
             try {
                 val args = JSONArray(argumentsFor(mode)).toString()
-                val started = JSONObject(NativeBridge.startCore(args, filesDir.absolutePath))
+                LogStore.append(this, "CORE", "Starting mode=$mode args=$args")
+                val rawStarted = NativeBridge.startCore(args, filesDir.absolutePath)
+                LogStore.append(this, "NATIVE", "startCore reply=$rawStarted")
+                val started = JSONObject(rawStarted)
+
                 if (!started.optBoolean("ok")) {
                     fail(started.optString("error", "Aether core failed to start"), mode)
                     return@execute
@@ -95,32 +99,33 @@ class AetherService : Service() {
                 }
 
                 jobId = id
+                LogStore.append(this, "CORE", "Core job started id=$id")
                 setState("Connecting…", mode)
                 updateNotification("Connecting $mode…")
 
                 for (i in 0 until 120) {
                     if (generation != myGeneration || jobId != id) return@execute
-
-                    val polled = JSONObject(NativeBridge.pollJob(id))
+                    val rawPoll = NativeBridge.pollJob(id)
+                    val polled = JSONObject(rawPoll)
                     if (polled.optString("state") == "done") {
+                        LogStore.append(this, "NATIVE", "Job ended before SOCKS ready: $rawPoll")
                         val result = polled.optJSONObject("result")
-                        val error = result?.optString("error")
-                        fail(error ?: "Core stopped before SOCKS5 became ready", mode)
+                        fail(result?.optString("error") ?: "Core stopped before SOCKS5 became ready", mode)
                         return@execute
                     }
 
                     if (isSocksReady()) {
+                        LogStore.append(this, "CORE", "SOCKS5 ready on 127.0.0.1:1819")
                         setState("Connected — SOCKS5 127.0.0.1:1819", mode)
                         updateNotification("$mode connected — 127.0.0.1:1819")
                         monitor(id, mode, myGeneration)
                         return@execute
                     }
-
                     Thread.sleep(1000)
                 }
-
                 fail("SOCKS5 did not become ready", mode)
             } catch (t: Throwable) {
+                LogStore.append(this, "EXCEPTION", t.stackTraceToString())
                 fail(t.message ?: t.javaClass.simpleName, mode)
             }
         }
@@ -129,16 +134,13 @@ class AetherService : Service() {
     private fun monitor(id: Long, mode: String, myGeneration: Long) {
         while (generation == myGeneration && jobId == id) {
             try {
-                val polled = JSONObject(NativeBridge.pollJob(id))
+                val rawPoll = NativeBridge.pollJob(id)
+                val polled = JSONObject(rawPoll)
                 if (polled.optString("state") == "done") {
+                    LogStore.append(this, "NATIVE", "Job done: $rawPoll")
                     val result = polled.optJSONObject("result")
                     val error = result?.optString("error")
-                    if (!error.isNullOrBlank()) {
-                        fail(error, mode)
-                    } else {
-                        setState("Stopped", mode)
-                        updateNotification("Stopped")
-                    }
+                    if (!error.isNullOrBlank()) fail(error, mode) else setState("Stopped", mode)
                     jobId = 0L
                     stopSelf()
                     return
@@ -150,9 +152,9 @@ class AetherService : Service() {
                 } else {
                     setState("Connected — SOCKS5 127.0.0.1:1819", mode)
                 }
-
                 Thread.sleep(2000)
             } catch (t: Throwable) {
+                LogStore.append(this, "EXCEPTION", "monitor: ${t.stackTraceToString()}")
                 fail(t.message ?: "Monitoring failed", mode)
                 return
             }
@@ -162,13 +164,14 @@ class AetherService : Service() {
     private fun stopCore() {
         val id = jobId
         generation++
+        LogStore.append(this, "CORE", "Stop requested jobId=$id")
         setState("Stopping…", prefs().getString(KEY_MODE, "") ?: "")
 
         executor.execute {
             if (id != 0L) {
-                runCatching { NativeBridge.cancelJob(id) }
+                runCatching { LogStore.append(this, "NATIVE", "cancelJob reply=${NativeBridge.cancelJob(id)}") }
                 Thread.sleep(350)
-                runCatching { NativeBridge.freeJob(id) }
+                runCatching { LogStore.append(this, "NATIVE", "freeJob reply=${NativeBridge.freeJob(id)}") }
             }
             jobId = 0L
             setState("Stopped", "")
@@ -178,65 +181,38 @@ class AetherService : Service() {
     }
 
     private fun fail(message: String, mode: String) {
+        LogStore.append(this, "ERROR", "mode=$mode message=$message")
         setState("Error: $message", mode)
         updateNotification("Error — open Saman Tunnel")
     }
 
     private fun argumentsFor(mode: String): List<String> = when (mode.uppercase()) {
-        "MASQUE" -> listOf(
-            "--masque", "-4",
-            "--bind", "127.0.0.1:1819",
-            "--scan", "balanced",
-            "--noize", "firewall",
-            "--quick-reconnect"
-        )
-
-        "GOOL" -> listOf(
-            "--gool", "-4",
-            "--bind", "127.0.0.1:1819",
-            "--scan", "balanced",
-            "--noize", "balanced",
-            "--keepalive", "5",
-            "--quick-reconnect"
-        )
-
-        else -> listOf(
-            "--wg", "-4",
-            "--bind", "127.0.0.1:1819",
-            "--scan", "balanced",
-            "--noize", "balanced",
-            "--keepalive", "5",
-            "--quick-reconnect"
-        )
+        "MASQUE" -> listOf("--masque", "-4", "--bind", "127.0.0.1:1819", "--scan", "balanced", "--noize", "firewall", "--quick-reconnect")
+        "GOOL" -> listOf("--gool", "-4", "--bind", "127.0.0.1:1819", "--scan", "balanced", "--noize", "balanced", "--keepalive", "5", "--quick-reconnect")
+        else -> listOf("--wg", "-4", "--bind", "127.0.0.1:1819", "--scan", "balanced", "--noize", "balanced", "--keepalive", "5", "--quick-reconnect")
     }
 
     private fun isSocksReady(): Boolean = try {
-        Socket().use { socket ->
-            socket.connect(InetSocketAddress("127.0.0.1", 1819), 500)
-        }
+        Socket().use { it.connect(InetSocketAddress("127.0.0.1", 1819), 500) }
         true
-    } catch (_: Throwable) {
-        false
-    }
+    } catch (_: Throwable) { false }
 
     private fun prefs() = getSharedPreferences(PREFS, MODE_PRIVATE)
 
     private fun setState(status: String, mode: String) {
-        prefs().edit()
-            .putString(KEY_STATUS, status)
-            .putString(KEY_MODE, mode)
-            .apply()
+        val p = prefs()
+        val oldStatus = p.getString(KEY_STATUS, null)
+        val oldMode = p.getString(KEY_MODE, null)
+        p.edit().putString(KEY_STATUS, status).putString(KEY_MODE, mode).apply()
+        if (oldStatus != status || oldMode != mode) {
+            LogStore.append(this, "STATE", "mode=$mode status=$status")
+        }
     }
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val manager = getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(
-                NotificationChannel(
-                    CHANNEL_ID,
-                    "Saman Tunnel Core",
-                    NotificationManager.IMPORTANCE_LOW
-                )
+            getSystemService(NotificationManager::class.java).createNotificationChannel(
+                NotificationChannel(CHANNEL_ID, "Saman Tunnel Core", NotificationManager.IMPORTANCE_LOW)
             )
         }
     }
@@ -244,42 +220,21 @@ class AetherService : Service() {
     private fun beginForeground(text: String) {
         val notification = buildNotification(text)
         if (Build.VERSION.SDK_INT >= 34) {
-            startForeground(
-                NOTIFICATION_ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
-            )
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
-        }
+            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        } else startForeground(NOTIFICATION_ID, notification)
     }
 
     private fun updateNotification(text: String) {
-        val manager = getSystemService(NotificationManager::class.java)
-        manager.notify(NOTIFICATION_ID, buildNotification(text))
+        getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification(text))
     }
 
     private fun buildNotification(text: String): Notification {
-        val openIntent = Intent(this, MainActivity::class.java)
         val pending = PendingIntent.getActivity(
-            this,
-            0,
-            openIntent,
+            this, 0, Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
-
-        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            Notification.Builder(this, CHANNEL_ID)
-        } else {
-            Notification.Builder(this)
-        }
-
-        return builder
-            .setContentTitle("Saman Tunnel")
-            .setContentText(text)
-            .setSmallIcon(android.R.drawable.stat_sys_download_done)
-            .setOngoing(true)
-            .setContentIntent(pending)
-            .build()
+        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) Notification.Builder(this, CHANNEL_ID) else Notification.Builder(this)
+        return builder.setContentTitle("Saman Tunnel").setContentText(text)
+            .setSmallIcon(android.R.drawable.stat_sys_download_done).setOngoing(true).setContentIntent(pending).build()
     }
 }
