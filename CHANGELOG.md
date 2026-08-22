@@ -22,3 +22,4 @@ First public stable release of Saman Tunnel.
 - Android status-bar safe-area handling
 - GitHub bug-report and feature-request templates
 - Signed APK release workflow
+- Full Termux + Termux:Widget documentation retained in the same repository

@@ -17,6 +17,7 @@ Describe the problem clearly.
 - Android version:
 - Phone model:
 - CPU/ABI if known:
+- Interface: Saman Tunnel APK / Termux + Termux:Widget
 - Mode: MASQUE / WireGuard / GOOL
 
 ## Network

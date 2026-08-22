@@ -156,12 +156,55 @@ License: **GNU AGPL-3.0**
 
 ---
 
-## Legacy Termux helper
+## دو روش استفاده / Two ways to use this project
 
-The repository still contains the original Saman Aether Termux helper and installer for users who prefer that workflow. The Android app source lives under:
+این Repository عمداً **هر دو روش** را نگه می‌دارد:
+
+### 1) Saman Tunnel APK
+
+روش ساده‌تر و پیشنهادی برای بیشتر کاربران:
+
+- بدون Termux
+- بدون Termux:Widget
+- اپ مستقل Android
+- MASQUE / WireGuard / GOOL
+- SOCKS5 روی `127.0.0.1:1819`
+
+راهنمای فارسی: [docs/USAGE.fa.md](docs/USAGE.fa.md)
+
+### 2) Saman Aether — Termux + Termux:Widget
+
+نسخه‌ی قبلی پروژه **حذف نشده** و همچنان داخل همین Repository نگه‌داری می‌شود.
+
+این روش Aether رسمی را داخل Termux نصب/آپدیت می‌کند و چهار Shortcut برای **Termux:Widget** می‌سازد:
 
 ```text
-android-app/
+0-STOP-Aether
+1-Aether-MASQUE
+2-Aether-WG
+3-Aether-GOOL
 ```
 
-The standalone Android app is now the recommended Saman Tunnel experience.
+نصب سریع:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/velnox4827/saman-aether/main/install.sh | bash
+```
+
+راهنمای کامل فارسی Termux + Widget:
+
+**[docs/TERMUX.fa.md](docs/TERMUX.fa.md)**
+
+English Termux guide:
+
+**[docs/TERMUX.en.md](docs/TERMUX.en.md)**
+
+فایل‌های این روش همچنان در ریشه پروژه هستند:
+
+```text
+install.sh
+aether-shortcut-runner
+shortcuts/
+```
+
+هر دو روش از Aether استفاده می‌کنند، ولی مستقل از هم هستند؛ کاربر می‌تواند APK مستقل را استفاده کند یا روش Termux/Widget را انتخاب کند.
