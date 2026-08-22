@@ -55,3 +55,15 @@ https://github.com/velnox4827/saman-aether/issues/new?template=bug_report.md
 Suggest features here:
 
 https://github.com/velnox4827/saman-aether/issues/new?template=feature_request.md
+
+
+## Telegram Community
+
+General discussion, testing and community help:
+
+**Saman Tunnel • Community**
+
+https://t.me/SamanTunnel
+
+For trackable bugs and feature requests, please use GitHub Issues:
+https://github.com/velnox4827/saman-aether/issues

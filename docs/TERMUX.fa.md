@@ -120,3 +120,12 @@ shortcuts/
 https://github.com/velnox4827/saman-aether/issues
 
 در عنوان یا متن Issue بنویسید که از **Termux/Widget version** استفاده می‌کنید تا با نسخه APK اشتباه نشود.
+
+
+## گروه تلگرام
+
+برای پرسش‌های عمومی درباره نسخه Termux/Widget:
+
+https://t.me/SamanTunnel
+
+لطفاً در پیام مشخص کنید که از **Termux/Widget version** استفاده می‌کنید.

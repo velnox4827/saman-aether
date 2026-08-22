@@ -75,3 +75,12 @@ This removes the Saman runner and widget shortcuts, but does not uninstall upstr
 https://github.com/velnox4827/saman-aether/issues
 
 Please mention **Termux/Widget version** in the issue so it is not confused with the standalone APK.
+
+
+## Telegram Community
+
+For general Termux/Widget discussion:
+
+https://t.me/SamanTunnel
+
+Please mention that you are using the **Termux/Widget version**.

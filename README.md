@@ -16,6 +16,8 @@
   ·
   <a href="docs/USAGE.en.md">English guide</a>
   ·
+  <a href="https://t.me/SamanTunnel"><b>Telegram Community</b></a>
+  ·
   <a href="https://github.com/velnox4827/saman-aether/issues">Issues & Suggestions</a>
 </p>
 
@@ -88,6 +90,16 @@ https://github.com/velnox4827/saman-aether/issues/new?template=bug_report.md
 **پیشنهاد قابلیت:**  
 https://github.com/velnox4827/saman-aether/issues/new?template=feature_request.md
 
+### 💬 گروه تلگرام
+
+برای گفتگو درباره پروژه، آموزش، تست نسخه‌ها، پرسش‌های عمومی و تبادل تجربه:
+
+**Saman Tunnel • Community**
+
+https://t.me/SamanTunnel
+
+برای باگ‌ها و پیشنهادهای قابل پیگیری، لطفاً همچنان از **GitHub Issues** استفاده کنید تا گزارش‌ها مستند بمانند.
+
 ### نکته Battery Optimization
 
 اگر Android برنامه را در پس‌زمینه می‌بندد، Battery Optimization را برای **Saman Tunnel** روی **Unrestricted / No restrictions** قرار دهید. اگر از یک VPN/Proxy دیگر برای مصرف SOCKS5 استفاده می‌کنید، بهتر است همان برنامه هم محدودیت باتری نداشته باشد.
@@ -145,6 +157,14 @@ Full English guide: [docs/USAGE.en.md](docs/USAGE.en.md)
 For bugs and feature requests, please use **GitHub Issues**:
 
 https://github.com/velnox4827/saman-aether/issues
+
+### Telegram Community
+
+Join **Saman Tunnel • Community** for general discussion, testing, help and user feedback:
+
+https://t.me/SamanTunnel
+
+Please use GitHub Issues for reproducible bugs and feature requests so they remain trackable.
 
 Saman Tunnel is an independent project and is not the official Aether application.
 

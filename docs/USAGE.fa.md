@@ -100,3 +100,15 @@ https://github.com/velnox4827/saman-aether/issues/new?template=feature_request.m
 3. GOOL
 
 عملکرد Modeها به اپراتور، Wi-Fi، وضعیت UDP و شرایط شبکه بستگی دارد؛ ممکن است بهترین گزینه روی دو شبکه متفاوت یکسان نباشد.
+
+
+## گروه تلگرام
+
+برای گفتگو، آموزش، تست نسخه‌ها و پشتیبانی عمومی:
+
+**Saman Tunnel • Community**
+
+https://t.me/SamanTunnel
+
+برای Bug Report و Feature Request بهتر است از GitHub Issues استفاده شود:
+https://github.com/velnox4827/saman-aether/issues
