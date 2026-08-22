@@ -1,678 +1,167 @@
-# Saman Aether 🚀
+# Saman Tunnel
 
 <p align="center">
-  <b>Easy Aether setup for Android + Termux:Widget shortcuts</b><br>
-  نصب آسان Aether روی اندروید به همراه میانبرهای آماده برای Termux:Widget
+  <img src="android-app/app/src/main/res/drawable-nodpi/saman_tunnel_logo.png" width="150" alt="Saman Tunnel logo">
 </p>
 
 <p align="center">
-  <a href="https://github.com/velnox4827/saman-aether">
-    <img alt="GitHub repo" src="https://img.shields.io/badge/GitHub-saman--aether-black?logo=github">
-  </a>
-  <a href="https://github.com/CluvexStudio/Aether">
-    <img alt="Aether" src="https://img.shields.io/badge/Powered%20by-Aether-blue">
-  </a>
-  <img alt="Android" src="https://img.shields.io/badge/Platform-Android-green?logo=android">
-  <img alt="Termux" src="https://img.shields.io/badge/Termux-supported-000000?logo=gnubash">
+  <b>Standalone Aether Core frontend for Android — no Termux required</b><br>
+  رابط مستقل هسته Aether برای اندروید — بدون نیاز به Termux
+</p>
+
+<p align="center">
+  <a href="https://github.com/velnox4827/saman-aether/releases/latest"><b>Download latest APK</b></a>
+  ·
+  <a href="docs/USAGE.fa.md">راهنمای فارسی</a>
+  ·
+  <a href="docs/USAGE.en.md">English guide</a>
+  ·
+  <a href="https://github.com/velnox4827/saman-aether/issues">Issues & Suggestions</a>
 </p>
 
 ---
 
-## 🇮🇷 فارسی
+## فارسی
 
-### معرفی
+### Saman Tunnel چیست؟
 
-**Saman Aether** یک Installer/Helper ساده برای اجرای پروژه رسمی **Aether** روی Android از طریق **Termux** است.
+**Saman Tunnel** یک برنامه مستقل Android است که هسته متن‌باز **Aether** را داخل خود برنامه اجرا می‌کند و یک SOCKS5 محلی می‌سازد.
 
-هدف پروژه این است که بعد از نصب اولیه، برای اجرای حالت‌های مختلف Aether لازم نباشد هر بار دستورهای طولانی داخل Termux وارد کنید. میانبرهای آماده در **Termux:Widget** ساخته می‌شوند و می‌توانید مستقیماً از صفحه اصلی گوشی Aether را اجرا یا متوقف کنید.
+- بدون Termux
+- بدون Termux:Widget
+- اجرای مستقیم MASQUE / WireGuard / GOOL
+- SOCKS5 محلی: `127.0.0.1:1819`
+- نمایش نسخه App و Aether Core
+- سرویس Foreground برای ادامه کار در پس‌زمینه
+- ذخیره Diagnostics در فایل TXT
+- مناسب برای استفاده به‌عنوان upstream SOCKS5 در برنامه‌های دیگر
 
-این پروژه خودِ Aether را جایگزین نمی‌کند و از پروژه رسمی Aether استفاده می‌کند:
+> Saman Tunnel خودش VPN سراسری Android نیست. خروجی برنامه یک SOCKS5 محلی است. برای عبور ترافیک کل گوشی باید از یک برنامه سازگار با SOCKS5 یا زنجیره Proxy/VPN استفاده کنید.
 
-**Official Aether:**  
-https://github.com/CluvexStudio/Aether
+### دانلود و نصب
 
----
+به صفحه **Releases** بروید و جدیدترین فایل APK را دانلود کنید:
 
-### ✨ امکانات
+**https://github.com/velnox4827/saman-aether/releases/latest**
 
-- نصب یا به‌روزرسانی Aether با استفاده از Installer رسمی
-- ساخت خودکار میانبرهای Termux:Widget
-- اجرای سریع حالت‌های:
-  - MASQUE
-  - WireGuard (WG)
-  - GOOL
-- توقف Aether با یک میانبر
-- SOCKS5 محلی روی:
-  - `127.0.0.1:1819`
-- نمایش IP خروجی و کشور بعد از اتصال
-- مانیتور کردن تغییر IP هنگام Reconnect
-- ذخیره Log جداگانه برای هر Mode
-- Backup گرفتن از Shortcutهای قبلی قبل از جایگزینی
-- امکان Update با اجرای دوباره همان دستور نصب
-- امکان حذف Shortcutها بدون حذف Aether اصلی
+نسخه فعلی فقط برای **arm64-v8a** ساخته می‌شود.
 
----
+حداقل Android: **7.0 (API 24)**
 
-## 📱 پیش‌نیازها
+### استفاده سریع
 
-روی گوشی Android این دو برنامه را نصب کنید:
-
-1. **Termux**
-2. **Termux:Widget**
-
-> پیشنهاد می‌شود Termux و Termux:Widget را از یک منبع یکسان نصب کنید تا با خطای ناسازگاری Signature مواجه نشوید.
-
-برای نصب خود Saman Aether نیازی به Downloads folder یا اجرای `termux-setup-storage` نیست.
-
----
-
-## 🚀 نصب سریع
-
-Termux را باز کنید و این دستور را اجرا کنید:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/velnox4827/saman-aether/main/install.sh | bash
-```
-
-Installer به‌صورت خودکار:
-
-1. پکیج‌های لازم را نصب می‌کند.
-2. Installer رسمی Aether را دریافت می‌کند.
-3. اگر Aether نصب نباشد، آن را نصب می‌کند.
-4. اگر Aether از قبل نصب باشد، آن را Update می‌کند.
-5. Shortcutهای Saman Aether را در Termux ایجاد می‌کند.
-
-در پایان باید پیامی شبیه این ببینید:
+1. Saman Tunnel را باز کنید.
+2. یکی از حالت‌های **MASQUE**، **WireGuard** یا **GOOL** را انتخاب کنید.
+3. صبر کنید Status به `Connected` برسد.
+4. SOCKS5 روی آدرس زیر آماده است:
 
 ```text
-INSTALL COMPLETE
+127.0.0.1:1819
 ```
 
-و این Shortcutها ساخته می‌شوند:
+5. در برنامه‌ای که قرار است از این Proxy استفاده کند، نوع Proxy را **SOCKS5** و Host/Port را مطابق بالا تنظیم کنید.
+6. اگر برنامه دوم VPN سراسری Android می‌سازد، **فقط Saman Tunnel را در آن برنامه Bypass/Exclude کنید** تا Loop ایجاد نشود.
 
-```text
-0-STOP-Aether
-1-Aether-MASQUE
-2-Aether-WG
-3-Aether-GOOL
-```
+راهنمای کامل فارسی: [docs/USAGE.fa.md](docs/USAGE.fa.md)
 
----
+### حالت‌ها
 
-## 🧩 اضافه کردن Termux:Widget به صفحه اصلی
-
-بعد از اتمام نصب:
-
-1. از Termux خارج شوید.
-2. روی یک قسمت خالی از Home Screen چند ثانیه نگه دارید.
-3. وارد بخش **Widgets** شوید.
-4. **Termux:Widget** را پیدا کنید.
-5. ویجت را روی صفحه اصلی قرار دهید.
-6. اگر Shortcutها بلافاصله نمایش داده نشدند، Widget را Refresh کنید.
-7. در صورت نیاز یک بار Termux را باز و دوباره به Home Screen برگردید.
-
-بعد باید این گزینه‌ها را ببینید:
-
-```text
-0-STOP-Aether
-1-Aether-MASQUE
-2-Aether-WG
-3-Aether-GOOL
-```
-
----
-
-## ▶️ کاربرد Shortcutها
-
-| Shortcut | عملکرد |
+| Mode | توضیح کوتاه |
 |---|---|
-| `0-STOP-Aether` | متوقف کردن Aether |
-| `1-Aether-MASQUE` | اجرای Aether در حالت MASQUE |
-| `2-Aether-WG` | اجرای Aether در حالت WireGuard |
-| `3-Aether-GOOL` | اجرای Aether در حالت GOOL |
+| MASQUE | تونل مدرن مبتنی بر ترافیک وب؛ انتخاب مناسب برای شروع |
+| WireGuard | ساده‌تر و معمولاً سریع‌تر |
+| GOOL | WireGuard داخل WireGuard؛ سنگین‌تر و وابسته‌تر به کیفیت شبکه |
 
-برای اجرا فقط روی Mode موردنظر در Widget بزنید.
+### Diagnostics
 
----
+اگر مشکلی دیدید:
 
-## 🌐 SOCKS5 Proxy
+1. وارد بخش **Diagnostics** شوید.
+2. **Save TXT** را بزنید.
+3. فایل `Saman-Tunnel-diagnostics.txt` را ذخیره کنید.
+4. قبل از انتشار عمومی، فایل را بررسی کنید؛ Log می‌تواند شامل IP، Endpoint و اطلاعات فنی اتصال باشد.
+5. در GitHub یک Issue بسازید و اطلاعات لازم را بنویسید.
 
-بعد از اتصال موفق Aether، SOCKS5 محلی روی این آدرس در دسترس است:
+**گزارش مشکل:**  
+https://github.com/velnox4827/saman-aether/issues/new?template=bug_report.md
 
-```text
-Host: 127.0.0.1
-Port: 1819
-Protocol: SOCKS5
-```
+**پیشنهاد قابلیت:**  
+https://github.com/velnox4827/saman-aether/issues/new?template=feature_request.md
 
-یا به شکل کوتاه:
+### نکته Battery Optimization
 
-```text
-127.0.0.1:1819
-```
+اگر Android برنامه را در پس‌زمینه می‌بندد، Battery Optimization را برای **Saman Tunnel** روی **Unrestricted / No restrictions** قرار دهید. اگر از یک VPN/Proxy دیگر برای مصرف SOCKS5 استفاده می‌کنید، بهتر است همان برنامه هم محدودیت باتری نداشته باشد.
 
-می‌توانید این Proxy را در برنامه‌هایی که از SOCKS5 پشتیبانی می‌کنند استفاده کنید.
+### پروژه Aether
 
----
+Saman Tunnel از هسته رسمی و متن‌باز Aether استفاده می‌کند:
 
-## 🔄 به‌روزرسانی
-
-برای Update کردن Aether و Refresh شدن Shortcutها، دوباره همان دستور نصب را اجرا کنید:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/velnox4827/saman-aether/main/install.sh | bash
-```
-
-اگر Aether از قبل نصب باشد، Installer از حالت Update استفاده می‌کند.
-
----
-
-## 🗑 حذف Shortcutهای Saman Aether
-
-برای حذف Shortcutها و Runner:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/velnox4827/saman-aether/main/install.sh | bash -s -- uninstall
-```
-
-این دستور:
-
-- Shortcutهای Saman Aether را حذف می‌کند.
-- Runner پروژه را حذف می‌کند.
-- **Aether اصلی را حذف نمی‌کند.**
-
----
-
-## 📝 Logها
-
-Log هر Mode در Home ترموکس ذخیره می‌شود:
-
-```text
-~/aether-masque.log
-~/aether-wg.log
-~/aether-gool.log
-```
-
-مثلاً برای مشاهده زنده Log حالت GOOL:
-
-```bash
-tail -f ~/aether-gool.log
-```
-
-برای MASQUE:
-
-```bash
-tail -f ~/aether-masque.log
-```
-
-برای WireGuard:
-
-```bash
-tail -f ~/aether-wg.log
-```
-
----
-
-## 💾 Backup
-
-قبل از جایگزین شدن Shortcutهای قبلی، Installer از فایل‌های موجود Backup می‌گیرد.
-
-Backupها در این مسیر ذخیره می‌شوند:
-
-```text
-~/.saman-aether-backups/
-```
-
-هر نصب/آپدیت Backup جدیدی با Timestamp خودش می‌سازد.
-
----
-
-## 🔍 بررسی وضعیت Aether
-
-برای دیدن Process فعال:
-
-```bash
-pgrep -a aether
-```
-
-برای توقف دستی Aether:
-
-```bash
-pkill -x aether
-```
-
-در حالت عادی بهتر است از Shortcut زیر استفاده کنید:
-
-```text
-0-STOP-Aether
-```
-
----
-
-## 🛠 رفع مشکلات رایج
-
-### Widget خالی است
-
-اگر Termux:Widget را اضافه کرده‌اید ولی Shortcutها دیده نمی‌شوند:
-
-- Widget را Refresh کنید.
-- یک بار Termux را باز کنید.
-- Widget را حذف و دوباره اضافه کنید.
-- مطمئن شوید Termux:Widget از همان خانواده/منبع سازگار با Termux نصب شده است.
-
----
-
-### Aether اجرا شده ولی اتصال ندارم
-
-ابتدا بررسی کنید Process فعال باشد:
-
-```bash
-pgrep -a aether
-```
-
-سپس Log Mode موردنظر را ببینید:
-
-```bash
-tail -n 100 ~/aether-gool.log
-```
-
-یا:
-
-```bash
-tail -n 100 ~/aether-wg.log
-```
-
-یا:
-
-```bash
-tail -n 100 ~/aether-masque.log
-```
-
-اگر Aether Connected شده باشد، SOCKS5 باید روی این آدرس در دسترس باشد:
-
-```text
-127.0.0.1:1819
-```
-
-همچنین تنظیمات برنامه‌ای که از SOCKS5 استفاده می‌کند را بررسی کنید.
-
----
-
-### Port 1819 درگیر است
-
-ابتدا Aether را متوقف کنید:
-
-```bash
-pkill -x aether
-```
-
-سپس Mode موردنظر را دوباره از Widget اجرا کنید.
-
----
-
-### Shortcutها بعد از Update قدیمی هستند
-
-دستور نصب را دوباره اجرا کنید:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/velnox4827/saman-aether/main/install.sh | bash
-```
-
-بعد Termux:Widget را Refresh کنید.
-
----
-
-## 🔐 نکته امنیتی
-
-قبل از اجرای هر دستور `curl | bash` می‌توانید محتوای Installer را ببینید:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/velnox4827/saman-aether/main/install.sh
-```
-
-سورس Installer و Shortcutها در همین Repository قابل بررسی است.
-
----
-
-## 📁 ساختار پروژه
-
-```text
-saman-aether/
-├── README.md
-├── install.sh
-├── aether-shortcut-runner
-└── shortcuts/
-    ├── 0-STOP-Aether
-    ├── 1-Aether-MASQUE
-    ├── 2-Aether-WG
-    └── 3-Aether-GOOL
-```
-
----
-
-# 🇬🇧 English
-
-## Overview
-
-**Saman Aether** is a small installer/helper that makes it easier to run the official **Aether** project on Android through **Termux**.
-
-Instead of typing long commands every time, the installer creates ready-to-use **Termux:Widget shortcuts** for starting and stopping Aether modes directly from the Android home screen.
-
-This project does not replace Aether. It uses the official Aether project:
-
-**Official Aether:**  
 https://github.com/CluvexStudio/Aether
 
----
-
-## ✨ Features
-
-- Install or update Aether using the official installer
-- Automatically create Termux:Widget shortcuts
-- Quick access to:
-  - MASQUE
-  - WireGuard (WG)
-  - GOOL
-- One-tap Aether stop shortcut
-- Local SOCKS5 proxy on `127.0.0.1:1819`
-- Exit IP and country display after connection
-- Exit IP change monitoring after reconnects
-- Separate log files for each mode
-- Backup existing shortcuts before replacement
-- Update by simply running the installer again
-- Remove Saman Aether shortcuts without removing the official Aether binary
-
----
-
-## 📱 Requirements
-
-Install these Android apps first:
-
-1. **Termux**
-2. **Termux:Widget**
-
-> Installing Termux and Termux:Widget from the same compatible source is recommended to avoid Android package-signature conflicts.
-
-Saman Aether itself does not require a Downloads folder or `termux-setup-storage`.
-
----
-
-## 🚀 Quick Install
-
-Open Termux and run:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/velnox4827/saman-aether/main/install.sh | bash
-```
-
-The installer will:
-
-1. Install required packages.
-2. Download the official Aether installer.
-3. Install Aether if it is not already installed.
-4. Update Aether if it already exists.
-5. Install the Saman Aether widget shortcuts.
-
-When complete, you should see:
+نسخه عمومی `v1.0.0` هسته را از Commit زیر Build می‌کند تا Build قابل تکرار باشد:
 
 ```text
-INSTALL COMPLETE
+e05cbd78b8f17873abee553904a85610b88c0382
 ```
 
-The following shortcuts will be created:
+این Build در حال حاضر Aether Core `v1.7.0` را ارائه می‌دهد.
 
-```text
-0-STOP-Aether
-1-Aether-MASQUE
-2-Aether-WG
-3-Aether-GOOL
-```
+### نام و برند
+
+**Saman Tunnel** یک پروژه مستقل است و پروژه رسمی Aether نیست. نام و لوگوی Saman Tunnel مستقل از برند Aether طراحی شده‌اند.
+
+### مجوز
+
+این پروژه با توجه به استفاده از Aether Core تحت **GNU AGPL-3.0** منتشر می‌شود. متن مجوز در فایل [LICENSE](LICENSE) قرار دارد.
 
 ---
 
-## 🧩 Add Termux:Widget
+## English
 
-After installation:
-
-1. Return to the Android home screen.
-2. Long-press an empty area.
-3. Open **Widgets**.
-4. Find **Termux:Widget**.
-5. Add the widget to your home screen.
-6. Refresh it if the shortcuts are not immediately visible.
-7. If necessary, open Termux once and return to the home screen.
-
-You should see:
-
-```text
-0-STOP-Aether
-1-Aether-MASQUE
-2-Aether-WG
-3-Aether-GOOL
-```
-
----
-
-## ▶️ Shortcut Functions
-
-| Shortcut | Function |
-|---|---|
-| `0-STOP-Aether` | Stop Aether |
-| `1-Aether-MASQUE` | Start Aether in MASQUE mode |
-| `2-Aether-WG` | Start Aether in WireGuard mode |
-| `3-Aether-GOOL` | Start Aether in GOOL mode |
-
----
-
-## 🌐 SOCKS5 Proxy
-
-After Aether connects successfully:
-
-```text
-Host: 127.0.0.1
-Port: 1819
-Protocol: SOCKS5
-```
-
-Short form:
+**Saman Tunnel** is a standalone Android frontend that embeds the open-source **Aether Core** and exposes a local SOCKS5 proxy at:
 
 ```text
 127.0.0.1:1819
 ```
 
-Use this address in any application that supports a SOCKS5 proxy.
+No Termux is required.
 
----
+Main features:
 
-## 🔄 Update
+- MASQUE, WireGuard and GOOL modes
+- Local SOCKS5 proxy
+- Foreground Android service
+- App/Core version display
+- TXT diagnostics export
+- Built-in connection status
+- Designed for use as an upstream SOCKS5 proxy
 
-Run the installer again:
+Download the latest APK from:
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/velnox4827/saman-aether/main/install.sh | bash
-```
+**https://github.com/velnox4827/saman-aether/releases/latest**
 
-If Aether is already installed, the installer uses the Aether update flow and refreshes the Saman Aether shortcuts.
+Full English guide: [docs/USAGE.en.md](docs/USAGE.en.md)
 
----
+For bugs and feature requests, please use **GitHub Issues**:
 
-## 🗑 Remove Saman Aether Shortcuts
+https://github.com/velnox4827/saman-aether/issues
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/velnox4827/saman-aether/main/install.sh | bash -s -- uninstall
-```
+Saman Tunnel is an independent project and is not the official Aether application.
 
-This removes:
+Upstream Aether:
 
-- Saman Aether shortcuts
-- Saman Aether runner
-
-It **does not remove the official Aether binary**.
-
----
-
-## 📝 Logs
-
-Logs are stored in the Termux home directory:
-
-```text
-~/aether-masque.log
-~/aether-wg.log
-~/aether-gool.log
-```
-
-Example:
-
-```bash
-tail -f ~/aether-gool.log
-```
-
----
-
-## 💾 Backups
-
-Existing Saman Aether shortcut files are backed up before replacement.
-
-Backups are stored in:
-
-```text
-~/.saman-aether-backups/
-```
-
-Each install/update creates a timestamped backup directory.
-
----
-
-## 🔍 Check Aether Status
-
-Check the running process:
-
-```bash
-pgrep -a aether
-```
-
-Stop Aether manually:
-
-```bash
-pkill -x aether
-```
-
-Normally, using the widget shortcut is recommended:
-
-```text
-0-STOP-Aether
-```
-
----
-
-## 🛠 Troubleshooting
-
-### Widget is empty
-
-Try the following:
-
-- Refresh Termux:Widget.
-- Open Termux once.
-- Remove and add the widget again.
-- Make sure Termux and Termux:Widget are installed from compatible sources.
-
-### Aether starts but there is no connection
-
-Check the process:
-
-```bash
-pgrep -a aether
-```
-
-Inspect the relevant log:
-
-```bash
-tail -n 100 ~/aether-gool.log
-```
-
-or:
-
-```bash
-tail -n 100 ~/aether-wg.log
-```
-
-or:
-
-```bash
-tail -n 100 ~/aether-masque.log
-```
-
-When Aether is connected, the local SOCKS5 proxy should be available at:
-
-```text
-127.0.0.1:1819
-```
-
-Also verify the SOCKS5 configuration in the client application.
-
-### Port 1819 is already in use
-
-Stop Aether:
-
-```bash
-pkill -x aether
-```
-
-Then start your preferred mode again from the widget.
-
----
-
-## 🔐 Security Note
-
-Before running any `curl | bash` command, you can inspect the installer:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/velnox4827/saman-aether/main/install.sh
-```
-
-The installer and shortcut source files are available in this repository for review.
-
----
-
-## 📁 Project Structure
-
-```text
-saman-aether/
-├── README.md
-├── install.sh
-├── aether-shortcut-runner
-└── shortcuts/
-    ├── 0-STOP-Aether
-    ├── 1-Aether-MASQUE
-    ├── 2-Aether-WG
-    └── 3-Aether-GOOL
-```
-
----
-
-## 🔗 Links
-
-**Saman Aether**  
-https://github.com/velnox4827/saman-aether
-
-**Official Aether**  
 https://github.com/CluvexStudio/Aether
 
----
-
-## ❤️ Credits
-
-Thanks to:
-
-- Aether developers
-- Termux developers
-- Termux:Widget developers
-- Everyone testing and contributing to this helper
+License: **GNU AGPL-3.0**
 
 ---
 
-## ⭐ Support
+## Legacy Termux helper
 
-If Saman Aether is useful to you, consider starring the repository.
+The repository still contains the original Saman Aether Termux helper and installer for users who prefer that workflow. The Android app source lives under:
 
-Issues, suggestions, bug reports and contributions are welcome.
+```text
+android-app/
+```
+
+The standalone Android app is now the recommended Saman Tunnel experience.

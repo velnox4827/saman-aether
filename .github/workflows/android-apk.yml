@@ -49,8 +49,13 @@ jobs:
       - name: Install cargo-ndk
         run: cargo install cargo-ndk --locked
 
-      - name: Checkout upstream Aether core
-        run: git clone --depth 1 https://github.com/CluvexStudio/Aether.git "$RUNNER_TEMP/Aether"
+      - name: Checkout pinned Aether Core
+        run: |
+          mkdir -p "$RUNNER_TEMP/Aether"
+          git -C "$RUNNER_TEMP/Aether" init
+          git -C "$RUNNER_TEMP/Aether" remote add origin https://github.com/CluvexStudio/Aether.git
+          git -C "$RUNNER_TEMP/Aether" fetch --depth 1 origin e05cbd78b8f17873abee553904a85610b88c0382
+          git -C "$RUNNER_TEMP/Aether" checkout --detach FETCH_HEAD
 
       - name: Build Aether shared library for arm64 Android
         env:

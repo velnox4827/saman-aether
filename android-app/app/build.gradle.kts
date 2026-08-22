@@ -3,6 +3,17 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+val samanKeystoreFile = providers.gradleProperty("SAMAN_KEYSTORE_FILE").orNull
+val samanKeystorePassword = providers.gradleProperty("SAMAN_KEYSTORE_PASSWORD").orNull
+val samanKeyAlias = providers.gradleProperty("SAMAN_KEY_ALIAS").orNull
+val samanKeyPassword = providers.gradleProperty("SAMAN_KEY_PASSWORD").orNull
+
+val hasSamanReleaseSigning =
+    !samanKeystoreFile.isNullOrBlank() &&
+    !samanKeystorePassword.isNullOrBlank() &&
+    !samanKeyAlias.isNullOrBlank() &&
+    !samanKeyPassword.isNullOrBlank()
+
 android {
     namespace = "com.saman.tunnel"
     compileSdk = 35
@@ -11,17 +22,32 @@ android {
         applicationId = "com.saman.tunnel"
         minSdk = 24
         targetSdk = 35
-        versionCode = 6
-        versionName = "0.3.2"
+        versionCode = 100
+        versionName = "1.0.0"
 
         ndk {
             abiFilters += listOf("arm64-v8a")
         }
     }
 
+    if (hasSamanReleaseSigning) {
+        signingConfigs {
+            create("samanRelease") {
+                storeFile = file(samanKeystoreFile!!)
+                storePassword = samanKeystorePassword
+                keyAlias = samanKeyAlias
+                keyPassword = samanKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+
+            if (hasSamanReleaseSigning) {
+                signingConfig = signingConfigs.getByName("samanRelease")
+            }
         }
     }
 
