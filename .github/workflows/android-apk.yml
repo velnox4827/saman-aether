@@ -67,6 +67,30 @@ jobs:
         working-directory: android-app
         run: gradle :app:assembleDebug
 
+      - name: Verify APK native dependencies
+        working-directory: android-app
+        run: |
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          unzip -p "$APK" lib/arm64-v8a/libsamanbridge.so > /tmp/libsamanbridge.so
+
+          echo "---- libsamanbridge.so dependencies ----"
+          readelf -d /tmp/libsamanbridge.so | grep NEEDED || true
+
+          if readelf -d /tmp/libsamanbridge.so | grep -q "/home/runner"; then
+            echo "ERROR: build machine path leaked into DT_NEEDED"
+            exit 1
+          fi
+
+          if ! readelf -d /tmp/libsamanbridge.so | grep -q "Shared library: \[libaether.so\]"; then
+            echo "ERROR: libaether.so is not recorded as a normal runtime dependency"
+            exit 1
+          fi
+
+          unzip -l "$APK" | grep -q "lib/arm64-v8a/libaether.so"
+          unzip -l "$APK" | grep -q "lib/arm64-v8a/libsamanbridge.so"
+
+          echo "Native dependency verification passed."
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
