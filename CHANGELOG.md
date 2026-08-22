@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.1.3
+
+Kotlin compilation patch.
+
+- Keeps all Saman Tunnel v1.1 features
+- Fixes Battery Settings Intent type inference error in MainActivity
+- Uses explicit Android Intent values for battery/app-info settings
+- Keeps the stable v1.1.2 Android build stack unchanged
+
+
 ## v1.1.2
 
 Stable Android build-tooling fix.

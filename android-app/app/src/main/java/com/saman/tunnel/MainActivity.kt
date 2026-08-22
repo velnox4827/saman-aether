@@ -736,16 +736,32 @@ class MainActivity : Activity() {
     private fun openBatterySettings() {
         val packageUri = Uri.parse("package:$packageName")
 
-        val intents = listOf(
-            Intent("android.settings.APP_BATTERY_SETTINGS").apply { data = packageUri },
-            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply { data = packageUri }
-        )
+        val batteryIntent: Intent =
+            Intent("android.settings.APP_BATTERY_SETTINGS").apply {
+                data = packageUri
+            }
 
-        val target = intents.firstOrNull { it.resolveActivity(packageManager) != null }
-        if (target != null) {
-            startActivity(target)
-        } else {
-            Toast.makeText(this, "Battery settings are not available on this device", Toast.LENGTH_LONG).show()
+        val appInfoIntent: Intent =
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = packageUri
+            }
+
+        when {
+            batteryIntent.resolveActivity(packageManager) != null -> {
+                startActivity(batteryIntent)
+            }
+
+            appInfoIntent.resolveActivity(packageManager) != null -> {
+                startActivity(appInfoIntent)
+            }
+
+            else -> {
+                Toast.makeText(
+                    this,
+                    "Battery settings are not available on this device",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
         }
     }
 
