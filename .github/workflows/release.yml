@@ -32,7 +32,7 @@ jobs:
         run: |
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager \
-            "platforms;android-37" \
+            "platforms;android-36" \
             "build-tools;36.0.0" \
             "ndk;26.3.11579264" \
             "cmake;3.22.1"
@@ -129,7 +129,7 @@ jobs:
           - Battery optimization shortcut/status
           - Manual GitHub update checker
           - Start-button debounce to avoid duplicate connection jobs
-          - compileSdk 37
+          - compileSdk 36 (stable SDK)
           - AGP 9.3 / Gradle 9.5
           - Aether Core v1.7.0 pinned to a reproducible source commit
           - Local SOCKS5: 127.0.0.1:1819

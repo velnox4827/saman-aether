@@ -16,14 +16,14 @@ val hasSamanReleaseSigning =
 
 android {
     namespace = "com.saman.tunnel"
-    compileSdk = 37
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.saman.tunnel"
         minSdk = 24
         targetSdk = 35
-        versionCode = 110
-        versionName = "1.1.0"
+        versionCode = 111
+        versionName = "1.1.1"
 
         ndk {
             abiFilters += listOf("arm64-v8a")

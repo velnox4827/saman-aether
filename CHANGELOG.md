@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.1.1
+
+Build compatibility patch for the v1.1 feature release.
+
+- Keeps all v1.1.0 features unchanged
+- Uses stable Android SDK Platform 36 in GitHub Actions
+- compileSdk changed from preview API 37 to stable API 36
+- AGP 9.3 / Gradle 9.5 retained
+- targetSdk remains 35
+- Fixes GitHub Actions failure: `Failed to find package 'platforms;android-37'`
+
+
 ## v1.1.0
 
 - Follow Android system Light/Dark theme
