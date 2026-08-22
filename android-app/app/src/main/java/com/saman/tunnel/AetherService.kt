@@ -132,26 +132,64 @@ class AetherService : Service() {
     }
 
     private fun monitor(id: Long, mode: String, myGeneration: Long) {
+        var consecutiveSocksFailures = 0
+        var healthWarningShown = false
+
         while (generation == myGeneration && jobId == id) {
             try {
                 val rawPoll = NativeBridge.pollJob(id)
                 val polled = JSONObject(rawPoll)
+
                 if (polled.optString("state") == "done") {
                     LogStore.append(this, "NATIVE", "Job done: $rawPoll")
                     val result = polled.optJSONObject("result")
                     val error = result?.optString("error")
-                    if (!error.isNullOrBlank()) fail(error, mode) else setState("Stopped", mode)
+
+                    if (!error.isNullOrBlank()) {
+                        fail(error, mode)
+                    } else {
+                        setState("Stopped", mode)
+                        updateNotification("Stopped")
+                    }
+
                     jobId = 0L
                     stopSelf()
                     return
                 }
 
-                if (!isSocksReady()) {
-                    setState("Reconnecting…", mode)
-                    updateNotification("$mode reconnecting…")
+                if (isSocksReady()) {
+                    if (consecutiveSocksFailures > 0) {
+                        LogStore.append(
+                            this,
+                            "HEALTH",
+                            "SOCKS5 recovered after $consecutiveSocksFailures failed health check(s)"
+                        )
+                    }
+
+                    consecutiveSocksFailures = 0
+
+                    if (healthWarningShown) {
+                        healthWarningShown = false
+                        setState("Connected — SOCKS5 127.0.0.1:1819", mode)
+                        updateNotification("$mode connected — 127.0.0.1:1819")
+                    }
                 } else {
-                    setState("Connected — SOCKS5 127.0.0.1:1819", mode)
+                    consecutiveSocksFailures++
+
+                    LogStore.append(
+                        this,
+                        "HEALTH",
+                        "SOCKS5 health check failed $consecutiveSocksFailures/3"
+                    )
+
+                    // One or two brief local failures do not prove a core reconnect.
+                    if (consecutiveSocksFailures >= 3 && !healthWarningShown) {
+                        healthWarningShown = true
+                        setState("Connection unstable — checking SOCKS5", mode)
+                        updateNotification("$mode active — checking SOCKS5")
+                    }
                 }
+
                 Thread.sleep(2000)
             } catch (t: Throwable) {
                 LogStore.append(this, "EXCEPTION", "monitor: ${t.stackTraceToString()}")
@@ -193,7 +231,7 @@ class AetherService : Service() {
     }
 
     private fun isSocksReady(): Boolean = try {
-        Socket().use { it.connect(InetSocketAddress("127.0.0.1", 1819), 500) }
+        Socket().use { it.connect(InetSocketAddress("127.0.0.1", 1819), 1000) }
         true
     } catch (_: Throwable) { false }
 

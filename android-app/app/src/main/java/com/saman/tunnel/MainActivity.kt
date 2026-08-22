@@ -27,6 +27,11 @@ import org.json.JSONObject
 
 class MainActivity : Activity() {
 
+    companion object {
+        private const val REQUEST_SAVE_DIAGNOSTICS = 2002
+    }
+
+
     private lateinit var modeView: TextView
     private lateinit var statusView: TextView
     private lateinit var statusBadge: TextView
@@ -57,7 +62,7 @@ class MainActivity : Activity() {
         window.statusBarColor = Color.WHITE
         window.navigationBarColor = Color.rgb(247, 248, 250)
 
-        LogStore.append(this, "APP", "MainActivity created - compact UI v0.3.0")
+        LogStore.append(this, "APP", "MainActivity created - compact UI v0.3.1")
         buildUi()
         showVersions()
         requestNotificationsIfNeeded()
@@ -289,8 +294,7 @@ class MainActivity : Activity() {
             )
         }
 
-        diagnosticsRow.addView(diagTile("▤", "View logs", blue) { viewLogs() })
-        diagnosticsRow.addView(diagTile("⌯", "Share", purple) { shareDiagnostics() })
+        diagnosticsRow.addView(diagTile("⇩", "Save TXT", blue) { saveDiagnosticsTxt() })
         diagnosticsRow.addView(diagTile("⌫", "Clear", orange) { clearLogs() })
         diagnosticsCard.addView(diagnosticsRow)
         root.addView(diagnosticsCard)
@@ -517,6 +521,41 @@ class MainActivity : Activity() {
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText("SOCKS5", "127.0.0.1:1819"))
         Toast.makeText(this, "127.0.0.1:1819 copied", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun saveDiagnosticsTxt() {
+        LogStore.append(this, "UI", "Save diagnostics TXT requested")
+
+        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TITLE, "Saman-Tunnel-diagnostics.txt")
+        }
+
+        startActivityForResult(intent, REQUEST_SAVE_DIAGNOSTICS)
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+
+        if (requestCode != REQUEST_SAVE_DIAGNOSTICS || resultCode != RESULT_OK) {
+            return
+        }
+
+        val uri = data?.data ?: return
+
+        runCatching {
+            contentResolver.openOutputStream(uri, "wt")?.bufferedWriter(Charsets.UTF_8).use { writer ->
+                requireNotNull(writer) { "Could not open selected file" }
+                writer.write(LogStore.diagnostics(this))
+            }
+
+            LogStore.append(this, "UI", "Diagnostics saved as TXT")
+            Toast.makeText(this, "Diagnostics TXT saved", Toast.LENGTH_SHORT).show()
+        }.onFailure {
+            LogStore.append(this, "ERROR", "Saving diagnostics TXT failed: ${it.stackTraceToString()}")
+            Toast.makeText(this, "Could not save TXT", Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun viewLogs() {
