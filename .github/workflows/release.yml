@@ -115,32 +115,54 @@ jobs:
           sha256sum "$OUT" > "${OUT}.sha256"
 
           cat > /tmp/release-notes.md <<'NOTES'
-          # Saman Tunnel
+          # Saman Tunnel v1.2.0
 
-          Standalone Android frontend for Aether Core.
+          Standalone Android frontend for Aether Core v1.7.0.
 
-          ## v1.1 highlights
+          ## What's new
 
-          - System-following Light / Dark theme
-          - Official textless adaptive Android app icon
+          - Cleaner connected-status card:
+            - Mode on its own line
+            - `Status: Connected` on its own line
+            - SOCKS5 / HTTP proxy information on a separate line
+          - Native Aether SOCKS5 listener:
+            - `127.0.0.1:1819`
+          - Native Aether HTTP CONNECT listener:
+            - `127.0.0.1:1820`
+          - Mode switching now performs an automatic clean reset of the previous core job
+          - Manual STOP should no longer be required before changing WG / MASQUE / GOOL
           - MASQUE HTTP/3 (QUIC) and HTTP/2 selection
-          - Quick diagnostics: Last 20 / Last 40 lines
-          - Save full diagnostics as TXT
-          - Battery optimization shortcut/status
+          - Diagnostics simplified to:
+            - `Logs` = last 40 lines for quick viewing
+            - `Save TXT` = complete currently retained App + Aether Core logs
+          - Custom monochrome Saman Tunnel notification icon
+          - Adaptive Android launcher / App Info icon
+          - System-following Light / Dark theme
+          - Battery optimization status + shortcut
           - Manual GitHub update checker
-          - Start-button debounce to avoid duplicate connection jobs
-          - compileSdk 36 (stable SDK)
-          - AGP 9.3 / Gradle 9.5
           - Aether Core v1.7.0 pinned to a reproducible source commit
-          - Local SOCKS5: 127.0.0.1:1819
           - arm64-v8a
           - Minimum Android 7 (API 24)
 
-          Please report problems and suggestions through GitHub Issues or the Telegram community.
+          ## Usage
 
-          Telegram: https://t.me/SamanTunnel
+          Saman Tunnel exposes local proxies after connection:
 
-          **Privacy note:** review diagnostics files before posting them publicly because they may contain IP addresses and connection endpoints.
+          `SOCKS5  127.0.0.1:1819`
+
+          `HTTP CONNECT  127.0.0.1:1820`
+
+          If Saman Tunnel is used behind another VPN/proxy app, bypass/exclude Saman Tunnel itself to avoid routing loops.
+
+          ## Support
+
+          Telegram community:
+          https://t.me/SamanTunnel
+
+          GitHub issues:
+          https://github.com/velnox4827/saman-aether/issues
+
+          **Privacy note:** diagnostics can contain IP addresses, connection endpoints and error details. Review TXT reports before posting them publicly.
 
           Source code and build workflow are available in this repository under GNU AGPL-3.0.
           NOTES

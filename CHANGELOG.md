@@ -2,18 +2,20 @@
 
 ## v1.2.0
 
-Main-version update candidate.
+Stable release.
 
-- Auto-reset when switching MASQUE / WireGuard / GOOL
+- Cleaner three-line connected status layout for WG, MASQUE H3/H2 and GOOL
+- SOCKS5 on `127.0.0.1:1819`
 - Native HTTP CONNECT on `127.0.0.1:1820`
-- SOCKS5 stays on `127.0.0.1:1819`
-- Diagnostics simplified to `Logs` (last 40 lines) + `Save TXT`
-- Custom monochrome notification icon
-- Proper adaptive launcher/App Info icon resource
-- Debug APK is signed with the normal project key for testing
-- Public Release/tag waits for manual approval after testing
-
-
+- Automatic clean reset when switching modes
+- `Logs` shows the last 40 lines
+- `Save TXT` exports complete currently retained App/Core diagnostics
+- Custom notification icon
+- Adaptive launcher/App Info icon
+- System Light/Dark theme
+- Battery status shortcut
+- Manual GitHub update checker
+- Aether Core v1.7.0 pinned
 ## v1.1.5
 
 Android App Info icon cache-busting patch.
