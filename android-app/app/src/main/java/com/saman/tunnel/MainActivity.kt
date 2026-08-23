@@ -188,7 +188,7 @@ class MainActivity : Activity() {
         }
 
         headerText.addView(TextView(this).apply {
-            text = "Saman Tunnel"
+            text = if (packageName.endsWith(".beta")) "Saman Tunnel Beta" else "Saman Tunnel"
             textSize = 24f
             setTextColor(ink)
             setTypeface(typeface, Typeface.BOLD)
@@ -302,7 +302,7 @@ class MainActivity : Activity() {
         )
 
         actionRow.addView(
-            actionTile("▣  Copy SOCKS5", ink, card) {
+            actionTile("▣  Copy proxies", ink, card) {
                 copySocks()
             },
             LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f).apply {
@@ -342,8 +342,7 @@ class MainActivity : Activity() {
             )
         }
 
-        diagnosticsRow.addView(diagTile("20", "Last 20", blue) { showQuickLog(20) })
-        diagnosticsRow.addView(diagTile("40", "Last 40", purple) { showQuickLog(40) })
+        diagnosticsRow.addView(diagTile("≡", "Logs", blue) { showQuickLog(40) })
         diagnosticsRow.addView(diagTile("⇩", "Save TXT", green) { saveDiagnosticsTxt() })
         diagnosticsCard.addView(diagnosticsRow)
         root.addView(diagnosticsCard)
@@ -414,26 +413,31 @@ class MainActivity : Activity() {
         }
 
         socksText.addView(TextView(this).apply {
-            text = "SOCKS5"
-            textSize = 13.5f
+            text = "LOCAL PROXIES"
+            textSize = 12.5f
             setTextColor(blue)
             setTypeface(typeface, Typeface.BOLD)
             includeFontPadding = false
         })
 
         socksText.addView(TextView(this).apply {
-            text = "127.0.0.1:1819"
-            textSize = 19f
+            text = "SOCKS5  127.0.0.1:1819\nHTTP    127.0.0.1:1820"
+            textSize = 12.8f
             setTextColor(ink)
             setTypeface(Typeface.MONOSPACE, Typeface.NORMAL)
             includeFontPadding = false
+            maxLines = 2
         })
 
         socksCard.addView(socksText)
         root.addView(socksCard)
 
         root.addView(TextView(this).apply {
-            text = "♢  Bypass only Saman Tunnel in your VPN app."
+            text = if (packageName.endsWith(".beta")) {
+                "β  Beta — do not run Stable and Beta at the same time."
+            } else {
+                "♢  Bypass only Saman Tunnel in your VPN app."
+            }
             textSize = 10.8f
             setTextColor(muted)
             gravity = Gravity.CENTER
@@ -616,6 +620,7 @@ class MainActivity : Activity() {
 
         return status.startsWith("Starting", true) ||
             status.startsWith("Connecting", true) ||
+            status.startsWith("Switching", true) ||
             status.startsWith("Stopping", true)
     }
 
@@ -651,9 +656,22 @@ class MainActivity : Activity() {
     }
 
     private fun copySocks() {
-        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        clipboard.setPrimaryClip(ClipData.newPlainText("SOCKS5", "127.0.0.1:1819"))
-        Toast.makeText(this, "127.0.0.1:1819 copied", Toast.LENGTH_SHORT).show()
+        val socks = "127.0.0.1:1819"
+        val http = "127.0.0.1:1820"
+        AlertDialog.Builder(this)
+            .setTitle("Copy local proxy")
+            .setItems(arrayOf("SOCKS5  $socks", "HTTP CONNECT  $http", "Copy both")) { _, which ->
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                val (label, value) = when (which) {
+                    0 -> "SOCKS5" to socks
+                    1 -> "HTTP CONNECT" to http
+                    else -> "Saman Tunnel proxies" to "SOCKS5 $socks\nHTTP CONNECT $http"
+                }
+                clipboard.setPrimaryClip(ClipData.newPlainText(label, value))
+                Toast.makeText(this, "$label copied", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun showQuickLog(lines: Int) {

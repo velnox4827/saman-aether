@@ -24,8 +24,9 @@ android {
         applicationId = "com.saman.tunnel"
         minSdk = 24
         targetSdk = 35
-        versionCode = 115
-        versionName = "1.1.5"
+        versionCode = 120
+        versionName = "1.2.0"
+        manifestPlaceholders["appLabel"] = "Saman Tunnel"
 
         ndk {
             abiFilters += listOf("arm64-v8a")
@@ -44,7 +45,15 @@ android {
     }
 
     buildTypes {
+        debug {
+            isDebuggable = true
+            if (hasSamanReleaseSigning) {
+                signingConfig = signingConfigs.getByName("samanRelease")
+            }
+        }
+
         release {
+            manifestPlaceholders["appLabel"] = "Saman Tunnel"
             isMinifyEnabled = false
 
             if (hasSamanReleaseSigning) {

@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.2.0
+
+Main-version update candidate.
+
+- Auto-reset when switching MASQUE / WireGuard / GOOL
+- Native HTTP CONNECT on `127.0.0.1:1820`
+- SOCKS5 stays on `127.0.0.1:1819`
+- Diagnostics simplified to `Logs` (last 40 lines) + `Save TXT`
+- Custom monochrome notification icon
+- Proper adaptive launcher/App Info icon resource
+- Debug APK is signed with the normal project key for testing
+- Public Release/tag waits for manual approval after testing
+
+
 ## v1.1.5
 
 Android App Info icon cache-busting patch.

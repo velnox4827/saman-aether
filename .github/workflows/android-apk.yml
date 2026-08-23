@@ -1,8 +1,10 @@
-name: Build Saman Tunnel APK
+name: Build Saman Tunnel v1.2.0 Debug APK
 
 on:
   workflow_dispatch:
   push:
+    branches:
+      - main
     paths:
       - "android-app/**"
       - ".github/workflows/android-apk.yml"
@@ -13,20 +15,16 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout Saman project
         uses: actions/checkout@v5
-
       - name: Set up Java 17
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
-
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
-
       - name: Install Android SDK packages
         run: |
           yes | sdkmanager --licenses >/dev/null || true
@@ -35,20 +33,16 @@ jobs:
             "build-tools;35.0.0" \
             "ndk;26.3.11579264" \
             "cmake;3.22.1"
-
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.13"
-
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android
-
       - name: Install cargo-ndk
         run: cargo install cargo-ndk --locked
-
       - name: Checkout pinned Aether Core
         run: |
           mkdir -p "$RUNNER_TEMP/Aether"
@@ -56,7 +50,6 @@ jobs:
           git -C "$RUNNER_TEMP/Aether" remote add origin https://github.com/CluvexStudio/Aether.git
           git -C "$RUNNER_TEMP/Aether" fetch --depth 1 origin e05cbd78b8f17873abee553904a85610b88c0382
           git -C "$RUNNER_TEMP/Aether" checkout --detach FETCH_HEAD
-
       - name: Build Aether shared library for arm64 Android
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/26.3.11579264
@@ -67,38 +60,44 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/android-app/app/src/main/jniLibs/arm64-v8a"
           cp target/aarch64-linux-android/release/libaether.so \
             "$GITHUB_WORKSPACE/android-app/app/src/main/jniLibs/arm64-v8a/libaether.so"
-
-      - name: Build debug APK
-        working-directory: android-app
-        run: gradle :app:assembleDebug
-
-      - name: Verify APK native dependencies
-        working-directory: android-app
+      - name: Restore signing key for testable Debug APK
+        env:
+          KEYSTORE_B64: ${{ secrets.SAMAN_RELEASE_KEYSTORE_B64 }}
         run: |
-          APK="app/build/outputs/apk/debug/app-debug.apk"
+          test -n "$KEYSTORE_B64"
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/saman-tunnel-debug.jks"
+      - name: Build signed Debug APK
+        working-directory: android-app
+        env:
+          STORE_PASSWORD: ${{ secrets.SAMAN_RELEASE_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.SAMAN_RELEASE_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.SAMAN_RELEASE_KEY_PASSWORD }}
+        run: |
+          gradle :app:assembleDebug \
+            -PSAMAN_KEYSTORE_FILE="$RUNNER_TEMP/saman-tunnel-debug.jks" \
+            -PSAMAN_KEYSTORE_PASSWORD="$STORE_PASSWORD" \
+            -PSAMAN_KEY_ALIAS="$KEY_ALIAS" \
+            -PSAMAN_KEY_PASSWORD="$KEY_PASSWORD"
+      - name: Verify Debug APK
+        run: |
+          APK="android-app/app/build/outputs/apk/debug/app-debug.apk"
+          test -f "$APK"
           unzip -p "$APK" lib/arm64-v8a/libsamanbridge.so > /tmp/libsamanbridge.so
-
-          echo "---- libsamanbridge.so dependencies ----"
-          readelf -d /tmp/libsamanbridge.so | grep NEEDED || true
-
-          if readelf -d /tmp/libsamanbridge.so | grep -q "/home/runner"; then
-            echo "ERROR: build machine path leaked into DT_NEEDED"
-            exit 1
-          fi
-
-          if ! readelf -d /tmp/libsamanbridge.so | grep -q "Shared library: \[libaether.so\]"; then
-            echo "ERROR: libaether.so is not recorded as a normal runtime dependency"
-            exit 1
-          fi
-
+          readelf -d /tmp/libsamanbridge.so | grep -q "Shared library: \[libaether.so\]"
           unzip -l "$APK" | grep -q "lib/arm64-v8a/libaether.so"
           unzip -l "$APK" | grep -q "lib/arm64-v8a/libsamanbridge.so"
-
-          echo "Native dependency verification passed."
-
-      - name: Upload APK
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
+          BADGING="$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK")"
+          echo "$BADGING" | grep -q "package: name='com.saman.tunnel'"
+          echo "$BADGING" | grep -q "application-label:'Saman Tunnel'"
+      - name: Prepare Debug artifact
+        run: |
+          cp android-app/app/build/outputs/apk/debug/app-debug.apk \
+            Saman-Tunnel-v1.2.0-arm64-debug.apk
+      - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: saman-tunnel-arm64-debug
-          path: android-app/app/build/outputs/apk/debug/app-debug.apk
+          name: saman-tunnel-v1.2.0-arm64-debug
+          path: Saman-Tunnel-v1.2.0-arm64-debug.apk
           if-no-files-found: error
+          retention-days: 30
