@@ -217,7 +217,7 @@ class MainActivity : Activity() {
             elevation = dp(2).toFloat()
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(88)
+                dp(104)
             ).apply {
                 bottomMargin = dp(8)
             }
@@ -260,12 +260,12 @@ class MainActivity : Activity() {
 
         proxyStatusView = TextView(this).apply {
             text = ""
-            textSize = 12.2f
+            textSize = 11.8f
             setTextColor(green)
             setPadding(0, dp(3), 0, 0)
             includeFontPadding = false
-            maxLines = 1
-            isSingleLine = true
+            maxLines = 2
+            isSingleLine = false
             visibility = View.GONE
         }
 
@@ -937,33 +937,81 @@ class MainActivity : Activity() {
     private fun refreshState() {
         val prefs = getSharedPreferences(AetherService.PREFS, MODE_PRIVATE)
         val mode = prefs.getString(AetherService.KEY_MODE, "") ?: ""
-        val status = prefs.getString(AetherService.KEY_STATUS, "Stopped") ?: "Stopped"
+        val rawStatus = prefs.getString(AetherService.KEY_STATUS, "Stopped") ?: "Stopped"
+        val status = rawStatus.trim()
 
         modeView.text = "Mode: ${prettyMode(mode)}"
 
         val connected = status.startsWith("Connected", true)
+        val unstable = status.startsWith("Connection unstable", true)
+        val error = status.startsWith("Error", true)
+        val starting = status.startsWith("Starting", true)
+        val connecting = status.startsWith("Connecting", true)
+        val switching = status.startsWith("Switching", true)
+        val stopping = status.startsWith("Stopping", true)
+        val stopped = status.startsWith("Stopped", true)
 
-        if (connected) {
-            statusView.text = "Status: Connected"
+        val detail: String
 
-            val proxySummary = status
-                .substringAfter("—", "")
-                .trim()
-                .ifBlank {
-                    if (status.contains("HTTP", true)) {
-                        "SOCKS5 :1819 + HTTP :1820"
-                    } else {
-                        "SOCKS5 :1819"
-                    }
+        when {
+            connected -> {
+                statusView.text = "Status: Connected"
+                detail = if (status.contains("HTTP", true)) {
+                    "SOCKS5 :1819 + HTTP :1820"
+                } else {
+                    "SOCKS5 :1819"
                 }
+            }
 
-            proxyStatusView.text = proxySummary
-            proxyStatusView.visibility = View.VISIBLE
-        } else {
-            statusView.text = "Status: $status"
-            proxyStatusView.text = ""
-            proxyStatusView.visibility = View.GONE
+            unstable -> {
+                statusView.text = "Status: Connection unstable"
+                detail = "Checking SOCKS5 127.0.0.1:1819"
+            }
+
+            error -> {
+                statusView.text = "Status: Error"
+                detail = status
+                    .substringAfter("Error:", "")
+                    .trim()
+                    .ifBlank { "Aether core reported an error" }
+            }
+
+            switching -> {
+                statusView.text = "Status: Switching mode"
+                detail = "Resetting previous connection"
+            }
+
+            starting -> {
+                statusView.text = "Status: Starting"
+                detail = "Preparing ${prettyMode(mode)}"
+            }
+
+            connecting -> {
+                statusView.text = "Status: Connecting"
+                detail = "Waiting for local proxies"
+            }
+
+            stopping -> {
+                statusView.text = "Status: Stopping"
+                detail = "Closing local proxies"
+            }
+
+            stopped -> {
+                statusView.text = "Status: Stopped"
+                detail = ""
+            }
+
+            else -> {
+                val parts = status.split("—", limit = 2)
+                statusView.text =
+                    "Status: ${parts.firstOrNull()?.trim().orEmpty().ifBlank { "Unknown" }}"
+                detail = parts.getOrNull(1)?.trim().orEmpty()
+            }
         }
+
+        proxyStatusView.text = detail
+        proxyStatusView.visibility =
+            if (detail.isBlank()) View.GONE else View.VISIBLE
 
         when {
             connected -> {
@@ -978,7 +1026,7 @@ class MainActivity : Activity() {
                 proxyStatusView.setTextColor(green)
             }
 
-            status.startsWith("Error", true) -> {
+            error -> {
                 statusBadge.text = "!"
                 statusBadge.setTextColor(red)
                 statusBadge.background = rounded(
@@ -987,11 +1035,22 @@ class MainActivity : Activity() {
                     if (isDark) Color.rgb(128, 54, 61) else Color.rgb(244, 191, 191)
                 )
                 statusView.setTextColor(red)
+                proxyStatusView.setTextColor(red)
             }
 
-            status.contains("Starting", true) ||
-                status.contains("Connecting", true) ||
-                status.contains("checking SOCKS5", true) -> {
+            unstable -> {
+                statusBadge.text = "…"
+                statusBadge.setTextColor(orange)
+                statusBadge.background = rounded(
+                    if (isDark) Color.rgb(63, 45, 24) else Color.rgb(255, 247, 235),
+                    16,
+                    if (isDark) Color.rgb(126, 86, 38) else Color.rgb(242, 207, 158)
+                )
+                statusView.setTextColor(orange)
+                proxyStatusView.setTextColor(muted)
+            }
+
+            starting || connecting || switching -> {
                 statusBadge.text = "…"
                 statusBadge.setTextColor(blue)
                 statusBadge.background = rounded(
@@ -1000,6 +1059,19 @@ class MainActivity : Activity() {
                     if (isDark) Color.rgb(51, 91, 139) else Color.rgb(188, 213, 245)
                 )
                 statusView.setTextColor(blue)
+                proxyStatusView.setTextColor(muted)
+            }
+
+            stopping -> {
+                statusBadge.text = "…"
+                statusBadge.setTextColor(orange)
+                statusBadge.background = rounded(
+                    if (isDark) Color.rgb(63, 45, 24) else Color.rgb(255, 247, 235),
+                    16,
+                    if (isDark) Color.rgb(126, 86, 38) else Color.rgb(242, 207, 158)
+                )
+                statusView.setTextColor(orange)
+                proxyStatusView.setTextColor(muted)
             }
 
             else -> {
@@ -1007,6 +1079,7 @@ class MainActivity : Activity() {
                 statusBadge.setTextColor(muted)
                 statusBadge.background = rounded(cardSoft, 16, line)
                 statusView.setTextColor(muted)
+                proxyStatusView.setTextColor(muted)
             }
         }
     }

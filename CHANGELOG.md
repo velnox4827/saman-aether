@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.2.1
+
+Stable UI polish release.
+
+- Reworks the top status card so long runtime states never overflow the screen
+- Clean layout for Connected, Connection unstable, Starting, Connecting, Switching mode, Stopping, Stopped and Error
+- Connection details are displayed on a dedicated detail line
+- Long error details may wrap inside the card instead of leaving the screen
+- Keeps SOCKS5 `127.0.0.1:1819` and HTTP CONNECT `127.0.0.1:1820`
+- Keeps Aether Core v1.7.0 and all v1.2.0 networking behavior unchanged
+
+
 ## v1.2.0
 
 Stable release.
