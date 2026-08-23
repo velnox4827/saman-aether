@@ -46,6 +46,7 @@ class MainActivity : Activity() {
 
     private lateinit var modeView: TextView
     private lateinit var statusView: TextView
+    private lateinit var proxyStatusView: TextView
     private lateinit var statusBadge: TextView
     private lateinit var versionView: TextView
     private lateinit var batteryView: TextView
@@ -216,7 +217,7 @@ class MainActivity : Activity() {
             elevation = dp(2).toFloat()
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(74)
+                dp(88)
             ).apply {
                 bottomMargin = dp(8)
             }
@@ -253,11 +254,24 @@ class MainActivity : Activity() {
             setTextColor(muted)
             setPadding(0, dp(5), 0, 0)
             includeFontPadding = false
-            maxLines = 2
+            maxLines = 1
+            isSingleLine = true
+        }
+
+        proxyStatusView = TextView(this).apply {
+            text = ""
+            textSize = 12.2f
+            setTextColor(green)
+            setPadding(0, dp(3), 0, 0)
+            includeFontPadding = false
+            maxLines = 1
+            isSingleLine = true
+            visibility = View.GONE
         }
 
         statusColumn.addView(modeView)
         statusColumn.addView(statusView)
+        statusColumn.addView(proxyStatusView)
         statusCard.addView(statusColumn)
         root.addView(statusCard)
 
@@ -926,10 +940,33 @@ class MainActivity : Activity() {
         val status = prefs.getString(AetherService.KEY_STATUS, "Stopped") ?: "Stopped"
 
         modeView.text = "Mode: ${prettyMode(mode)}"
-        statusView.text = "Status: $status"
+
+        val connected = status.startsWith("Connected", true)
+
+        if (connected) {
+            statusView.text = "Status: Connected"
+
+            val proxySummary = status
+                .substringAfter("—", "")
+                .trim()
+                .ifBlank {
+                    if (status.contains("HTTP", true)) {
+                        "SOCKS5 :1819 + HTTP :1820"
+                    } else {
+                        "SOCKS5 :1819"
+                    }
+                }
+
+            proxyStatusView.text = proxySummary
+            proxyStatusView.visibility = View.VISIBLE
+        } else {
+            statusView.text = "Status: $status"
+            proxyStatusView.text = ""
+            proxyStatusView.visibility = View.GONE
+        }
 
         when {
-            status.startsWith("Connected", true) -> {
+            connected -> {
                 statusBadge.text = "✓"
                 statusBadge.setTextColor(green)
                 statusBadge.background = rounded(
@@ -938,6 +975,7 @@ class MainActivity : Activity() {
                     if (isDark) Color.rgb(42, 112, 87) else Color.rgb(190, 231, 211)
                 )
                 statusView.setTextColor(green)
+                proxyStatusView.setTextColor(green)
             }
 
             status.startsWith("Error", true) -> {

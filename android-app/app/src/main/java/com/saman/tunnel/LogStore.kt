@@ -57,9 +57,11 @@ object LogStore {
             appendLine()
         }
 
-        val app = tailChars(File(context.filesDir, APP_LOG), 70_000)
-        val core = tailChars(File(context.filesDir, CORE_LOG), 100_000)
-        val previousCore = tailChars(File(context.filesDir, CORE_OLD_LOG), 40_000)
+        // Save TXT is the full diagnostic report.
+        // Export every log line currently retained by the app.
+        val app = readAll(File(context.filesDir, APP_LOG))
+        val core = readAll(File(context.filesDir, CORE_LOG))
+        val previousCore = readAll(File(context.filesDir, CORE_OLD_LOG))
 
         return buildString {
             append(header)
@@ -112,9 +114,9 @@ object LogStore {
         append(context, "APP", "Diagnostics cleared by user")
     }
 
-    private fun tailChars(file: File, maxChars: Int): String = runCatching {
+    private fun readAll(file: File): String = runCatching {
         if (!file.exists()) return@runCatching ""
-        file.readText().takeLast(maxChars)
+        file.readText()
     }.getOrDefault("")
 
     private fun tailLines(file: File, count: Int): String = runCatching {
