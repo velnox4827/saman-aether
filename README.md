@@ -23,46 +23,64 @@
 
 ---
 
-## Saman Tunnel v1.1
+## Saman Tunnel v1.2.1
 
-نسخه 1.1 علاوه بر قابلیت‌های قبلی شامل این موارد است:
+نسخه پایدار فعلی پروژه با **Aether Core v1.7.0**.
 
-- تم خودکار **Light / Dark** بر اساس تنظیمات خود Android
-- آیکن رسمی بدون نوشته برای Launcher و App info
+### تغییرات مهم نسخه‌های 1.2.x
+
+- رابط کاربری خودکار **Light / Dark** بر اساس تنظیمات Android
+- آیکن اختصاصی Launcher، App Info و Notification
 - انتخاب دو حالت **MASQUE HTTP/3 (QUIC)** و **MASQUE HTTP/2**
-- مشاهده سریع **20 یا 40 خط آخر Log**
-- ذخیره کامل Diagnostics در فایل TXT
+- حالت‌های **WireGuard** و **GOOL**
+- تعویض Mode با Reset خودکار اتصال قبلی؛ در حالت عادی نیازی به زدن STOP قبل از تغییر Mode نیست
+- خروجی محلی **SOCKS5** روی `127.0.0.1:1819`
+- خروجی محلی **HTTP CONNECT** روی `127.0.0.1:1820`
+- کارت Status مرتب و چندخطی برای همه وضعیت‌ها: Connected، Connection unstable، Starting، Connecting، Switching، Stopping، Stopped و Error
+- نمایش سریع **40 خط آخر Log** از داخل برنامه
+- **Save TXT** برای ذخیره گزارش کامل Logهای فعلی App و Aether Core
 - نمایش وضعیت Battery Optimization و میانبر تنظیمات باتری
 - **Check update** مستقیم از GitHub Releases
 - جلوگیری از Startهای پشت‌سرهم هنگام Connecting
-- Build پایدار با **compileSdk 36 / AGP 8.13.2 / Gradle 8.13**
+- Build برای **arm64-v8a** با حداقل Android 7 (API 24)
+- `compileSdk 36` و `targetSdk 35`
 
-> `compileSdk` در نسخه 1.1.1 روی Android 16 (API 36) پایدار شده است؛ `targetSdk` نیز فعلاً 35 باقی مانده تا سازگاری کامل حفظ شود.
+> نسخه `v1.2.1` یک بهبود رابط کاربری است و رفتار شبکه نسخه `v1.2.0` را حفظ می‌کند؛ مهم‌ترین تغییر آن مرتب‌شدن همه وضعیت‌های اتصال در کارت بالای برنامه است تا متن‌های طولانی از صفحه بیرون نزنند.
 
 ## فارسی
 
 ### Saman Tunnel چیست؟
 
-**Saman Tunnel** یک برنامه مستقل Android است که هسته متن‌باز **Aether** را داخل خود برنامه اجرا می‌کند و یک SOCKS5 محلی می‌سازد.
+**Saman Tunnel** یک برنامه مستقل Android است که هسته متن‌باز **Aether** را داخل خود برنامه اجرا می‌کند و دو Proxy محلی در اختیار برنامه‌های دیگر قرار می‌دهد:
+
+```text
+SOCKS5       127.0.0.1:1819
+HTTP CONNECT 127.0.0.1:1820
+```
+
+ویژگی‌ها:
 
 - بدون Termux
 - بدون Termux:Widget
 - اجرای مستقیم MASQUE / WireGuard / GOOL
-- SOCKS5 محلی: `127.0.0.1:1819`
+- MASQUE با دو انتخاب HTTP/3 و HTTP/2
+- SOCKS5 و HTTP CONNECT مستقیم از Aether Core
 - نمایش نسخه App و Aether Core
 - سرویس Foreground برای ادامه کار در پس‌زمینه
-- ذخیره Diagnostics در فایل TXT
-- مناسب برای استفاده به‌عنوان upstream SOCKS5 در برنامه‌های دیگر
+- نمایش Status مرتب برای همه حالت‌های اتصال
+- مشاهده سریع 40 خط آخر Log
+- ذخیره Diagnostics کامل در فایل TXT
+- مناسب برای استفاده به‌عنوان upstream Proxy در برنامه‌های دیگر
 
-> Saman Tunnel خودش VPN سراسری Android نیست. خروجی برنامه یک SOCKS5 محلی است. برای عبور ترافیک کل گوشی باید از یک برنامه سازگار با SOCKS5 یا زنجیره Proxy/VPN استفاده کنید.
+> Saman Tunnel خودش VPN سراسری Android نیست. برای عبور ترافیک کل گوشی باید خروجی SOCKS5 یا HTTP CONNECT آن را داخل یک برنامه سازگار با Proxy/VPN استفاده کنید.
 
 ### دانلود و نصب
 
-به صفحه **Releases** بروید و جدیدترین فایل APK را دانلود کنید:
+آخرین نسخه Stable را از GitHub Releases دانلود کنید:
 
 **https://github.com/velnox4827/saman-aether/releases/latest**
 
-نسخه فعلی فقط برای **arm64-v8a** ساخته می‌شود.
+نسخه فعلی برای **arm64-v8a** ساخته می‌شود.
 
 حداقل Android: **7.0 (API 24)**
 
@@ -70,15 +88,17 @@
 
 1. Saman Tunnel را باز کنید.
 2. یکی از حالت‌های **MASQUE**، **WireGuard** یا **GOOL** را انتخاب کنید.
-3. صبر کنید Status به `Connected` برسد.
-4. SOCKS5 روی آدرس زیر آماده است:
+3. در MASQUE می‌توانید بین **HTTP/3 (QUIC)** و **HTTP/2** انتخاب کنید.
+4. صبر کنید Status به `Connected` برسد.
+5. بعد از اتصال این دو Proxy آماده هستند:
 
 ```text
-127.0.0.1:1819
+SOCKS5       127.0.0.1:1819
+HTTP CONNECT 127.0.0.1:1820
 ```
 
-5. در برنامه‌ای که قرار است از این Proxy استفاده کند، نوع Proxy را **SOCKS5** و Host/Port را مطابق بالا تنظیم کنید.
-6. اگر برنامه دوم VPN سراسری Android می‌سازد، **فقط Saman Tunnel را در آن برنامه Bypass/Exclude کنید** تا Loop ایجاد نشود.
+6. در برنامه مقصد، نوع Proxy موردنیاز را انتخاب و Host/Port را مطابق بالا وارد کنید.
+7. اگر برنامه دوم VPN سراسری Android می‌سازد، **فقط Saman Tunnel را در آن برنامه Bypass/Exclude کنید** تا Loop ایجاد نشود.
 
 راهنمای کامل فارسی: [docs/USAGE.fa.md](docs/USAGE.fa.md)
 
@@ -86,19 +106,39 @@
 
 | Mode | توضیح کوتاه |
 |---|---|
-| MASQUE | تونل مدرن مبتنی بر ترافیک وب؛ انتخاب مناسب برای شروع |
-| WireGuard | ساده‌تر و معمولاً سریع‌تر |
-| GOOL | WireGuard داخل WireGuard؛ سنگین‌تر و وابسته‌تر به کیفیت شبکه |
+| MASQUE HTTP/3 | حالت پیش‌فرض MASQUE مبتنی بر QUIC/HTTP/3؛ مناسب شبکه‌هایی که QUIC روی آن‌ها خوب کار می‌کند |
+| MASQUE HTTP/2 | جایگزین MASQUE برای شبکه‌هایی که HTTP/3/QUIC محدود یا ناپایدار است |
+| WireGuard | حالت ساده‌تر و معمولاً سریع‌تر؛ انتخاب مناسب برای شروع تست |
+| GOOL | تونل WireGuard داخل WireGuard؛ سنگین‌تر و وابسته‌تر به کیفیت شبکه |
 
-### Diagnostics
+عملکرد هر Mode به اپراتور، فیلترینگ، کیفیت مسیر و شبکه کاربر بستگی دارد.
 
-اگر مشکلی دیدید:
+### Status و وضعیت اتصال
 
-1. وارد بخش **Diagnostics** شوید.
-2. **Save TXT** را بزنید.
-3. فایل `Saman-Tunnel-diagnostics.txt` را ذخیره کنید.
-4. قبل از انتشار عمومی، فایل را بررسی کنید؛ Log می‌تواند شامل IP، Endpoint و اطلاعات فنی اتصال باشد.
-5. در GitHub یک Issue بسازید و اطلاعات لازم را بنویسید.
+نمونه وضعیت متصل:
+
+```text
+Mode: WG
+Status: Connected
+SOCKS5 :1819 + HTTP :1820
+```
+
+نمونه وضعیت ناپایدار:
+
+```text
+Mode: WG
+Status: Connection unstable
+Checking SOCKS5 127.0.0.1:1819
+```
+
+در v1.2.1 همه وضعیت‌ها شامل Connected، Connection unstable، Starting، Connecting، Switching، Stopping، Stopped و Error با چیدمان مرتب داخل کارت نمایش داده می‌شوند.
+
+### Diagnostics و گزارش مشکل
+
+- **Logs**: نمایش سریع آخرین **40 خط** Log
+- **Save TXT**: ذخیره گزارش کامل Logهای فعلی App و Aether Core
+
+فایل گزارش می‌تواند شامل IP، Endpoint و جزئیات فنی اتصال باشد؛ قبل از انتشار عمومی آن را بررسی کنید.
 
 **گزارش مشکل:**  
 https://github.com/velnox4827/saman-aether/issues/new?template=bug_report.md
@@ -108,17 +148,15 @@ https://github.com/velnox4827/saman-aether/issues/new?template=feature_request.m
 
 ### 💬 گروه تلگرام
 
-برای گفتگو درباره پروژه، آموزش، تست نسخه‌ها، پرسش‌های عمومی و تبادل تجربه:
-
 **Saman Tunnel • Community**
 
 https://t.me/SamanTunnel
 
-برای باگ‌ها و پیشنهادهای قابل پیگیری، لطفاً همچنان از **GitHub Issues** استفاده کنید تا گزارش‌ها مستند بمانند.
+برای آموزش، تست نسخه‌ها، پرسش، گزارش تجربه روی اپراتورهای مختلف و گفتگو درباره پروژه.
 
-### نکته Battery Optimization
+### Battery Optimization
 
-اگر Android برنامه را در پس‌زمینه می‌بندد، Battery Optimization را برای **Saman Tunnel** روی **Unrestricted / No restrictions** قرار دهید. اگر از یک VPN/Proxy دیگر برای مصرف SOCKS5 استفاده می‌کنید، بهتر است همان برنامه هم محدودیت باتری نداشته باشد.
+برای پایداری اتصال در پس‌زمینه، Battery Optimization را برای **Saman Tunnel** روی **Unrestricted / No restrictions** قرار دهید.
 
 ### پروژه Aether
 
@@ -126,63 +164,64 @@ Saman Tunnel از هسته رسمی و متن‌باز Aether استفاده م�
 
 https://github.com/CluvexStudio/Aether
 
-نسخه عمومی `v1.0.0` هسته را از Commit زیر Build می‌کند تا Build قابل تکرار باشد:
+Build اندروید هسته به Commit زیر Pin شده است:
 
 ```text
 e05cbd78b8f17873abee553904a85610b88c0382
 ```
 
-این Build در حال حاضر Aether Core `v1.7.0` را ارائه می‌دهد.
+این Build در حال حاضر **Aether Core v1.7.0** را ارائه می‌دهد.
 
 ### نام و برند
 
-**Saman Tunnel** یک پروژه مستقل است و پروژه رسمی Aether نیست. نام و لوگوی Saman Tunnel مستقل از برند Aether طراحی شده‌اند.
+**Saman Tunnel** یک پروژه مستقل است و پروژه رسمی Aether نیست.
 
 ### مجوز
 
-این پروژه با توجه به استفاده از Aether Core تحت **GNU AGPL-3.0** منتشر می‌شود. متن مجوز در فایل [LICENSE](LICENSE) قرار دارد.
+این پروژه تحت **GNU AGPL-3.0** منتشر می‌شود. متن مجوز در فایل [LICENSE](LICENSE) قرار دارد.
 
 ---
 
 ## English
 
-**Saman Tunnel** is a standalone Android frontend that embeds the open-source **Aether Core** and exposes a local SOCKS5 proxy at:
+**Saman Tunnel** is a standalone Android frontend that embeds **Aether Core v1.7.0** and exposes:
 
 ```text
-127.0.0.1:1819
+SOCKS5       127.0.0.1:1819
+HTTP CONNECT 127.0.0.1:1820
 ```
-
-No Termux is required.
 
 Main features:
 
-- MASQUE, WireGuard and GOOL modes
-- Local SOCKS5 proxy
+- MASQUE HTTP/3 (QUIC) and HTTP/2
+- WireGuard and GOOL
+- Automatic clean reset when switching modes
+- Local SOCKS5 + HTTP CONNECT
 - Foreground Android service
-- App/Core version display
-- TXT diagnostics export
-- Built-in connection status
-- Designed for use as an upstream SOCKS5 proxy
+- System Light/Dark theme
+- Clean multi-line status card for all runtime states
+- Last 40 log lines viewer
+- Full TXT diagnostics export
+- Battery optimization shortcut
+- Manual GitHub update checker
+- arm64-v8a
+- Minimum Android 7 / API 24
 
-Download the latest APK from:
+Saman Tunnel is not a full-device Android VPN by itself. Use its local proxy endpoints from a compatible proxy/VPN client.
+
+If another VPN app consumes Saman Tunnel's proxy, bypass/exclude **Saman Tunnel itself** to avoid routing loops.
+
+Download latest Stable APK:
 
 **https://github.com/velnox4827/saman-aether/releases/latest**
 
-Full English guide: [docs/USAGE.en.md](docs/USAGE.en.md)
-
-For bugs and feature requests, please use **GitHub Issues**:
-
-https://github.com/velnox4827/saman-aether/issues
-
-### Telegram Community
-
-Join **Saman Tunnel • Community** for general discussion, testing, help and user feedback:
+Telegram:
 
 https://t.me/SamanTunnel
 
-Please use GitHub Issues for reproducible bugs and feature requests so they remain trackable.
+Issues:
 
-Saman Tunnel is an independent project and is not the official Aether application.
+https://github.com/velnox4827/saman-aether/issues
 
 Upstream Aether:
 
@@ -194,25 +233,25 @@ License: **GNU AGPL-3.0**
 
 ## دو روش استفاده / Two ways to use this project
 
-این Repository عمداً **هر دو روش** را نگه می‌دارد:
-
 ### 1) Saman Tunnel APK
 
-روش ساده‌تر و پیشنهادی برای بیشتر کاربران:
+روش ساده‌تر و پیشنهادی:
 
 - بدون Termux
 - بدون Termux:Widget
-- اپ مستقل Android
-- MASQUE / WireGuard / GOOL
+- MASQUE HTTP/3 / HTTP/2
+- WireGuard / GOOL
 - SOCKS5 روی `127.0.0.1:1819`
+- HTTP CONNECT روی `127.0.0.1:1820`
+- Diagnostics و Update checker داخل برنامه
 
 راهنمای فارسی: [docs/USAGE.fa.md](docs/USAGE.fa.md)
 
 ### 2) Saman Aether — Termux + Termux:Widget
 
-نسخه‌ی قبلی پروژه **حذف نشده** و همچنان داخل همین Repository نگه‌داری می‌شود.
+نسخه Termux پروژه **حذف نشده** و همچنان داخل همین Repository نگه‌داری می‌شود.
 
-این روش Aether رسمی را داخل Termux نصب/آپدیت می‌کند و چهار Shortcut برای **Termux:Widget** می‌سازد:
+Shortcutهای Termux:Widget:
 
 ```text
 0-STOP-Aether
@@ -227,15 +266,15 @@ License: **GNU AGPL-3.0**
 curl -fsSL https://raw.githubusercontent.com/velnox4827/saman-aether/main/install.sh | bash
 ```
 
-راهنمای کامل فارسی Termux + Widget:
+راهنمای کامل فارسی:
 
 **[docs/TERMUX.fa.md](docs/TERMUX.fa.md)**
 
-English Termux guide:
+English guide:
 
 **[docs/TERMUX.en.md](docs/TERMUX.en.md)**
 
-فایل‌های این روش همچنان در ریشه پروژه هستند:
+فایل‌های این روش:
 
 ```text
 install.sh
@@ -243,4 +282,5 @@ aether-shortcut-runner
 shortcuts/
 ```
 
-هر دو روش از Aether استفاده می‌کنند، ولی مستقل از هم هستند؛ کاربر می‌تواند APK مستقل را استفاده کند یا روش Termux/Widget را انتخاب کند.
+هر دو روش از Aether استفاده می‌کنند ولی مستقل از هم هستند.
+
