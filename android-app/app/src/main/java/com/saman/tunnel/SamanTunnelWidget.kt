@@ -83,6 +83,7 @@ class SamanTunnelWidget : AppWidgetProvider() {
                 prefs.edit()
                     .putString(AetherService.KEY_STATUS, "Starting…")
                     .putString(AetherService.KEY_MODE, lastMode)
+                    .putString(AetherService.KEY_LAST_MODE, lastMode)
                     .apply()
 
                 serviceIntent.action = AetherService.ACTION_START

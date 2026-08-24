@@ -3,6 +3,7 @@ package com.saman.tunnel
 import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.ContentValues
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -15,10 +16,12 @@ import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
 import android.provider.Settings
+import android.provider.MediaStore
 import android.os.SystemClock
 import android.view.Gravity
 import android.view.View
@@ -30,6 +33,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import org.json.JSONObject
+import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.InetSocketAddress
 import java.net.Proxy
@@ -640,7 +644,11 @@ class MainActivity : Activity() {
 
     private fun start(mode: String) {
         if (isBusy()) {
-            Toast.makeText(this, "Connection action already in progress", Toast.LENGTH_SHORT).show()
+            Toast.makeText(
+                this,
+                "Connection action already in progress",
+                Toast.LENGTH_SHORT
+            ).show()
             return
         }
 
@@ -648,12 +656,62 @@ class MainActivity : Activity() {
         if (now - lastStartTap < 1400L) return
         lastStartTap = now
 
-        LogStore.append(this, "UI", "Start requested: $mode")
+        val prefs =
+            getSharedPreferences(
+                AetherService.PREFS,
+                MODE_PRIVATE
+            )
 
-        val intent = Intent(this, AetherService::class.java).apply {
-            action = AetherService.ACTION_START
-            putExtra(AetherService.EXTRA_MODE, mode)
+        prefs.edit()
+            .putString(
+                AetherService.KEY_LAST_MODE,
+                mode
+            )
+            .apply()
+
+        val status =
+            prefs.getString(
+                AetherService.KEY_STATUS,
+                "Stopped"
+            ).orEmpty()
+
+        val active =
+            status.startsWith("Connected", true) ||
+                status.startsWith("Connection unstable", true)
+
+        if (active) {
+            LogStore.append(
+                this,
+                "UI",
+                "Mode switch requested -> $mode; restarting isolated core"
+            )
+
+            stop()
+
+            handler.postDelayed(
+                { launchCoreService(mode) },
+                1000L
+            )
+        } else {
+            launchCoreService(mode)
         }
+    }
+
+    private fun launchCoreService(mode: String) {
+        LogStore.append(
+            this,
+            "UI",
+            "Start requested: $mode"
+        )
+
+        val intent =
+            Intent(
+                this,
+                AetherService::class.java
+            ).apply {
+                action = AetherService.ACTION_START
+                putExtra(AetherService.EXTRA_MODE, mode)
+            }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(intent)
@@ -717,15 +775,117 @@ class MainActivity : Activity() {
     }
 
     private fun saveDiagnosticsTxt() {
-        LogStore.append(this, "UI", "Save diagnostics TXT requested")
+        LogStore.append(
+            this,
+            "UI",
+            "Save diagnostics TXT requested"
+        )
 
-        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-            addCategory(Intent.CATEGORY_OPENABLE)
-            type = "text/plain"
-            putExtra(Intent.EXTRA_TITLE, "Saman-Tunnel-diagnostics.txt")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            saveDiagnosticsToDownloads()
+            return
         }
 
-        startActivityForResult(intent, REQUEST_SAVE_DIAGNOSTICS)
+        val intent =
+            Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "text/plain"
+                putExtra(
+                    Intent.EXTRA_TITLE,
+                    "Saman-Tunnel-diagnostics.txt"
+                )
+            }
+
+        startActivityForResult(
+            intent,
+            REQUEST_SAVE_DIAGNOSTICS
+        )
+    }
+
+    private fun saveDiagnosticsToDownloads() {
+        runCatching {
+            val report = LogStore.diagnostics(this)
+            val bytes = report.toByteArray(Charsets.UTF_8)
+
+            require(bytes.isNotEmpty()) {
+                "Diagnostics report was empty"
+            }
+
+            val fileName =
+                "Saman-Tunnel-diagnostics-${System.currentTimeMillis()}.txt"
+
+            val values = ContentValues().apply {
+                put(MediaStore.Downloads.DISPLAY_NAME, fileName)
+                put(MediaStore.Downloads.MIME_TYPE, "text/plain")
+                put(
+                    MediaStore.Downloads.RELATIVE_PATH,
+                    Environment.DIRECTORY_DOWNLOADS
+                )
+                put(MediaStore.Downloads.IS_PENDING, 1)
+            }
+
+            val uri =
+                contentResolver.insert(
+                    MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                    values
+                )
+                    ?: error("Could not create file in Downloads")
+
+            try {
+                val descriptor =
+                    contentResolver.openFileDescriptor(uri, "w")
+                        ?: error("Could not open Downloads file")
+
+                descriptor.use { pfd ->
+                    FileOutputStream(pfd.fileDescriptor).use { output ->
+                        output.write(bytes)
+                        output.flush()
+                        output.fd.sync()
+                    }
+                }
+
+                values.clear()
+                values.put(MediaStore.Downloads.IS_PENDING, 0)
+                contentResolver.update(uri, values, null, null)
+
+                val verifiedSize =
+                    contentResolver
+                        .openFileDescriptor(uri, "r")
+                        ?.use { it.statSize }
+                        ?: -1L
+
+                require(verifiedSize != 0L) {
+                    "Android saved a zero-byte diagnostics file"
+                }
+
+                LogStore.append(
+                    this,
+                    "UI",
+                    "Diagnostics saved to Downloads bytes=${bytes.size} verified=$verifiedSize"
+                )
+
+                Toast.makeText(
+                    this,
+                    "Diagnostics saved to Downloads ($verifiedSize bytes)",
+                    Toast.LENGTH_LONG
+                ).show()
+            } catch (t: Throwable) {
+                contentResolver.delete(uri, null, null)
+                throw t
+            }
+        }.onFailure {
+            LogStore.append(
+                this,
+                "ERROR",
+                "Saving diagnostics failed: ${it.stackTraceToString()}"
+            )
+
+            Toast.makeText(
+                this,
+                "Could not save diagnostics: ${it.message}",
+                Toast.LENGTH_LONG
+            ).show()
+        }
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -737,24 +897,42 @@ class MainActivity : Activity() {
         runCatching {
             val report = LogStore.diagnostics(this)
             val bytes = report.toByteArray(Charsets.UTF_8)
-            require(bytes.isNotEmpty()) { "Diagnostics report was empty" }
 
-            val output = contentResolver.openOutputStream(uri, "w")
-                ?: error("Could not open selected file")
+            require(bytes.isNotEmpty()) {
+                "Diagnostics report was empty"
+            }
 
-            output.use { stream ->
-                stream.write(bytes)
-                stream.flush()
+            val descriptor =
+                contentResolver.openFileDescriptor(uri, "w")
+                    ?: error("Could not open selected file")
+
+            descriptor.use { pfd ->
+                FileOutputStream(pfd.fileDescriptor).use { output ->
+                    output.write(bytes)
+                    output.flush()
+                    output.fd.sync()
+                }
+            }
+
+            val verifiedSize =
+                contentResolver
+                    .openFileDescriptor(uri, "r")
+                    ?.use { it.statSize }
+                    ?: -1L
+
+            require(verifiedSize != 0L) {
+                "Android saved a zero-byte diagnostics file"
             }
 
             LogStore.append(
                 this,
                 "UI",
-                "Diagnostics saved as TXT bytes=${bytes.size}"
+                "Diagnostics saved as TXT bytes=${bytes.size} verified=$verifiedSize"
             )
+
             Toast.makeText(
                 this,
-                "Diagnostics TXT saved (${bytes.size} bytes)",
+                "Diagnostics TXT saved ($verifiedSize bytes)",
                 Toast.LENGTH_SHORT
             ).show()
         }.onFailure {

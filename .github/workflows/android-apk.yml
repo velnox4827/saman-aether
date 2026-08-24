@@ -1,4 +1,4 @@
-name: Build Saman Tunnel v1.3.2 Stability Debug APK
+name: Build Saman Tunnel v1.3.3 Isolated Core Debug APK
 
 on:
   workflow_dispatch:
@@ -94,15 +94,17 @@ jobs:
           MANIFEST_XML="$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump xmltree "$APK" AndroidManifest.xml)"
           echo "$MANIFEST_XML" | grep -q "com.saman.tunnel.SamanTunnelWidget"
           echo "$MANIFEST_XML" | grep -q "android.appwidget.action.APPWIDGET_UPDATE"
+          echo "$MANIFEST_XML" | grep -q "aether_core"
+          echo "$MANIFEST_XML" | grep -q "com.saman.tunnel.TunnelStateReceiver"
           echo "Widget manifest verification passed."
       - name: Prepare Debug artifact
         run: |
           cp android-app/app/build/outputs/apk/debug/app-debug.apk \
-            Saman-Tunnel-v1.3.2-stability-arm64-debug.apk
+            Saman-Tunnel-v1.3.3-isolated-core-arm64-debug.apk
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: saman-tunnel-v1.3.2-stability-debug
-          path: Saman-Tunnel-v1.3.2-stability-arm64-debug.apk
+          name: saman-tunnel-v1.3.3-isolated-core-debug
+          path: Saman-Tunnel-v1.3.3-isolated-core-arm64-debug.apk
           if-no-files-found: error
           retention-days: 30

@@ -27,11 +27,16 @@
         <service
             android:name=".AetherService"
             android:exported="false"
+            android:process=":aether_core"
             android:foregroundServiceType="specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Long-running local SOCKS5 and HTTP CONNECT proxy core controlled directly by the user" />
         </service>
+
+        <receiver
+            android:name=".TunnelStateReceiver"
+            android:exported="false" />
 
         <receiver
             android:name=".SamanTunnelWidget"
