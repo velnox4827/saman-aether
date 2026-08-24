@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="widget_state_off">#A6AEBB</color>
+    <color name="widget_state_working">#65A6FF</color>
+    <color name="widget_state_on">#36C88C</color>
+    <color name="widget_state_warn">#F2A54A</color>
+    <color name="widget_state_error">#F06B6B</color>
+</resources>

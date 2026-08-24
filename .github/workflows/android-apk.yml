@@ -1,4 +1,4 @@
-name: Build Saman Tunnel v1.2.0 Debug APK
+name: Build Saman Tunnel v1.3.0 Widget Debug APK
 
 on:
   workflow_dispatch:
@@ -90,14 +90,19 @@ jobs:
           BADGING="$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK")"
           echo "$BADGING" | grep -q "package: name='com.saman.tunnel'"
           echo "$BADGING" | grep -q "application-label:'Saman Tunnel'"
+
+          MANIFEST_XML="$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump xmltree "$APK" AndroidManifest.xml)"
+          echo "$MANIFEST_XML" | grep -q "com.saman.tunnel.SamanTunnelWidget"
+          echo "$MANIFEST_XML" | grep -q "android.appwidget.action.APPWIDGET_UPDATE"
+          echo "Widget manifest verification passed."
       - name: Prepare Debug artifact
         run: |
           cp android-app/app/build/outputs/apk/debug/app-debug.apk \
-            Saman-Tunnel-v1.2.0-arm64-debug.apk
+            Saman-Tunnel-v1.3.0-widget-arm64-debug.apk
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: saman-tunnel-v1.2.0-arm64-debug
-          path: Saman-Tunnel-v1.2.0-arm64-debug.apk
+          name: saman-tunnel-v1.3.0-widget-debug
+          path: Saman-Tunnel-v1.3.0-widget-arm64-debug.apk
           if-no-files-found: error
           retention-days: 30

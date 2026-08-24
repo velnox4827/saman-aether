@@ -24,6 +24,7 @@ class AetherService : Service() {
         const val PREFS = "saman_tunnel"
         const val KEY_STATUS = "status"
         const val KEY_MODE = "mode"
+        const val KEY_LAST_MODE = "last_mode"
         private const val CHANNEL_ID = "saman_tunnel_core"
         private const val NOTIFICATION_ID = 1819
         private const val SOCKS_PORT = 1819
@@ -45,6 +46,11 @@ class AetherService : Service() {
             ACTION_STOP -> stopCore()
             ACTION_START -> {
                 val mode = intent.getStringExtra(EXTRA_MODE) ?: "WG"
+
+                prefs().edit()
+                    .putString(KEY_LAST_MODE, mode)
+                    .apply()
+
                 LogStore.append(this, "SERVICE", "Start command mode=$mode")
                 beginForeground("Preparing ${modeLabel(mode)}…")
                 requestStart(mode)
@@ -305,6 +311,8 @@ class AetherService : Service() {
         if (oldStatus != status || oldMode != mode) {
             LogStore.append(this, "STATE", "mode=$mode status=$status")
         }
+
+        SamanTunnelWidget.updateAll(this)
     }
 
     private fun createNotificationChannel() {
