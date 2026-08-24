@@ -134,7 +134,9 @@ class AetherService : Service() {
         setState("Connecting…", mode)
         updateNotification("Connecting ${modeLabel(mode)}…")
 
-        for (i in 0 until 120) {
+        // Faster app-side readiness detection while preserving the
+        // original 120-second maximum startup window.
+        for (i in 0 until 480) {
             if (generation != myGeneration || jobId != id) return
             val rawPoll = NativeBridge.pollJob(id)
             val polled = JSONObject(rawPoll)
@@ -154,7 +156,7 @@ class AetherService : Service() {
                 return
             }
 
-            Thread.sleep(1000)
+            Thread.sleep(250)
         }
 
         fail("SOCKS5 did not become ready", mode)
@@ -258,7 +260,8 @@ class AetherService : Service() {
     private fun argumentsFor(mode: String): List<String> {
         val commonProxyArgs = listOf(
             "--bind", "127.0.0.1:$SOCKS_PORT",
-            "--http-proxy", "127.0.0.1:$HTTP_PORT"
+            "--http-proxy", "127.0.0.1:$HTTP_PORT",
+            "--reconnect-secs", "1"
         )
 
         return when (mode.uppercase()) {
