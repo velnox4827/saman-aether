@@ -780,10 +780,8 @@ class MainActivity : Activity() {
             .setTitle("Save diagnostics")
             .setItems(
                 arrayOf(
-                    "Safe report — recommended
-Recent logs · IDs redacted · compact",
-                    "Full history
-All retained logs · may include identifiers"
+                    "Safe report — recommended\nRecent logs · IDs redacted · compact",
+                    "Full history\nAll retained logs · may include identifiers"
                 )
             ) { _, which ->
                 when (which) {
