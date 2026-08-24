@@ -115,39 +115,49 @@ jobs:
           sha256sum "$OUT" > "${OUT}.sha256"
 
           cat > /tmp/release-notes.md <<'NOTES'
-          # Saman Tunnel v1.2.1
+          # Saman Tunnel v1.3.0
 
-          Stable UI polish update for Saman Tunnel.
+          Home Screen Widget release.
 
-          ## What's fixed
+          ## What's new
 
-          - The top status card is now structured cleanly for every runtime state
-          - Long messages no longer run outside the screen
-          - `Connection unstable` is shown as a short status line
-          - SOCKS5 checking information is shown on a separate detail line
-          - Error details can wrap safely inside the status card
-          - Starting / Connecting / Switching / Stopping states use the same consistent layout
-          - Connected mode keeps proxy information on its own line
+          - New compact Android Home Screen Widget
+          - One tap while stopped starts the last selected mode
+          - One tap while active stops Saman Tunnel
+          - Defaults to WireGuard when no mode has been selected yet
+          - Remembers WG / MASQUE H3 / MASQUE H2 / GOOL
+          - Widget state indicators:
+            - `○` OFF
+            - `…` Starting / Connecting / Stopping
+            - `●` Connected
+            - `▲` Connection unstable
+            - `!` Error
+          - Widget controls the existing AetherService; no second proxy core is created
 
-          ## Local proxies
+          ## Existing features retained
 
-          SOCKS5:
-          `127.0.0.1:1819`
+          - MASQUE HTTP/3 and HTTP/2
+          - WireGuard and GOOL
+          - SOCKS5 `127.0.0.1:1819`
+          - HTTP CONNECT `127.0.0.1:1820`
+          - Automatic mode switching/reset
+          - Light/Dark system theme
+          - Last 40 log lines viewer
+          - Full TXT diagnostics export
+          - Battery optimization shortcut
+          - GitHub update checker
+          - Aether Core v1.7.0
 
-          HTTP CONNECT:
-          `127.0.0.1:1820`
-
-          Aether Core: v1.7.0
-
-          All v1.2.0 networking features are retained.
-
-          ## Support
+          ## Download / Support
 
           Telegram:
           https://t.me/SamanTunnel
 
           GitHub:
           https://github.com/velnox4827/saman-aether
+
+          Issues:
+          https://github.com/velnox4827/saman-aether/issues
 
           **Privacy note:** diagnostics may contain IP addresses, endpoints and error details. Review TXT reports before posting them publicly.
 

@@ -1,5 +1,22 @@
 # Changelog
 
+## v1.3.0
+
+Home Screen Widget release.
+
+- Adds a compact one-tap Android home-screen widget
+- Tap while stopped to start the last selected mode
+- Tap while active to stop Saman Tunnel
+- Defaults to WireGuard when no previous mode exists
+- Remembers WG, MASQUE H3, MASQUE H2 and GOOL
+- Widget state indicators for off, working, connected, unstable and error
+- Widget controls the existing AetherService; no second proxy core is created
+- Keeps SOCKS5 `127.0.0.1:1819`
+- Keeps HTTP CONNECT `127.0.0.1:1820`
+- Keeps Aether Core v1.7.0
+- Stable Android versionCode: 131
+
+
 ## v1.2.1
 
 Stable UI polish release.
