@@ -1,4 +1,4 @@
-name: Release Saman Tunnel
+name: Release Saman Tunnel Stable
 
 on:
   push:
@@ -14,69 +14,81 @@ env:
 jobs:
   release:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout Saman Tunnel
-        uses: actions/checkout@v5
+      - uses: actions/checkout@v5
+        name: Checkout
 
-      - name: Set up Java 17
-        uses: actions/setup-java@v5
+      - name: Validate version
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          grep -q "versionName = \"${V}\"" android-app/app/build.gradle.kts
+
+      - uses: actions/setup-java@v5
+        name: Java 17
         with:
           distribution: temurin
           java-version: "17"
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v3
+        name: Android SDK
 
-      - name: Install Android SDK packages
+      - name: Android packages
         run: |
           yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager \
-            "platforms;android-36" \
-            "build-tools;35.0.0" \
-            "ndk;26.3.11579264" \
-            "cmake;3.22.1"
+          sdkmanager "platforms;android-36" "build-tools;35.0.0" "ndk;26.3.11579264" "cmake;3.22.1"
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v4
+        name: Gradle
         with:
           gradle-version: "8.13"
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
+        name: Rust ARM targets
         with:
-          targets: aarch64-linux-android
+          targets: aarch64-linux-android,armv7-linux-androideabi
 
-      - name: Install cargo-ndk
+      - name: cargo-ndk
         run: cargo install cargo-ndk --locked
 
-      - name: Checkout pinned Aether Core
+      - name: Checkout Aether Core
         run: |
+          set -euxo pipefail
           mkdir -p "$RUNNER_TEMP/Aether"
           git -C "$RUNNER_TEMP/Aether" init
           git -C "$RUNNER_TEMP/Aether" remote add origin https://github.com/CluvexStudio/Aether.git
           git -C "$RUNNER_TEMP/Aether" fetch --depth 1 origin "$AETHER_COMMIT"
           git -C "$RUNNER_TEMP/Aether" checkout --detach FETCH_HEAD
 
-      - name: Build Aether shared library
+      - name: Build Aether ARM64
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/26.3.11579264
           ANDROID_NDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}/ndk/26.3.11579264
         run: |
+          set -euxo pipefail
           cd "$RUNNER_TEMP/Aether/aether"
           cargo ndk -t arm64-v8a --platform 24 build --release --lib
           mkdir -p "$GITHUB_WORKSPACE/android-app/app/src/main/jniLibs/arm64-v8a"
-          cp target/aarch64-linux-android/release/libaether.so \
-            "$GITHUB_WORKSPACE/android-app/app/src/main/jniLibs/arm64-v8a/libaether.so"
+          cp target/aarch64-linux-android/release/libaether.so "$GITHUB_WORKSPACE/android-app/app/src/main/jniLibs/arm64-v8a/libaether.so"
 
-      - name: Restore release signing key
+      - name: Build Aether ARM32
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/26.3.11579264
+          ANDROID_NDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}/ndk/26.3.11579264
+        run: |
+          set -euxo pipefail
+          cd "$RUNNER_TEMP/Aether/aether"
+          cargo ndk -t armeabi-v7a --platform 24 build --release --lib
+          mkdir -p "$GITHUB_WORKSPACE/android-app/app/src/main/jniLibs/armeabi-v7a"
+          cp target/armv7-linux-androideabi/release/libaether.so "$GITHUB_WORKSPACE/android-app/app/src/main/jniLibs/armeabi-v7a/libaether.so"
+
+      - name: Restore signing key
         env:
           KEYSTORE_B64: ${{ secrets.SAMAN_RELEASE_KEYSTORE_B64 }}
         run: |
           test -n "$KEYSTORE_B64"
-          printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/saman-tunnel-release.jks"
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/saman-release.jks"
 
-      - name: Build signed release APK
+      - name: Build signed Stable APKs
         working-directory: android-app
         env:
           STORE_PASSWORD: ${{ secrets.SAMAN_RELEASE_KEYSTORE_PASSWORD }}
@@ -84,96 +96,106 @@ jobs:
           KEY_PASSWORD: ${{ secrets.SAMAN_RELEASE_KEY_PASSWORD }}
         run: |
           gradle :app:assembleRelease \
-            -PSAMAN_KEYSTORE_FILE="$RUNNER_TEMP/saman-tunnel-release.jks" \
+            -PSAMAN_KEYSTORE_FILE="$RUNNER_TEMP/saman-release.jks" \
             -PSAMAN_KEYSTORE_PASSWORD="$STORE_PASSWORD" \
             -PSAMAN_KEY_ALIAS="$KEY_ALIAS" \
             -PSAMAN_KEY_PASSWORD="$KEY_PASSWORD"
+          find app/build/outputs/apk -type f -name '*.apk' -print
 
-      - name: Verify native dependencies and APK signature
+      - name: Verify Stable APKs
         run: |
-          APK="android-app/app/build/outputs/apk/release/app-release.apk"
+          set -euxo pipefail
+          O="android-app/app/build/outputs/apk"
+          A64="$(find "$O" -type f -name '*arm64-v8a*release*.apk' | head -n1)"
+          A32="$(find "$O" -type f -name '*armeabi-v7a*release*.apk' | head -n1)"
+          UNI="$(find "$O" -type f -name '*universal*release*.apk' | head -n1)"
+          test -f "$A64"; test -f "$A32"; test -f "$UNI"
 
-          test -f "$APK"
-          unzip -p "$APK" lib/arm64-v8a/libsamanbridge.so > /tmp/libsamanbridge.so
+          unzip -l "$A64" | grep -q 'lib/arm64-v8a/libaether.so'
+          unzip -l "$A64" | grep -q 'lib/arm64-v8a/libsamanbridge.so'
+          unzip -l "$A32" | grep -q 'lib/armeabi-v7a/libaether.so'
+          unzip -l "$A32" | grep -q 'lib/armeabi-v7a/libsamanbridge.so'
+          unzip -l "$UNI" | grep -q 'lib/arm64-v8a/libaether.so'
+          unzip -l "$UNI" | grep -q 'lib/armeabi-v7a/libaether.so'
 
-          if readelf -d /tmp/libsamanbridge.so | grep -q "/home/runner"; then
-            echo "ERROR: build-machine path leaked into native dependencies"
-            exit 1
-          fi
+          unzip -p "$UNI" lib/arm64-v8a/libsamanbridge.so > /tmp/b64.so
+          unzip -p "$UNI" lib/armeabi-v7a/libsamanbridge.so > /tmp/b32.so
+          readelf -d /tmp/b64.so | grep -q 'Shared library: \[libaether.so\]'
+          readelf -d /tmp/b32.so | grep -q 'Shared library: \[libaether.so\]'
+          ! readelf -d /tmp/b64.so | grep -q '/home/runner'
+          ! readelf -d /tmp/b32.so | grep -q '/home/runner'
 
-          readelf -d /tmp/libsamanbridge.so | grep -q "Shared library: \[libaether.so\]"
-          unzip -l "$APK" | grep -q "lib/arm64-v8a/libaether.so"
-          unzip -l "$APK" | grep -q "lib/arm64-v8a/libsamanbridge.so"
+          V="${GITHUB_REF_NAME#v}"
+          for APK in "$A64" "$A32" "$UNI"; do
+            "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$APK"
+            B="$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK")"
+            echo "$B" | grep -q "package: name='com.saman.tunnel'"
+            echo "$B" | grep -q "versionName='${V}'"
+            echo "$B" | grep -q "application-label:'Saman Tunnel'"
+          done
 
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
+          M="$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump xmltree "$UNI" AndroidManifest.xml)"
+          echo "$M" | grep -q 'SamanTunnelWidget'
+          echo "$M" | grep -q 'aether_core'
+          echo "$M" | grep -q 'TunnelStateReceiver'
 
       - name: Prepare release files
         run: |
-          TAG="${GITHUB_REF_NAME}"
-          OUT="Saman-Tunnel-${TAG}-arm64.apk"
-          cp android-app/app/build/outputs/apk/release/app-release.apk "$OUT"
-          sha256sum "$OUT" > "${OUT}.sha256"
+          set -euxo pipefail
+          O="android-app/app/build/outputs/apk"
+          T="${GITHUB_REF_NAME}"
+          mkdir -p dist
+          cp "$(find "$O" -type f -name '*arm64-v8a*release*.apk' | head -n1)" "dist/Saman-Tunnel-${T}-arm64-v8a.apk"
+          cp "$(find "$O" -type f -name '*armeabi-v7a*release*.apk' | head -n1)" "dist/Saman-Tunnel-${T}-armeabi-v7a.apk"
+          cp "$(find "$O" -type f -name '*universal*release*.apk' | head -n1)" "dist/Saman-Tunnel-${T}-universal-arm.apk"
+          cd dist
+          for A in *.apk; do sha256sum "$A" > "${A}.sha256"; done
+          ls -lh
 
-          cat > /tmp/release-notes.md <<'NOTES'
-          # Saman Tunnel v1.3.0
+      - name: Release notes
+        run: |
+          cat > /tmp/notes.md <<'NOTES'
+          # Saman Tunnel v1.3.5
 
-          Home Screen Widget release.
+          Stable Android release based on **Aether Core v1.7.0**.
 
-          ## What's new
+          ## Highlights
+          - Stable ARM64, ARM32 and Universal ARM APKs
+          - Faster app-side proxy readiness detection
+          - `--reconnect-secs 1`
+          - Aether Core isolated Android process
+          - Improved native-core STOP and cleanup
+          - More informative connection phases
+          - Safe diagnostics report with recent compact logs and known identifier redaction
+          - Optional Full history diagnostics
+          - One-tap Home Screen Widget retained
 
-          - New compact Android Home Screen Widget
-          - One tap while stopped starts the last selected mode
-          - One tap while active stops Saman Tunnel
-          - Defaults to WireGuard when no mode has been selected yet
-          - Remembers WG / MASQUE H3 / MASQUE H2 / GOOL
-          - Widget state indicators:
-            - `○` OFF
-            - `…` Starting / Connecting / Stopping
-            - `●` Connected
-            - `▲` Connection unstable
-            - `!` Error
-          - Widget controls the existing AetherService; no second proxy core is created
+          ## Local proxies
+          - SOCKS5: `127.0.0.1:1819`
+          - HTTP CONNECT: `127.0.0.1:1820`
 
-          ## Existing features retained
+          Saman Tunnel exposes local proxies; it is not itself a device-wide Android VPN.
 
-          - MASQUE HTTP/3 and HTTP/2
-          - WireGuard and GOOL
-          - SOCKS5 `127.0.0.1:1819`
-          - HTTP CONNECT `127.0.0.1:1820`
-          - Automatic mode switching/reset
-          - Light/Dark system theme
-          - Last 40 log lines viewer
-          - Full TXT diagnostics export
-          - Battery optimization shortcut
-          - GitHub update checker
-          - Aether Core v1.7.0
+          ## APKs
+          - arm64-v8a: most modern Android phones
+          - armeabi-v7a: older 32-bit ARM devices
+          - universal-arm: ARM32 + ARM64
 
-          ## Download / Support
+          Minimum Android: 7.0 / API 24
 
-          Telegram:
-          https://t.me/SamanTunnel
-
-          GitHub:
-          https://github.com/velnox4827/saman-aether
-
-          Issues:
-          https://github.com/velnox4827/saman-aether/issues
-
-          **Privacy note:** diagnostics may contain IP addresses, endpoints and error details. Review TXT reports before posting them publicly.
-
-          Source code is available under GNU AGPL-3.0.
+          Telegram: https://t.me/SamanTunnel
+          GitHub: https://github.com/velnox4827/saman-aether
+          Upstream: https://github.com/CluvexStudio/Aether
+          License: GNU AGPL-3.0
           NOTES
 
-      - name: Create GitHub Release
+      - name: Create GitHub Stable Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="${GITHUB_REF_NAME}"
-          APK="Saman-Tunnel-${TAG}-arm64.apk"
-          gh release create "$TAG" \
-            "$APK" \
-            "${APK}.sha256" \
+          gh release create "${GITHUB_REF_NAME}" dist/* \
             --repo "$GITHUB_REPOSITORY" \
-            --title "Saman Tunnel $TAG" \
-            --notes-file /tmp/release-notes.md \
+            --title "Saman Tunnel ${GITHUB_REF_NAME}" \
+            --notes-file /tmp/notes.md \
+            --verify-tag \
             --latest

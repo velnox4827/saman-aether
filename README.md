@@ -23,13 +23,13 @@
 
 ---
 
-## Saman Tunnel v1.3.0
+## Saman Tunnel v1.3.5 — Stable
 
-نسخه پایدار فعلی پروژه با **Aether Core v1.7.0**.
+نسخه پایدار فعلی پروژه با **Aether Core v1.7.0** و پشتیبانی Stable از **ARM64، ARM32 و Universal ARM**.
 
 ### ✨ مهم‌ترین قابلیت جدید: Home Screen Widget
 
-نسخه `v1.3.0` یک Widget کوچک و جمع‌وجور برای صفحه اصلی Android اضافه می‌کند.
+نسخه `v1.3.5` همچنان Widget کوچک و جمع‌وجور برای صفحه اصلی Android اضافه می‌کند.
 
 - یک Tap در حالت خاموش → اتصال با **آخرین Mode استفاده‌شده**
 - یک Tap در حالت فعال → **STOP**
@@ -59,11 +59,13 @@
 - رابط Light / Dark مطابق Theme سیستم
 - کارت Status مرتب برای Connected، Unstable، Starting، Connecting، Switching، Stopping، Stopped و Error
 - **Logs** برای مشاهده آخرین 40 خط
-- **Save TXT** برای خروجی کامل Logهای فعلی App و Aether Core
+- **Safe diagnostics report** برای اشتراک‌گذاری: لاگ‌های اخیر، جمع‌وجور و با Redact شدن شناسه‌های شناخته‌شده
+- **Full history diagnostics** برای عیب‌یابی کامل‌تر؛ ممکن است شامل شناسه‌ها و آدرس‌های شبکه باشد
+- نمایش مرحله اتصال هنگام Connecting
 - وضعیت و میانبر Battery Optimization
 - **Check update** از GitHub Releases
 - آیکن اختصاصی Launcher / App Info / Notification
-- `arm64-v8a`
+- `arm64-v8a` / `armeabi-v7a` / Universal ARM
 - حداقل Android 7 / API 24
 - `compileSdk 36`
 - `targetSdk 35`
@@ -87,7 +89,11 @@ HTTP CONNECT 127.0.0.1:1820
 
 **https://github.com/velnox4827/saman-aether/releases/latest**
 
-معماری فعلی: **arm64-v8a**
+معماری‌های Stable:
+
+- **arm64-v8a** — پیشنهاد اصلی برای بیشتر گوشی‌های جدید
+- **armeabi-v7a** — برای دستگاه‌های ARM 32-bit قدیمی‌تر
+- **universal-arm** — شامل ARM32 + ARM64؛ حجم بیشتر ولی مناسب وقتی معماری دستگاه را نمی‌دانید
 
 حداقل Android: **7.0 (API 24)**
 
@@ -134,10 +140,11 @@ Widget مستقیماً همان سرویس اصلی Saman Tunnel را کنتر�
 
 ### Diagnostics
 
-- **Logs** → آخرین 40 خط برای بررسی سریع
-- **Save TXT** → گزارش کامل Logهای فعلی App و Aether Core
+- **Logs** → بررسی سریع Logهای اخیر
+- **Safe report — recommended** → گزارش اخیر و کم‌حجم‌تر با Redact شدن شناسه‌های شناخته‌شده
+- **Full history** → همه Logهای نگه‌داری‌شده برای عیب‌یابی پیشرفته
 
-> فایل Diagnostics ممکن است شامل IP، Endpoint و جزئیات فنی اتصال باشد. قبل از انتشار عمومی آن را بررسی کنید.
+> Full history ممکن است شامل شناسه‌های Aether یا آدرس‌های شبکه باشد؛ قبل از انتشار عمومی فایل را بررسی کنید.
 
 گزارش مشکل:
 
@@ -190,7 +197,7 @@ SOCKS5       127.0.0.1:1819
 HTTP CONNECT 127.0.0.1:1820
 ```
 
-### New in v1.3.0: Home Screen Widget
+### Current Stable: v1.3.5
 
 - Compact Android home-screen widget
 - Tap while stopped → start the last selected mode
@@ -212,10 +219,14 @@ The widget controls the same `AetherService`; it does not start a second proxy c
 - System Light/Dark theme
 - Multi-line runtime status
 - Last 40 log lines viewer
-- Full TXT diagnostics export
+- Safe / Full diagnostics export
 - Battery optimization shortcut
 - Manual GitHub update checker
-- arm64-v8a
+- Stable ARM64 / ARM32 / Universal ARM APKs
+- Faster connection readiness detection
+- Isolated Aether Core process
+- Safe + Full diagnostics options
+- arm64-v8a / armeabi-v7a / Universal ARM
 - Minimum Android 7 / API 24
 
 Download:

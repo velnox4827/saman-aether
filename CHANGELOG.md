@@ -1,5 +1,23 @@
 # Changelog
 
+## v1.3.5
+
+Stable maintenance and Multi-ABI release.
+
+- Stable APKs for `arm64-v8a`, `armeabi-v7a`, and Universal ARM
+- versionCode `136`
+- Aether Core v1.7.0 remains pinned
+- Faster app-side connection readiness polling with the original 120-second ceiling retained
+- Adds `--reconnect-secs 1`
+- Improved native-core stop and cleanup behavior
+- Aether Core runs in isolated Android process `:aether_core`
+- More informative connection phases while Connecting
+- Recommended Safe diagnostics report with recent compact logs and known identifier redaction
+- Optional Full history diagnostics
+- Home Screen Widget retained for WG / MASQUE H3 / MASQUE H2 / GOOL
+- SOCKS5 `127.0.0.1:1819`
+- HTTP CONNECT `127.0.0.1:1820`
+
 ## v1.3.0
 
 Home Screen Widget release.
