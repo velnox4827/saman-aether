@@ -735,15 +735,28 @@ class MainActivity : Activity() {
         val uri = data?.data ?: return
 
         runCatching {
-            contentResolver.openOutputStream(uri, "wt")
-                ?.bufferedWriter(Charsets.UTF_8)
-                .use { writer ->
-                    requireNotNull(writer) { "Could not open selected file" }
-                    writer.write(LogStore.diagnostics(this))
-                }
+            val report = LogStore.diagnostics(this)
+            val bytes = report.toByteArray(Charsets.UTF_8)
+            require(bytes.isNotEmpty()) { "Diagnostics report was empty" }
 
-            LogStore.append(this, "UI", "Diagnostics saved as TXT")
-            Toast.makeText(this, "Diagnostics TXT saved", Toast.LENGTH_SHORT).show()
+            val output = contentResolver.openOutputStream(uri, "w")
+                ?: error("Could not open selected file")
+
+            output.use { stream ->
+                stream.write(bytes)
+                stream.flush()
+            }
+
+            LogStore.append(
+                this,
+                "UI",
+                "Diagnostics saved as TXT bytes=${bytes.size}"
+            )
+            Toast.makeText(
+                this,
+                "Diagnostics TXT saved (${bytes.size} bytes)",
+                Toast.LENGTH_SHORT
+            ).show()
         }.onFailure {
             LogStore.append(this, "ERROR", "Saving diagnostics TXT failed: ${it.stackTraceToString()}")
             Toast.makeText(this, "Could not save TXT", Toast.LENGTH_LONG).show()

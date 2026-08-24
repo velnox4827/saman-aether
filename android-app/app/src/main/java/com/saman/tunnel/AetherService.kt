@@ -25,6 +25,7 @@ class AetherService : Service() {
         const val KEY_STATUS = "status"
         const val KEY_MODE = "mode"
         const val KEY_LAST_MODE = "last_mode"
+        const val KEY_JOB_ID = "native_job_id"
         private const val CHANNEL_ID = "saman_tunnel_core"
         private const val NOTIFICATION_ID = 1819
         private const val SOCKS_PORT = 1819
@@ -37,8 +38,26 @@ class AetherService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        LogStore.append(this, "SERVICE", "Service created")
         createNotificationChannel()
+
+        val remembered = prefs().getLong(KEY_JOB_ID, 0L)
+        if (remembered != 0L) {
+            val recovered = runCatching {
+                val reply = JSONObject(NativeBridge.pollJob(remembered))
+                reply.optBoolean("ok") && reply.optString("state") == "running"
+            }.getOrDefault(false)
+
+            if (recovered) {
+                jobId = remembered
+                LogStore.append(this, "SERVICE", "Recovered native job id=$remembered")
+            } else {
+                runCatching { NativeBridge.freeJob(remembered) }
+                clearRememberedJob(remembered)
+                LogStore.append(this, "SERVICE", "Discarded stale native job id=$remembered")
+            }
+        }
+
+        LogStore.append(this, "SERVICE", "Service created jobId=$jobId")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -67,8 +86,6 @@ class AetherService : Service() {
         val id = jobId
         if (id != 0L) {
             runCatching { NativeBridge.cancelJob(id) }
-            runCatching { NativeBridge.freeJob(id) }
-            jobId = 0L
         }
         executor.shutdownNow()
         super.onDestroy()
@@ -90,10 +107,12 @@ class AetherService : Service() {
             try {
                 if (previous != 0L) {
                     LogStore.append(this, "CORE", "Auto-reset previous job=$previous")
-                    cancelAndFree(previous)
-                    jobId = 0L
+                    if (!cancelAndAwait(previous, 10_000L)) {
+                        fail("Previous core is still stopping. Tap STOP once and retry.", mode)
+                        return@execute
+                    }
                     if (!waitForProxyPortsToClose(6_000L)) {
-                        fail("Old proxy ports did not close. Tap STOP and try again.", mode)
+                        fail("Old proxy ports did not close after core stopped.", mode)
                         return@execute
                     }
                 } else if (isPortOpen(SOCKS_PORT) || isPortOpen(HTTP_PORT)) {
@@ -129,7 +148,7 @@ class AetherService : Service() {
             return
         }
 
-        jobId = id
+        rememberJob(id)
         LogStore.append(this, "CORE", "Core job started id=$id")
         setState("Connecting…", mode)
         updateNotification("Connecting ${modeLabel(mode)}…")
@@ -144,6 +163,7 @@ class AetherService : Service() {
             if (polled.optString("state") == "done") {
                 LogStore.append(this, "NATIVE", "Job ended before proxy ready: $rawPoll")
                 val result = polled.optJSONObject("result")
+                freeFinishedJob(id)
                 fail(result?.optString("error") ?: "Core stopped before local proxy became ready", mode)
                 return
             }
@@ -159,6 +179,7 @@ class AetherService : Service() {
             Thread.sleep(250)
         }
 
+        cancelAndAwait(id, 10_000L)
         fail("SOCKS5 did not become ready", mode)
     }
 
@@ -180,7 +201,7 @@ class AetherService : Service() {
                         setState("Stopped", mode)
                         updateNotification("Stopped")
                     }
-                    jobId = 0L
+                    freeFinishedJob(id)
                     stopSelf()
                     return
                 }
@@ -207,6 +228,7 @@ class AetherService : Service() {
                 Thread.sleep(2000)
             } catch (t: Throwable) {
                 LogStore.append(this, "EXCEPTION", "monitor: ${t.stackTraceToString()}")
+                cancelAndAwait(id, 8_000L)
                 fail(t.message ?: "Monitoring failed", mode)
                 return
             }
@@ -223,31 +245,113 @@ class AetherService : Service() {
     }
 
     private fun stopCore() {
-        val id = jobId
+        val remembered = prefs().getLong(KEY_JOB_ID, 0L)
+        val id = if (jobId != 0L) jobId else remembered
+        val mode = prefs().getString(KEY_MODE, "") ?: ""
+
         generation++
-        LogStore.append(this, "CORE", "Stop requested jobId=$id")
-        setState("Stopping…", prefs().getString(KEY_MODE, "") ?: "")
+        LogStore.append(this, "CORE", "Stop requested jobId=$id remembered=$remembered")
+        setState("Stopping…", mode)
+        updateNotification("Stopping ${modeLabel(mode)}…")
+
         executor.execute {
-            if (id != 0L) cancelAndFree(id)
-            jobId = 0L
-            waitForProxyPortsToClose(4_000L)
-            setState("Stopped", "")
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
+            val coreStopped = if (id != 0L) {
+                cancelAndAwait(id, 12_000L)
+            } else {
+                true
+            }
+
+            val portsClosed = waitForProxyPortsToClose(
+                if (coreStopped) 6_000L else 2_000L
+            )
+
+            if (coreStopped && portsClosed) {
+                clearRememberedJob(id)
+                setState("Stopped", "")
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+            } else {
+                val reason = when {
+                    !coreStopped -> "Native core did not finish stopping yet"
+                    else -> "Local proxy port is still open after core stopped"
+                }
+                LogStore.append(
+                    this,
+                    "ERROR",
+                    "Stop incomplete jobId=$id coreStopped=$coreStopped portsClosed=$portsClosed"
+                )
+                setState("Error: $reason. Tap STOP again.", mode)
+                updateNotification("Stop incomplete — open Saman Tunnel")
+            }
         }
     }
 
-    private fun cancelAndFree(id: Long) {
+    private fun cancelAndAwait(id: Long, timeoutMs: Long): Boolean {
+        if (id == 0L) return true
+
         runCatching {
             LogStore.append(this, "NATIVE", "cancelJob reply=${NativeBridge.cancelJob(id)}")
         }.onFailure {
             LogStore.append(this, "NATIVE", "cancelJob failed: ${it.stackTraceToString()}")
         }
-        Thread.sleep(350)
+
+        val deadline = System.currentTimeMillis() + timeoutMs
+
+        while (System.currentTimeMillis() < deadline) {
+            val raw = runCatching { NativeBridge.pollJob(id) }.getOrElse {
+                LogStore.append(this, "NATIVE", "pollJob during stop failed: ${it.message}")
+                return false
+            }
+
+            val reply = runCatching { JSONObject(raw) }.getOrNull()
+            if (reply == null) {
+                LogStore.append(this, "NATIVE", "pollJob returned invalid JSON: $raw")
+                return false
+            }
+
+            if (!reply.optBoolean("ok")) {
+                val error = reply.optString("error")
+                if (error.contains("there is no job", ignoreCase = true)) {
+                    clearRememberedJob(id)
+                    return true
+                }
+                LogStore.append(this, "NATIVE", "pollJob stop error: $raw")
+                return false
+            }
+
+            if (reply.optString("state") == "done") {
+                freeFinishedJob(id)
+                return true
+            }
+
+            Thread.sleep(125)
+        }
+
+        LogStore.append(this, "NATIVE", "Timed out waiting for job $id to stop")
+        return false
+    }
+
+    private fun freeFinishedJob(id: Long) {
         runCatching {
             LogStore.append(this, "NATIVE", "freeJob reply=${NativeBridge.freeJob(id)}")
         }.onFailure {
             LogStore.append(this, "NATIVE", "freeJob failed: ${it.stackTraceToString()}")
+        }
+        clearRememberedJob(id)
+    }
+
+    private fun rememberJob(id: Long) {
+        jobId = id
+        prefs().edit().putLong(KEY_JOB_ID, id).apply()
+    }
+
+    private fun clearRememberedJob(id: Long) {
+        if (id == 0L || jobId == id) {
+            jobId = 0L
+        }
+        val stored = prefs().getLong(KEY_JOB_ID, 0L)
+        if (id == 0L || stored == id) {
+            prefs().edit().remove(KEY_JOB_ID).apply()
         }
     }
 
@@ -299,7 +403,7 @@ class AetherService : Service() {
         val deadline = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() < deadline) {
             if (!isPortOpen(SOCKS_PORT) && !isPortOpen(HTTP_PORT)) return true
-            Thread.sleep(150)
+            Thread.sleep(500)
         }
         return !isPortOpen(SOCKS_PORT) && !isPortOpen(HTTP_PORT)
     }
