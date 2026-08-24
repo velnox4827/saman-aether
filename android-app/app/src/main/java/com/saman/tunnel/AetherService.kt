@@ -157,6 +157,8 @@ class AetherService : Service() {
         setState("Connecting…", mode)
         updateNotification("Connecting ${modeLabel(mode)}…")
 
+        var lastPhase = ""
+
         // 480 * 250 ms = the original 120-second ceiling.
         for (i in 0 until 480) {
             if (generation != myGeneration || jobId != id) return
@@ -178,6 +180,30 @@ class AetherService : Service() {
                     mode
                 )
                 return
+            }
+
+            if (i % 4 == 0) {
+                val phase =
+                    LogStore.connectionPhase(
+                        this,
+                        mode
+                    )
+
+                if (
+                    !phase.isNullOrBlank() &&
+                    phase != lastPhase
+                ) {
+                    lastPhase = phase
+
+                    setState(
+                        "Connecting — $phase",
+                        mode
+                    )
+
+                    updateNotification(
+                        "${modeLabel(mode)} — $phase"
+                    )
+                }
             }
 
             if (isPortInUse(SOCKS_PORT)) {

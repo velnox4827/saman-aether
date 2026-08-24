@@ -58,6 +58,7 @@ class MainActivity : Activity() {
 
     private val handler = Handler(Looper.getMainLooper())
     private var lastStartTap = 0L
+    private var pendingDiagnosticsFull = false
 
     private val refresh = object : Runnable {
         override fun run() {
@@ -361,7 +362,7 @@ class MainActivity : Activity() {
         }
 
         diagnosticsRow.addView(diagTile("≡", "Logs", blue) { showQuickLog(40) })
-        diagnosticsRow.addView(diagTile("⇩", "Save TXT", green) { saveDiagnosticsTxt() })
+        diagnosticsRow.addView(diagTile("⇩", "Save TXT", green) { chooseDiagnosticsExport() })
         diagnosticsCard.addView(diagnosticsRow)
         root.addView(diagnosticsCard)
 
@@ -774,25 +775,88 @@ class MainActivity : Activity() {
             .show()
     }
 
-    private fun saveDiagnosticsTxt() {
+    private fun chooseDiagnosticsExport() {
+        AlertDialog.Builder(this)
+            .setTitle("Save diagnostics")
+            .setItems(
+                arrayOf(
+                    "Safe report — recommended
+Recent logs · IDs redacted · compact",
+                    "Full history
+All retained logs · may include identifiers"
+                )
+            ) { _, which ->
+                when (which) {
+                    0 -> saveDiagnosticsTxt(
+                        fullHistory = false
+                    )
+
+                    1 -> confirmFullDiagnosticsExport()
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun confirmFullDiagnosticsExport() {
+        AlertDialog.Builder(this)
+            .setTitle("Save full history?")
+            .setMessage(
+                "Full diagnostics can include Aether device identifiers " +
+                    "and network addresses. Use Safe report when sharing."
+            )
+            .setPositiveButton("Save full") { _, _ ->
+                saveDiagnosticsTxt(
+                    fullHistory = true
+                )
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun saveDiagnosticsTxt(
+        fullHistory: Boolean
+    ) {
+        pendingDiagnosticsFull = fullHistory
+
         LogStore.append(
             this,
             "UI",
-            "Save diagnostics TXT requested"
+            if (fullHistory) {
+                "Save FULL diagnostics TXT requested"
+            } else {
+                "Save SAFE diagnostics TXT requested"
+            }
         )
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            saveDiagnosticsToDownloads()
+        if (
+            Build.VERSION.SDK_INT >=
+            Build.VERSION_CODES.Q
+        ) {
+            saveDiagnosticsToDownloads(
+                fullHistory
+            )
             return
         }
 
+        val suffix =
+            if (fullHistory) {
+                "full"
+            } else {
+                "safe"
+            }
+
         val intent =
-            Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-                addCategory(Intent.CATEGORY_OPENABLE)
+            Intent(
+                Intent.ACTION_CREATE_DOCUMENT
+            ).apply {
+                addCategory(
+                    Intent.CATEGORY_OPENABLE
+                )
                 type = "text/plain"
                 putExtra(
                     Intent.EXTRA_TITLE,
-                    "Saman-Tunnel-diagnostics.txt"
+                    "Saman-Tunnel-diagnostics-$suffix.txt"
                 )
             }
 
@@ -802,42 +866,88 @@ class MainActivity : Activity() {
         )
     }
 
-    private fun saveDiagnosticsToDownloads() {
-        runCatching {
-            val report = LogStore.diagnostics(this)
-            val bytes = report.toByteArray(Charsets.UTF_8)
+    private fun diagnosticsReport(
+        fullHistory: Boolean
+    ): String =
+        if (fullHistory) {
+            LogStore.fullDiagnostics(this)
+        } else {
+            LogStore.diagnostics(this)
+        }
 
-            require(bytes.isNotEmpty()) {
+    private fun saveDiagnosticsToDownloads(
+        fullHistory: Boolean
+    ) {
+        runCatching {
+            val report =
+                diagnosticsReport(
+                    fullHistory
+                )
+
+            val bytes =
+                report.toByteArray(
+                    Charsets.UTF_8
+                )
+
+            require(
+                bytes.isNotEmpty()
+            ) {
                 "Diagnostics report was empty"
             }
 
-            val fileName =
-                "Saman-Tunnel-diagnostics-${System.currentTimeMillis()}.txt"
+            val suffix =
+                if (fullHistory) {
+                    "full"
+                } else {
+                    "safe"
+                }
 
-            val values = ContentValues().apply {
-                put(MediaStore.Downloads.DISPLAY_NAME, fileName)
-                put(MediaStore.Downloads.MIME_TYPE, "text/plain")
-                put(
-                    MediaStore.Downloads.RELATIVE_PATH,
-                    Environment.DIRECTORY_DOWNLOADS
-                )
-                put(MediaStore.Downloads.IS_PENDING, 1)
-            }
+            val fileName =
+                "Saman-Tunnel-diagnostics-$suffix-${System.currentTimeMillis()}.txt"
+
+            val values =
+                ContentValues().apply {
+                    put(
+                        MediaStore.Downloads.DISPLAY_NAME,
+                        fileName
+                    )
+                    put(
+                        MediaStore.Downloads.MIME_TYPE,
+                        "text/plain"
+                    )
+                    put(
+                        MediaStore.Downloads.RELATIVE_PATH,
+                        Environment.DIRECTORY_DOWNLOADS
+                    )
+                    put(
+                        MediaStore.Downloads.IS_PENDING,
+                        1
+                    )
+                }
 
             val uri =
                 contentResolver.insert(
                     MediaStore.Downloads.EXTERNAL_CONTENT_URI,
                     values
                 )
-                    ?: error("Could not create file in Downloads")
+                    ?: error(
+                        "Could not create file in Downloads"
+                    )
 
             try {
                 val descriptor =
-                    contentResolver.openFileDescriptor(uri, "w")
-                        ?: error("Could not open Downloads file")
+                    contentResolver.openFileDescriptor(
+                        uri,
+                        "w"
+                    )
+                        ?: error(
+                            "Could not open Downloads file"
+                        )
 
                 descriptor.use { pfd ->
-                    FileOutputStream(pfd.fileDescriptor).use { output ->
+                    FileOutputStream(
+                        pfd.fileDescriptor
+                    ).use { output ->
                         output.write(bytes)
                         output.flush()
                         output.fd.sync()
@@ -845,32 +955,56 @@ class MainActivity : Activity() {
                 }
 
                 values.clear()
-                values.put(MediaStore.Downloads.IS_PENDING, 0)
-                contentResolver.update(uri, values, null, null)
+                values.put(
+                    MediaStore.Downloads.IS_PENDING,
+                    0
+                )
+
+                contentResolver.update(
+                    uri,
+                    values,
+                    null,
+                    null
+                )
 
                 val verifiedSize =
                     contentResolver
-                        .openFileDescriptor(uri, "r")
-                        ?.use { it.statSize }
+                        .openFileDescriptor(
+                            uri,
+                            "r"
+                        )
+                        ?.use {
+                            it.statSize
+                        }
                         ?: -1L
 
-                require(verifiedSize != 0L) {
+                require(
+                    verifiedSize != 0L
+                ) {
                     "Android saved a zero-byte diagnostics file"
                 }
 
                 LogStore.append(
                     this,
                     "UI",
-                    "Diagnostics saved to Downloads bytes=${bytes.size} verified=$verifiedSize"
+                    "Diagnostics saved type=$suffix bytes=${bytes.size} verified=$verifiedSize"
                 )
 
                 Toast.makeText(
                     this,
-                    "Diagnostics saved to Downloads ($verifiedSize bytes)",
+                    if (fullHistory) {
+                        "Full diagnostics saved to Downloads ($verifiedSize bytes)"
+                    } else {
+                        "Safe diagnostics saved to Downloads ($verifiedSize bytes)"
+                    },
                     Toast.LENGTH_LONG
                 ).show()
             } catch (t: Throwable) {
-                contentResolver.delete(uri, null, null)
+                contentResolver.delete(
+                    uri,
+                    null,
+                    null
+                )
                 throw t
             }
         }.onFailure {
@@ -888,26 +1022,58 @@ class MainActivity : Activity() {
         }
     }
 
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
+    override fun onActivityResult(
+        requestCode: Int,
+        resultCode: Int,
+        data: Intent?
+    ) {
+        super.onActivityResult(
+            requestCode,
+            resultCode,
+            data
+        )
 
-        if (requestCode != REQUEST_SAVE_DIAGNOSTICS || resultCode != RESULT_OK) return
+        if (
+            requestCode != REQUEST_SAVE_DIAGNOSTICS ||
+            resultCode != RESULT_OK
+        ) {
+            return
+        }
+
         val uri = data?.data ?: return
+        val fullHistory = pendingDiagnosticsFull
+        pendingDiagnosticsFull = false
 
         runCatching {
-            val report = LogStore.diagnostics(this)
-            val bytes = report.toByteArray(Charsets.UTF_8)
+            val report =
+                diagnosticsReport(
+                    fullHistory
+                )
 
-            require(bytes.isNotEmpty()) {
+            val bytes =
+                report.toByteArray(
+                    Charsets.UTF_8
+                )
+
+            require(
+                bytes.isNotEmpty()
+            ) {
                 "Diagnostics report was empty"
             }
 
             val descriptor =
-                contentResolver.openFileDescriptor(uri, "w")
-                    ?: error("Could not open selected file")
+                contentResolver.openFileDescriptor(
+                    uri,
+                    "w"
+                )
+                    ?: error(
+                        "Could not open selected file"
+                    )
 
             descriptor.use { pfd ->
-                FileOutputStream(pfd.fileDescriptor).use { output ->
+                FileOutputStream(
+                    pfd.fileDescriptor
+                ).use { output ->
                     output.write(bytes)
                     output.flush()
                     output.fd.sync()
@@ -916,18 +1082,32 @@ class MainActivity : Activity() {
 
             val verifiedSize =
                 contentResolver
-                    .openFileDescriptor(uri, "r")
-                    ?.use { it.statSize }
+                    .openFileDescriptor(
+                        uri,
+                        "r"
+                    )
+                    ?.use {
+                        it.statSize
+                    }
                     ?: -1L
 
-            require(verifiedSize != 0L) {
+            require(
+                verifiedSize != 0L
+            ) {
                 "Android saved a zero-byte diagnostics file"
             }
+
+            val suffix =
+                if (fullHistory) {
+                    "full"
+                } else {
+                    "safe"
+                }
 
             LogStore.append(
                 this,
                 "UI",
-                "Diagnostics saved as TXT bytes=${bytes.size} verified=$verifiedSize"
+                "Diagnostics saved type=$suffix bytes=${bytes.size} verified=$verifiedSize"
             )
 
             Toast.makeText(
@@ -936,8 +1116,17 @@ class MainActivity : Activity() {
                 Toast.LENGTH_SHORT
             ).show()
         }.onFailure {
-            LogStore.append(this, "ERROR", "Saving diagnostics TXT failed: ${it.stackTraceToString()}")
-            Toast.makeText(this, "Could not save TXT", Toast.LENGTH_LONG).show()
+            LogStore.append(
+                this,
+                "ERROR",
+                "Saving diagnostics TXT failed: ${it.stackTraceToString()}"
+            )
+
+            Toast.makeText(
+                this,
+                "Could not save TXT",
+                Toast.LENGTH_LONG
+            ).show()
         }
     }
 
@@ -1179,7 +1368,12 @@ class MainActivity : Activity() {
 
             connecting -> {
                 statusView.text = "Status: Connecting"
-                detail = "Waiting for local proxies"
+                detail = status
+                    .substringAfter("—", "")
+                    .trim()
+                    .ifBlank {
+                        "Waiting for local proxies"
+                    }
             }
 
             stopping -> {
