@@ -59,6 +59,14 @@ jobs:
           git -C "$RUNNER_TEMP/Aether" fetch --depth 1 origin "$AETHER_COMMIT"
           git -C "$RUNNER_TEMP/Aether" checkout --detach FETCH_HEAD
 
+      - name: Apply Saman Smart Reconnect patch
+        run: |
+          set -euxo pipefail
+          PATCH="$GITHUB_WORKSPACE/android-app/aether-patches/smart-reconnect-all-modes.patch"
+          test -s "$PATCH"
+          git -C "$RUNNER_TEMP/Aether" apply --check "$PATCH"
+          git -C "$RUNNER_TEMP/Aether" apply "$PATCH"
+
       - name: Build Aether ARM64
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/26.3.11579264

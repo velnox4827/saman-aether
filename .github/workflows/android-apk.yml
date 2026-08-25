@@ -1,4 +1,4 @@
-name: Build Saman Tunnel v1.3.5 Multi-ABI Debug APKs
+name: Build Saman Tunnel v1.3.6 Smart Reconnect All Modes Debug APKs
 
 on:
   workflow_dispatch:
@@ -52,6 +52,17 @@ jobs:
           git -C "$RUNNER_TEMP/Aether" remote add origin https://github.com/CluvexStudio/Aether.git
           git -C "$RUNNER_TEMP/Aether" fetch --depth 1 origin e05cbd78b8f17873abee553904a85610b88c0382
           git -C "$RUNNER_TEMP/Aether" checkout --detach FETCH_HEAD
+
+      - name: Apply Saman Smart Reconnect patch
+        run: |
+          set -euxo pipefail
+          PATCH="$GITHUB_WORKSPACE/android-app/aether-patches/smart-reconnect-all-modes.patch"
+          test -s "$PATCH"
+          git -C "$RUNNER_TEMP/Aether" apply --check "$PATCH"
+          git -C "$RUNNER_TEMP/Aether" apply "$PATCH"
+          grep -q 'smart reconnect WG' "$RUNNER_TEMP/Aether/aether/src/lib.rs"
+          grep -q 'smart reconnect MASQUE' "$RUNNER_TEMP/Aether/aether/src/lib.rs"
+          grep -q 'smart reconnect GOOL' "$RUNNER_TEMP/Aether/aether/src/lib.rs"
 
       - name: Build Aether ARM64
         env:
@@ -136,17 +147,17 @@ jobs:
           O="android-app/app/build/outputs/apk"
           mkdir -p dist
           cp "$(find "$O" -type f -name '*arm64-v8a*debug*.apk' | head -n1)" \
-             dist/Saman-Tunnel-v1.3.5-arm64-v8a-debug.apk
+             dist/Saman-Tunnel-v1.3.6-arm64-v8a-debug.apk
           cp "$(find "$O" -type f -name '*armeabi-v7a*debug*.apk' | head -n1)" \
-             dist/Saman-Tunnel-v1.3.5-armeabi-v7a-debug.apk
+             dist/Saman-Tunnel-v1.3.6-armeabi-v7a-debug.apk
           cp "$(find "$O" -type f -name '*universal*debug*.apk' | head -n1)" \
-             dist/Saman-Tunnel-v1.3.5-universal-arm-debug.apk
+             dist/Saman-Tunnel-v1.3.6-universal-arm-debug.apk
           ls -lh dist
 
       - uses: actions/upload-artifact@v4
         name: Upload Multi-ABI Debug APKs
         with:
-          name: saman-tunnel-v1.3.5-multiabi-debug
+          name: saman-tunnel-v1.3.6-smart-all-debug
           path: dist/*.apk
           if-no-files-found: error
           retention-days: 30

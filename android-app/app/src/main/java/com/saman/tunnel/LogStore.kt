@@ -230,6 +230,27 @@ object LogStore {
                     value.contains("socks5 listening on") ->
                     return "Starting local proxies"
 
+                value.contains("smart reconnect wg") &&
+                    value.contains("rtt") &&
+                    value.contains("scanning fresh") ->
+                    return "WG cached endpoint too slow — fresh scan"
+
+                value.contains("smart reconnect masque") &&
+                    value.contains("slower than") ->
+                    return "MASQUE cached gateway too slow — fresh scan"
+
+                value.contains("smart reconnect wg") &&
+                    value.contains("died after") ->
+                    return "WG cached endpoint was short-lived — fresh scan"
+
+                value.contains("smart reconnect masque") &&
+                    value.contains("died after") ->
+                    return "MASQUE cached gateway was short-lived — fresh scan"
+
+                value.contains("smart reconnect gool") &&
+                    value.contains("died after") ->
+                    return "GOOL pair was short-lived — fresh scan"
+
                 value.contains("blacklisting and rescanning") ||
                     value.contains("excluding it for") ||
                     (

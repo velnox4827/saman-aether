@@ -75,11 +75,25 @@ Java_com_saman_tunnel_NativeBridge_startCore(JNIEnv *env, jobject thiz, jstring 
     setenv("AETHER_LOG_LEVEL", "debug", 1);
     setenv("RUST_BACKTRACE", "1", 1);
 
+    /*
+     * Saman Tunnel Smart Reconnect.
+     * These thresholds affect reuse decisions only; fresh BALANCED scan
+     * results are not rejected by the thresholds.
+     */
+    setenv("AETHER_SMART_WG_MAX_RTT_MS", "650", 1);
+    setenv("AETHER_SMART_MASQUE_H3_MAX_VERIFY_MS", "1800", 1);
+    setenv("AETHER_SMART_MASQUE_H2_MAX_VERIFY_MS", "2500", 1);
+    setenv("AETHER_SMART_SHORT_LIVED_SECS", "20", 1);
+
     char config_path[PATH_MAX];
     snprintf(config_path, sizeof(config_path), "%s/aether.toml", dir);
     setenv("AETHER_CONFIG", config_path, 1);
 
     prepare_core_log(dir);
+    dprintf(
+        STDERR_FILENO,
+        "[samanbridge] smart-reconnect wg=650ms masque-h3=1800ms masque-h2=2500ms short-lived=20s\n"
+    );
     dprintf(STDERR_FILENO, "[samanbridge] args=%s\n", args);
 
     char *reply = aether_core_start(args);

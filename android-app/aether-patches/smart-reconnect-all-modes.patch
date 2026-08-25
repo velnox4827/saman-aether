@@ -1,0 +1,437 @@
+diff --git a/aether/src/lib.rs b/aether/src/lib.rs
+index 46ad6c6..daff576 100644
+--- a/aether/src/lib.rs
++++ b/aether/src/lib.rs
+@@ -197,11 +197,28 @@ async fn run_gool(
+         last_peer = Some(peer);
+         last_inner = Some(inner_peer);
+ 
+-        match run_warp_in_warp(primary.clone(), secondary.clone(), peer, inner_peer, listen).await {
++        let pair_started_at = Instant::now();
++        let pair_result =
++            run_warp_in_warp(primary.clone(), secondary.clone(), peer, inner_peer, listen).await;
++        let pair_lifetime = pair_started_at.elapsed();
++
++        match pair_result {
+             Ok(()) => log::warn!("[-] gool tunnel closed; reconnecting"),
+             Err(e) => log::warn!("[-] gool tunnel ended: {e}; reconnecting"),
+         }
+-        consecutive_fails += 1;
++
++        if pair_lifetime < smart_short_lived_threshold() {
++            log::warn!(
++                "[-] smart reconnect GOOL: outer/inner pair {peer} + {inner_peer} died after {:?}; dropping the pair and rescanning fresh",
++                pair_lifetime
++            );
++
++            last_peer = None;
++            last_inner = None;
++            consecutive_fails = MAX_CONSECUTIVE_FAILS;
++        } else {
++            consecutive_fails += 1;
++        }
+ 
+         tokio::time::sleep(wg_reconnect_delay()).await;
+     }
+@@ -702,7 +719,12 @@ fn lastconn_path(config_path: &str) -> String {
+     derive_sibling_path(config_path, "lastconn")
+ }
+ 
+-async fn quick_verify_masque_peer(identity: &account::Identity, peer: SocketAddr) -> bool {
++async fn quick_verify_masque_peer(
++    identity: &account::Identity,
++    peer: SocketAddr,
++) -> Option<std::time::Duration> {
++    let started = Instant::now();
++
+     let vp = quic::VerifyParams {
+         peer,
+         sni: consts::CONNECT_SNI.to_string(),
+@@ -716,7 +738,7 @@ async fn quick_verify_masque_peer(identity: &account::Identity, peer: SocketAddr
+         local_ipv4: parse_local_v4(&identity.ipv4),
+     };
+ 
+-    if masque_h2::enabled() {
++    let ok = if masque_h2::enabled() {
+         let cfg = masque_h2::H2TunnelConfig {
+             peer: masque_h2::h2_peer(peer),
+             sni: consts::CONNECT_SNI.to_string(),
+@@ -729,12 +751,22 @@ async fn quick_verify_masque_peer(identity: &account::Identity, peer: SocketAddr
+             pin_endpoint: true,
+             expected_pins: consts::MASQUE_PINS.iter().map(|p| p.to_vec()).collect(),
+         };
+-        return masque_h2::verify_h2(&cfg, std::time::Duration::from_secs(5))
+-            .await
+-            .is_ok();
+-    }
+ 
+-    quic::verify_masque(&vp).await.is_ok()
++        masque_h2::verify_h2(
++            &cfg,
++            std::time::Duration::from_secs(5)
++        )
++        .await
++        .is_ok()
++    } else {
++        quic::verify_masque(&vp).await.is_ok()
++    };
++
++    if ok {
++        Some(started.elapsed())
++    } else {
++        None
++    }
+ }
+ 
+ async fn want_quick_reconnect(cached: &lastconn::LastConnection) -> bool {
+@@ -762,6 +794,13 @@ async fn run_masque(
+     let forced = std::env::var("AETHER_PEER").ok();
+ 
+     let mut quick_peer: Option<SocketAddr> = None;
++    let mut quick_peer_from_cache = false;
++
++    log::info!(
++        "[*] smart reconnect MASQUE: cached verify limit {:?}, short-lived threshold {:?}",
++        smart_masque_cached_max_verify(),
++        smart_short_lived_threshold()
++    );
+ 
+     if forced.is_none() {
+         if let Some(assigned) = std::env::var("AETHER_TEAM_ENDPOINT")
+@@ -769,8 +808,13 @@ async fn run_masque(
+             .and_then(|value| value.parse::<SocketAddr>().ok())
+         {
+             log::info!("[*] verifying the endpoint the organization assigned: {assigned}");
+-            if quick_verify_masque_peer(&identity, assigned).await {
+-                log::info!("[+] the assigned endpoint {assigned} works; skipping the scan");
++            if let Some(verify_time) =
++                quick_verify_masque_peer(&identity, assigned).await
++            {
++                log::info!(
++                    "[+] the assigned endpoint {assigned} works (verify {:?}); skipping the scan",
++                    verify_time
++                );
+                 quick_peer = Some(assigned);
+             } else {
+                 log::warn!(
+@@ -785,18 +829,45 @@ async fn run_masque(
+             if let Ok(peer) = cached.peer.parse::<SocketAddr>() {
+                 if want_quick_reconnect(&cached).await {
+                     log::info!("[*] verifying cached gateway {peer} before reuse");
+-                    if quick_verify_masque_peer(&identity, peer).await {
+-                        log::info!("[+] cached gateway {peer} still works; skipping scan");
+-                        quick_peer = Some(peer);
+-                    } else {
+-                        log::warn!("[-] cached gateway {peer} no longer works; scanning fresh");
++
++                    match quick_verify_masque_peer(&identity, peer).await {
++                        Some(verify_time) => {
++                            let max_verify = smart_masque_cached_max_verify();
++
++                            if verify_time > max_verify {
++                                log::warn!(
++                                    "[-] smart reconnect MASQUE: cached gateway {peer} verified in {:?}, slower than {:?}; scanning fresh",
++                                    verify_time,
++                                    max_verify
++                                );
++
++                                if let Err(e) = std::fs::remove_file(&lastconn_path) {
++                                    if e.kind() != std::io::ErrorKind::NotFound {
++                                        log::debug!(
++                                            "[lastconn] could not remove slow MASQUE cache {lastconn_path}: {e}"
++                                        );
++                                    }
++                                }
++                            } else {
++                                log::info!(
++                                    "[+] cached gateway {peer} still works (verify {:?}, smart limit {:?}); skipping scan",
++                                    verify_time,
++                                    max_verify
++                                );
++                                quick_peer = Some(peer);
++                                quick_peer_from_cache = true;
++                            }
++                        }
++                        None => {
++                            log::warn!("[-] cached gateway {peer} no longer works; scanning fresh");
++                        }
+                     }
+                 }
+             }
+         }
+     }
+ 
+-    let (mode_str, ip) = if forced.is_some() || quick_peer.is_some() {
++    let (mode_str, ip) = if forced.is_some() {
+         (String::new(), prober::IpScan::V4)
+     } else {
+         let mode_str = select_scan_mode_str().await;
+@@ -807,17 +878,36 @@ async fn run_masque(
+     let mut last_good_peer: Option<SocketAddr> = None;
+ 
+     loop {
++        let mut selected_from_cached_quick = false;
++
+         let peer = if let Some(p) = quick_peer.take() {
++            selected_from_cached_quick = quick_peer_from_cache;
++            quick_peer_from_cache = false;
+             p
+         } else {
+             let retried = match last_good_peer {
+                 Some(p) => {
+                     log::info!("[*] retrying last known-good gateway {p} before rescanning");
+-                    if quick_verify_masque_peer(&identity, p).await {
+-                        Some(p)
+-                    } else {
+-                        log::warn!("[-] last known-good gateway {p} no longer responds; rescanning");
+-                        None
++
++                    match quick_verify_masque_peer(&identity, p).await {
++                        Some(verify_time) => {
++                            let max_verify = smart_masque_cached_max_verify();
++
++                            if verify_time > max_verify {
++                                log::warn!(
++                                    "[-] smart reconnect MASQUE: last gateway {p} verifies slowly ({:?} > {:?}); rescanning",
++                                    verify_time,
++                                    max_verify
++                                );
++                                None
++                            } else {
++                                Some(p)
++                            }
++                        }
++                        None => {
++                            log::warn!("[-] last known-good gateway {p} no longer responds; rescanning");
++                            None
++                        }
+                     }
+                 }
+                 None => None,
+@@ -854,11 +944,36 @@ async fn run_masque(
+ 
+         last_good_peer = Some(peer);
+ 
+-        match run_masque_tunnel(&identity, peer, ech.clone(), listen).await {
++        let tunnel_started_at = Instant::now();
++        let tunnel_result =
++            run_masque_tunnel(&identity, peer, ech.clone(), listen).await;
++        let tunnel_lifetime = tunnel_started_at.elapsed();
++
++        match tunnel_result {
+             Ok(()) => log::warn!("[-] MASQUE tunnel closed; reconnecting"),
+             Err(e) => log::warn!("[-] MASQUE tunnel ended: {e}; reconnecting"),
+         }
+ 
++        if forced.is_none()
++            && selected_from_cached_quick
++            && tunnel_lifetime < smart_short_lived_threshold()
++        {
++            log::warn!(
++                "[-] smart reconnect MASQUE: cached gateway {peer} died after {:?}; clearing cache and rescanning fresh",
++                tunnel_lifetime
++            );
++
++            last_good_peer = None;
++
++            if let Err(e) = std::fs::remove_file(&lastconn_path) {
++                if e.kind() != std::io::ErrorKind::NotFound {
++                    log::debug!(
++                        "[lastconn] could not remove short-lived MASQUE cache {lastconn_path}: {e}"
++                    );
++                }
++            }
++        }
++
+         tokio::time::sleep(masque_reconnect_delay()).await;
+     }
+ }
+@@ -1058,6 +1173,42 @@ fn wg_endpoint_cooldown() -> std::time::Duration {
+     std::time::Duration::from_secs(secs)
+ }
+ 
++fn smart_wg_cached_max_rtt() -> std::time::Duration {
++    let ms = std::env::var("AETHER_SMART_WG_MAX_RTT_MS")
++        .ok()
++        .and_then(|v| v.parse::<u64>().ok())
++        .filter(|&v| v > 0)
++        .unwrap_or(650);
++    std::time::Duration::from_millis(ms)
++}
++
++fn smart_masque_cached_max_verify() -> std::time::Duration {
++    let key = if masque_h2::enabled() {
++        "AETHER_SMART_MASQUE_H2_MAX_VERIFY_MS"
++    } else {
++        "AETHER_SMART_MASQUE_H3_MAX_VERIFY_MS"
++    };
++
++    let default_ms = if masque_h2::enabled() { 2500 } else { 1800 };
++
++    let ms = std::env::var(key)
++        .ok()
++        .and_then(|v| v.parse::<u64>().ok())
++        .filter(|&v| v > 0)
++        .unwrap_or(default_ms);
++
++    std::time::Duration::from_millis(ms)
++}
++
++fn smart_short_lived_threshold() -> std::time::Duration {
++    let secs = std::env::var("AETHER_SMART_SHORT_LIVED_SECS")
++        .ok()
++        .and_then(|v| v.parse::<u64>().ok())
++        .filter(|&v| v > 0)
++        .unwrap_or(20);
++    std::time::Duration::from_secs(secs)
++}
++
+ async fn hunt_wg_peer(
+     identity: &account::Identity,
+     candidates: &[(String, aethernoize::AetherNoizeConfig)],
+@@ -1102,6 +1253,13 @@ async fn run_wireguard(identity: account::Identity, listen: SocketAddr, lastconn
+         .map_err(|_| AetherError::Other("invalid ipv4".into()))?;
+ 
+     let mut quick: Option<(SocketAddr, aethernoize::AetherNoizeConfig, String)> = None;
++    let mut quick_from_cache = false;
++
++    log::info!(
++        "[*] smart reconnect WG: cached RTT limit {:?}, short-lived threshold {:?}",
++        smart_wg_cached_max_rtt(),
++        smart_short_lived_threshold()
++    );
+ 
+     if forced.is_none() {
+         if let Some(assigned) = std::env::var("AETHER_TEAM_ENDPOINT")
+@@ -1161,8 +1319,31 @@ async fn run_wireguard(identity: account::Identity, listen: SocketAddr, lastconn
+                     .await
+                     {
+                         Ok(rtt) => {
+-                            log::info!("[+] cached endpoint {peer} still works (rtt {:?}); skipping scan", rtt);
+-                            quick = Some((peer, profile, cached.profile.clone()));
++                            let max_rtt = smart_wg_cached_max_rtt();
++
++                            if rtt > max_rtt {
++                                log::warn!(
++                                    "[-] smart reconnect WG: cached endpoint {peer} RTT {:?} exceeds {:?}; scanning fresh",
++                                    rtt,
++                                    max_rtt
++                                );
++
++                                if let Err(e) = std::fs::remove_file(&lastconn_path) {
++                                    if e.kind() != std::io::ErrorKind::NotFound {
++                                        log::debug!(
++                                            "[lastconn] could not remove slow WG cache {lastconn_path}: {e}"
++                                        );
++                                    }
++                                }
++                            } else {
++                                log::info!(
++                                    "[+] cached endpoint {peer} still works (rtt {:?}, smart limit {:?}); skipping scan",
++                                    rtt,
++                                    max_rtt
++                                );
++                                quick = Some((peer, profile, cached.profile.clone()));
++                                quick_from_cache = true;
++                            }
+                         }
+                         Err(e) => {
+                             log::warn!("[-] cached endpoint {peer} no longer works ({e}); scanning fresh");
+@@ -1173,7 +1354,7 @@ async fn run_wireguard(identity: account::Identity, listen: SocketAddr, lastconn
+         }
+     }
+ 
+-    let (mode_str, ip) = if forced.is_some() || quick.is_some() {
++    let (mode_str, ip) = if forced.is_some() {
+         (String::new(), prober::IpScan::V4)
+     } else {
+         let mode_str = select_scan_mode_str().await;
+@@ -1201,7 +1382,11 @@ async fn run_wireguard(identity: account::Identity, listen: SocketAddr, lastconn
+             consecutive_fails_on_peer = 0;
+         }
+ 
++        let mut selected_from_cached_quick = false;
++
+         let (peer, profile, profile_name) = if let Some(q) = quick.take() {
++            selected_from_cached_quick = quick_from_cache;
++            quick_from_cache = false;
+             q
+         } else {
+             let retried = match &last_good {
+@@ -1219,7 +1404,20 @@ async fn run_wireguard(identity: account::Identity, listen: SocketAddr, lastconn
+                     )
+                     .await
+                     {
+-                        Ok(_) => Some(last_good.clone().unwrap()),
++                        Ok(rtt) => {
++                            let max_rtt = smart_wg_cached_max_rtt();
++
++                            if rtt > max_rtt {
++                                log::warn!(
++                                    "[-] smart reconnect WG: last endpoint {p} RTT {:?} exceeds {:?}; rescanning",
++                                    rtt,
++                                    max_rtt
++                                );
++                                None
++                            } else {
++                                Some(last_good.clone().unwrap())
++                            }
++                        }
+                         Err(e) => {
+                             log::warn!("[-] last known-good endpoint {p} no longer responds ({e}); rescanning");
+                             None
+@@ -1295,17 +1493,51 @@ async fn run_wireguard(identity: account::Identity, listen: SocketAddr, lastconn
+         }
+         last_good = Some((peer, profile.clone(), profile_name));
+ 
+-        match run_wireguard_tunnel(identity.clone(), peer, profile, listen).await {
++        let tunnel_started_at = Instant::now();
++        let tunnel_result =
++            run_wireguard_tunnel(identity.clone(), peer, profile, listen).await;
++        let tunnel_lifetime = tunnel_started_at.elapsed();
++
++        match tunnel_result {
+             Ok(()) => {
+                 log::warn!("[-] WireGuard tunnel closed; reconnecting");
+-                consecutive_fails_on_peer += 1;
+             }
+             Err(e) => {
+                 log::warn!("[-] WireGuard tunnel ended: {e}; reconnecting");
+-                consecutive_fails_on_peer += 1;
+             }
+         }
+ 
++        if forced.is_none()
++            && selected_from_cached_quick
++            && tunnel_lifetime < smart_short_lived_threshold()
++        {
++            let cooldown = wg_endpoint_cooldown();
++
++            endpoint_cooldowns.insert(
++                peer,
++                Instant::now() + cooldown
++            );
++
++            log::warn!(
++                "[-] smart reconnect WG: cached endpoint {peer} died after {:?}; excluding it for {:?} and rescanning fresh",
++                tunnel_lifetime,
++                cooldown
++            );
++
++            last_good = None;
++            consecutive_fails_on_peer = 0;
++
++            if let Err(e) = std::fs::remove_file(&lastconn_path) {
++                if e.kind() != std::io::ErrorKind::NotFound {
++                    log::debug!(
++                        "[lastconn] could not remove short-lived WG cache {lastconn_path}: {e}"
++                    );
++                }
++            }
++        } else {
++            consecutive_fails_on_peer += 1;
++        }
++
+         tokio::time::sleep(wg_reconnect_delay()).await;
+     }
+ }
