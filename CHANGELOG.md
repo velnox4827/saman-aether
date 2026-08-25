@@ -1,5 +1,25 @@
 # Changelog
 
+## v1.3.7
+
+Smart Reconnect and local-proxy restart Stable release.
+
+- versionCode `138`
+- Keeps Aether Core v1.7.0 pinned
+- Keeps `--scan balanced`
+- Keeps `--quick-reconnect`
+- Keeps `--reconnect-secs 1`
+- WireGuard cached RTT over `650 ms` triggers fresh balanced scan
+- MASQUE H3 cached verify threshold: `1800 ms`
+- MASQUE H2 cached verify threshold: `2500 ms`
+- Short-lived cached WG/MASQUE paths are discarded and rescanned
+- Short-lived GOOL outer+inner pairs are dropped before fresh scan
+- Fresh balanced-scan results are not rejected by cache thresholds
+- Local SOCKS5/HTTP listener restart uses reusable address binding
+- Short local-port hand-off retry before reporting 1819/1820 conflict
+- Stable APKs for `arm64-v8a`, `armeabi-v7a`, and Universal ARM
+- Home Screen Widget, Safe diagnostics and Full history diagnostics retained
+
 ## v1.3.5
 
 Stable maintenance and Multi-ABI release.

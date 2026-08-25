@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/velnox4827/saman-aether/releases/latest"><b>Download latest APK</b></a>
+  <a href="https://github.com/velnox4827/saman-aether/releases/latest"><b>Download latest Stable APK</b></a>
   ·
   <a href="docs/USAGE.fa.md">راهنمای فارسی</a>
   ·
@@ -23,13 +23,27 @@
 
 ---
 
-## Saman Tunnel v1.3.5 — Stable
+## Saman Tunnel v1.3.7 — Stable
 
-نسخه پایدار فعلی پروژه با **Aether Core v1.7.0** و پشتیبانی Stable از **ARM64، ARM32 و Universal ARM**.
+نسخه پایدار فعلی پروژه با **Aether Core v1.7.0**، پشتیبانی Stable از **ARM64، ARM32 و Universal ARM**، Smart Reconnect و بهبود Restart پراکسی‌های محلی.
 
-### ✨ مهم‌ترین قابلیت جدید: Home Screen Widget
+### 🚀 تغییرات مهم v1.3.7
 
-نسخه `v1.3.5` همچنان Widget کوچک و جمع‌وجور برای صفحه اصلی Android اضافه می‌کند.
+- **Smart Reconnect برای همه Modeها** با حفظ Scan پیش‌فرض `balanced`.
+- **WireGuard:** Cached endpoint با RTT بالاتر از `650ms` کنار گذاشته می‌شود و Fresh Balanced Scan انجام می‌شود.
+- **MASQUE H3:** Cached gateway با Verify بیشتر از `1800ms` کنار گذاشته می‌شود.
+- **MASQUE H2:** آستانه Cached verify برابر `2500ms` است.
+- اگر Cached WG/MASQUE در کمتر از `20s` از کار بیفتد، مسیر ضعیف کنار گذاشته می‌شود و اسکن تازه انجام می‌شود.
+- **GOOL:** Pair کوتاه‌عمر Outer + Inner کنار گذاشته می‌شود و Fresh Balanced Scan انجام می‌شود.
+- آستانه‌های Smart Reconnect فقط برای **Reuse کردن Cache** هستند؛ نتیجه Fresh Balanced Scan صرفاً به‌خاطر این آستانه‌ها رد نمی‌شود.
+- Restart پراکسی‌های محلی SOCKS5/HTTP بهبود یافته و Hand-off کوتاه پورت، احتمال خطای کاذب `1819/1820` بعد از Stop را کاهش می‌دهد.
+- `--quick-reconnect` و `--reconnect-secs 1` همچنان فعال‌اند.
+- **Turbo فعال نشده** و Scan پیش‌فرض همچنان `balanced` است.
+
+### Home Screen Widget
+
+
+Home Screen Widget کوچک Saman Tunnel همچنان در v1.3.7 فعال است.
 
 - یک Tap در حالت خاموش → اتصال با **آخرین Mode استفاده‌شده**
 - یک Tap در حالت فعال → **STOP**
@@ -197,7 +211,19 @@ SOCKS5       127.0.0.1:1819
 HTTP CONNECT 127.0.0.1:1820
 ```
 
-### Current Stable: v1.3.5
+### Current Stable: v1.3.7
+
+v1.3.7 adds **Smart Reconnect** for all tunnel modes while keeping the normal **balanced** scan behavior:
+
+- WireGuard cached RTT above `650 ms` -> fresh balanced scan
+- MASQUE H3 cached verification above `1800 ms` -> fresh balanced scan
+- MASQUE H2 cached verification above `2500 ms` -> fresh balanced scan
+- Short-lived cached WG/MASQUE paths are discarded
+- Short-lived GOOL outer+inner pairs are discarded before fresh scan
+- Fresh balanced-scan results are not rejected by cache thresholds
+- Local SOCKS5/HTTP restart and port hand-off are improved
+- `--quick-reconnect` and `--reconnect-secs 1` remain enabled
+
 
 - Compact Android home-screen widget
 - Tap while stopped → start the last selected mode
@@ -224,6 +250,8 @@ The widget controls the same `AetherService`; it does not start a second proxy c
 - Manual GitHub update checker
 - Stable ARM64 / ARM32 / Universal ARM APKs
 - Faster connection readiness detection
+- Smart Reconnect for WG / MASQUE H3 / MASQUE H2 / GOOL
+- Improved local SOCKS5/HTTP restart and port hand-off
 - Isolated Aether Core process
 - Safe + Full diagnostics options
 - arm64-v8a / armeabi-v7a / Universal ARM

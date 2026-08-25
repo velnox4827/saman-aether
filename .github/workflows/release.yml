@@ -173,38 +173,45 @@ jobs:
       - name: Release notes
         run: |
           cat > /tmp/notes.md <<'NOTES'
-          # Saman Tunnel v1.3.5
+          # Saman Tunnel v1.3.7
 
           Stable Android release based on **Aether Core v1.7.0**.
 
           ## Highlights
-          - Stable ARM64, ARM32 and Universal ARM APKs
-          - Faster app-side proxy readiness detection
-          - `--reconnect-secs 1`
-          - Aether Core isolated Android process
-          - Improved native-core STOP and cleanup
-          - More informative connection phases
-          - Safe diagnostics report with recent compact logs and known identifier redaction
-          - Optional Full history diagnostics
-          - One-tap Home Screen Widget retained
+          - Stable **ARM64**, **ARM32** and **Universal ARM** APKs
+          - **Smart Reconnect** for WG / MASQUE H3 / MASQUE H2 / GOOL
+          - Default scan remains **balanced**; Turbo is not enabled
+          - WireGuard cached RTT above **650 ms** -> fresh balanced scan
+          - MASQUE H3 cached verify above **1800 ms** -> fresh balanced scan
+          - MASQUE H2 cached verify above **2500 ms** -> fresh balanced scan
+          - Cached WG/MASQUE paths that die in under **20 s** are discarded
+          - Short-lived GOOL outer+inner pairs are dropped before fresh scan
+          - Fresh balanced-scan results are not rejected by cache thresholds
+          - Improved local SOCKS5/HTTP restart using reusable local binding
+          - Short local-port hand-off wait reduces false 1819/1820 conflicts after Stop
+          - `--quick-reconnect` retained
+          - `--reconnect-secs 1` retained
+          - Isolated `:aether_core` process retained
+          - Safe / Full diagnostics and Home Screen Widget retained
 
           ## Local proxies
           - SOCKS5: `127.0.0.1:1819`
           - HTTP CONNECT: `127.0.0.1:1820`
 
-          Saman Tunnel exposes local proxies; it is not itself a device-wide Android VPN.
+          > Saman Tunnel exposes local proxies; it is not itself a device-wide Android VPN.
 
-          ## APKs
-          - arm64-v8a: most modern Android phones
-          - armeabi-v7a: older 32-bit ARM devices
-          - universal-arm: ARM32 + ARM64
+          ## APK choices
+          - **arm64-v8a** — most modern Android phones
+          - **armeabi-v7a** — older 32-bit ARM devices
+          - **universal-arm** — contains both ARM32 + ARM64
 
-          Minimum Android: 7.0 / API 24
+          Minimum Android: **7.0 / API 24**
 
           Telegram: https://t.me/SamanTunnel
           GitHub: https://github.com/velnox4827/saman-aether
+          Issues: https://github.com/velnox4827/saman-aether/issues
           Upstream: https://github.com/CluvexStudio/Aether
-          License: GNU AGPL-3.0
+          License: **GNU AGPL-3.0**
           NOTES
 
       - name: Create GitHub Stable Release
