@@ -1,4 +1,4 @@
-name: Build Saman Tunnel v1.3.6 Smart Reconnect All Modes Debug APKs
+name: Build Saman Tunnel v1.3.7 Local Proxy Restart Debug APKs
 
 on:
   workflow_dispatch:
@@ -63,6 +63,16 @@ jobs:
           grep -q 'smart reconnect WG' "$RUNNER_TEMP/Aether/aether/src/lib.rs"
           grep -q 'smart reconnect MASQUE' "$RUNNER_TEMP/Aether/aether/src/lib.rs"
           grep -q 'smart reconnect GOOL' "$RUNNER_TEMP/Aether/aether/src/lib.rs"
+
+      - name: Apply Saman local proxy restart patch
+        run: |
+          set -euxo pipefail
+          PATCH="$GITHUB_WORKSPACE/android-app/aether-patches/local-proxy-reuseaddr.patch"
+          test -s "$PATCH"
+          git -C "$RUNNER_TEMP/Aether" apply --check "$PATCH"
+          git -C "$RUNNER_TEMP/Aether" apply "$PATCH"
+          grep -q 'bind_reusable_tcp_listener' "$RUNNER_TEMP/Aether/aether/src/socks.rs"
+          grep -q 'set_reuseaddr(true)' "$RUNNER_TEMP/Aether/aether/src/socks.rs"
 
       - name: Build Aether ARM64
         env:
@@ -147,17 +157,17 @@ jobs:
           O="android-app/app/build/outputs/apk"
           mkdir -p dist
           cp "$(find "$O" -type f -name '*arm64-v8a*debug*.apk' | head -n1)" \
-             dist/Saman-Tunnel-v1.3.6-arm64-v8a-debug.apk
+             dist/Saman-Tunnel-v1.3.7-arm64-v8a-debug.apk
           cp "$(find "$O" -type f -name '*armeabi-v7a*debug*.apk' | head -n1)" \
-             dist/Saman-Tunnel-v1.3.6-armeabi-v7a-debug.apk
+             dist/Saman-Tunnel-v1.3.7-armeabi-v7a-debug.apk
           cp "$(find "$O" -type f -name '*universal*debug*.apk' | head -n1)" \
-             dist/Saman-Tunnel-v1.3.6-universal-arm-debug.apk
+             dist/Saman-Tunnel-v1.3.7-universal-arm-debug.apk
           ls -lh dist
 
       - uses: actions/upload-artifact@v4
         name: Upload Multi-ABI Debug APKs
         with:
-          name: saman-tunnel-v1.3.6-smart-all-debug
+          name: saman-tunnel-v1.3.7-port-restart-debug
           path: dist/*.apk
           if-no-files-found: error
           retention-days: 30

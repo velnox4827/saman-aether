@@ -1,0 +1,47 @@
+diff --git a/aether/src/socks.rs b/aether/src/socks.rs
+index 20bb18c..1d19778 100644
+--- a/aether/src/socks.rs
++++ b/aether/src/socks.rs
+@@ -2,7 +2,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+ use std::time::Duration;
+ 
+ use tokio::io::{AsyncReadExt, AsyncWriteExt};
+-use tokio::net::{TcpListener, TcpStream, UdpSocket};
++use tokio::net::{TcpListener, TcpSocket, TcpStream, UdpSocket};
+ use tokio::sync::mpsc;
+ 
+ use crate::error::{AetherError, Result};
+@@ -114,8 +114,23 @@ pub(crate) fn proxy_connect_succeeded(head: &[u8]) -> Option<bool> {
+     Some((200..300).contains(&status))
+ }
+ 
++fn bind_reusable_tcp_listener(listen: SocketAddr) -> Result<TcpListener> {
++    let socket = if listen.is_ipv4() {
++        TcpSocket::new_v4()?
++    } else {
++        TcpSocket::new_v6()?
++    };
++
++    // Make local proxy restart tolerant of recently closed TCP sockets.
++    // SO_REUSEPORT is deliberately NOT enabled: another active listener
++    // must still block ownership of the same local proxy port.
++    socket.set_reuseaddr(true)?;
++    socket.bind(listen)?;
++    Ok(socket.listen(1024)?)
++}
++
+ pub async fn serve(listen: SocketAddr, stack: StackHandle) -> Result<()> {
+-    let listener = TcpListener::bind(listen).await?;
++    let listener = bind_reusable_tcp_listener(listen)?;
+     log::info!("socks5 listening on {listen}");
+     let bind_ip = listen.ip();
+ 
+@@ -1284,7 +1299,7 @@ mod tests {
+ const HTTP_HEAD_LIMIT: usize = 16 * 1024;
+ 
+ pub async fn serve_http(listen: SocketAddr, stack: StackHandle) -> Result<()> {
+-    let listener = TcpListener::bind(listen).await?;
++    let listener = bind_reusable_tcp_listener(listen)?;
+     log::info!("http proxy listening on {listen}");
+ 
+     loop {

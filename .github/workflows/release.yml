@@ -67,6 +67,16 @@ jobs:
           git -C "$RUNNER_TEMP/Aether" apply --check "$PATCH"
           git -C "$RUNNER_TEMP/Aether" apply "$PATCH"
 
+      - name: Apply Saman local proxy restart patch
+        run: |
+          set -euxo pipefail
+          PATCH="$GITHUB_WORKSPACE/android-app/aether-patches/local-proxy-reuseaddr.patch"
+          test -s "$PATCH"
+          git -C "$RUNNER_TEMP/Aether" apply --check "$PATCH"
+          git -C "$RUNNER_TEMP/Aether" apply "$PATCH"
+          grep -q 'bind_reusable_tcp_listener' "$RUNNER_TEMP/Aether/aether/src/socks.rs"
+          grep -q 'set_reuseaddr(true)' "$RUNNER_TEMP/Aether/aether/src/socks.rs"
+
       - name: Build Aether ARM64
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/26.3.11579264

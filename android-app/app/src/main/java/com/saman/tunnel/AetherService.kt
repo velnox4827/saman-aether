@@ -108,9 +108,9 @@ class AetherService : Service() {
 
         executor.execute {
             try {
-                if (isPortInUse(SOCKS_PORT) || isPortInUse(HTTP_PORT)) {
+                if (!waitForLocalPorts(myGeneration)) {
                     fail(
-                        "Port 1819/1820 is already in use before core start.",
+                        "Port 1819/1820 is still in use after restart wait.",
                         mode
                     )
                     return@execute
@@ -123,6 +123,49 @@ class AetherService : Service() {
                 fail(t.message ?: t.javaClass.simpleName, mode)
             }
         }
+    }
+
+    private fun waitForLocalPorts(myGeneration: Long): Boolean {
+        var waited = false
+
+        // 8 * 250 ms = 2 seconds. This covers the short hand-off window
+        // after the isolated core process is killed, without changing
+        // tunnel scan/reconnect settings.
+        for (attempt in 0 until 8) {
+            if (generation != myGeneration) return false
+
+            val socksBusy = isPortInUse(SOCKS_PORT)
+            val httpBusy = isPortInUse(HTTP_PORT)
+
+            if (!socksBusy && !httpBusy) {
+                if (waited) {
+                    LogStore.append(
+                        this,
+                        "PORT",
+                        "Local proxy ports became reusable after ${attempt * 250}ms"
+                    )
+                }
+                return true
+            }
+
+            if (!waited) {
+                waited = true
+                LogStore.append(
+                    this,
+                    "PORT",
+                    "Waiting for local port hand-off: SOCKS5=$socksBusy HTTP=$httpBusy"
+                )
+            }
+
+            Thread.sleep(250)
+        }
+
+        LogStore.append(
+            this,
+            "PORT",
+            "Local ports still busy after 2s: SOCKS5=${isPortInUse(SOCKS_PORT)} HTTP=${isPortInUse(HTTP_PORT)}"
+        )
+        return false
     }
 
     private fun launchCore(mode: String, myGeneration: Long) {
@@ -446,14 +489,17 @@ class AetherService : Service() {
         }
 
     /**
-     * Port-state probe that never connects to the SOCKS server.
-     * This avoids generating app-created "early eof" entries.
+     * Port-state probe that never connects to SOCKS/HTTP.
+     *
+     * SO_REUSEADDR prevents recently closed TCP state from being mistaken
+     * for another live local proxy. A genuinely active listener still
+     * blocks the bind because SO_REUSEPORT is not used.
      */
     private fun isPortInUse(port: Int): Boolean {
         val probe = ServerSocket()
 
         return try {
-            probe.reuseAddress = false
+            probe.reuseAddress = true
             probe.bind(InetSocketAddress("127.0.0.1", port))
             false
         } catch (_: Throwable) {
