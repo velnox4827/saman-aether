@@ -1,5 +1,5 @@
 diff --git a/aether/src/lib.rs b/aether/src/lib.rs
-index 46ad6c6..6e42b03 100644
+index 29c6563..adc5441 100644
 --- a/aether/src/lib.rs
 +++ b/aether/src/lib.rs
 @@ -197,11 +197,28 @@ async fn run_gool(
@@ -33,7 +33,7 @@ index 46ad6c6..6e42b03 100644
  
          tokio::time::sleep(wg_reconnect_delay()).await;
      }
-@@ -702,7 +719,12 @@ fn lastconn_path(config_path: &str) -> String {
+@@ -703,7 +720,12 @@ fn lastconn_path(config_path: &str) -> String {
      derive_sibling_path(config_path, "lastconn")
  }
  
@@ -47,7 +47,7 @@ index 46ad6c6..6e42b03 100644
      let vp = quic::VerifyParams {
          peer,
          sni: consts::CONNECT_SNI.to_string(),
-@@ -716,7 +738,7 @@ async fn quick_verify_masque_peer(identity: &account::Identity, peer: SocketAddr
+@@ -717,7 +739,7 @@ async fn quick_verify_masque_peer(identity: &account::Identity, peer: SocketAddr
          local_ipv4: parse_local_v4(&identity.ipv4),
      };
  
@@ -56,7 +56,7 @@ index 46ad6c6..6e42b03 100644
          let cfg = masque_h2::H2TunnelConfig {
              peer: masque_h2::h2_peer(peer),
              sni: consts::CONNECT_SNI.to_string(),
-@@ -729,12 +751,31 @@ async fn quick_verify_masque_peer(identity: &account::Identity, peer: SocketAddr
+@@ -730,12 +752,31 @@ async fn quick_verify_masque_peer(identity: &account::Identity, peer: SocketAddr
              pin_endpoint: true,
              expected_pins: consts::MASQUE_PINS.iter().map(|p| p.to_vec()).collect(),
          };
@@ -92,7 +92,7 @@ index 46ad6c6..6e42b03 100644
  }
  
  async fn want_quick_reconnect(cached: &lastconn::LastConnection) -> bool {
-@@ -762,6 +803,13 @@ async fn run_masque(
+@@ -763,6 +804,13 @@ async fn run_masque(
      let forced = std::env::var("AETHER_PEER").ok();
  
      let mut quick_peer: Option<SocketAddr> = None;
@@ -106,7 +106,7 @@ index 46ad6c6..6e42b03 100644
  
      if forced.is_none() {
          if let Some(assigned) = std::env::var("AETHER_TEAM_ENDPOINT")
-@@ -769,8 +817,13 @@ async fn run_masque(
+@@ -770,8 +818,13 @@ async fn run_masque(
              .and_then(|value| value.parse::<SocketAddr>().ok())
          {
              log::info!("[*] verifying the endpoint the organization assigned: {assigned}");
@@ -122,7 +122,7 @@ index 46ad6c6..6e42b03 100644
                  quick_peer = Some(assigned);
              } else {
                  log::warn!(
-@@ -785,18 +838,45 @@ async fn run_masque(
+@@ -786,18 +839,45 @@ async fn run_masque(
              if let Ok(peer) = cached.peer.parse::<SocketAddr>() {
                  if want_quick_reconnect(&cached).await {
                      log::info!("[*] verifying cached gateway {peer} before reuse");
@@ -174,7 +174,7 @@ index 46ad6c6..6e42b03 100644
          (String::new(), prober::IpScan::V4)
      } else {
          let mode_str = select_scan_mode_str().await;
-@@ -807,17 +887,36 @@ async fn run_masque(
+@@ -808,17 +888,36 @@ async fn run_masque(
      let mut last_good_peer: Option<SocketAddr> = None;
  
      loop {
@@ -216,7 +216,7 @@ index 46ad6c6..6e42b03 100644
                      }
                  }
                  None => None,
-@@ -854,11 +953,36 @@ async fn run_masque(
+@@ -855,11 +954,36 @@ async fn run_masque(
  
          last_good_peer = Some(peer);
  
@@ -254,7 +254,7 @@ index 46ad6c6..6e42b03 100644
          tokio::time::sleep(masque_reconnect_delay()).await;
      }
  }
-@@ -1058,6 +1182,42 @@ fn wg_endpoint_cooldown() -> std::time::Duration {
+@@ -1060,6 +1184,42 @@ fn wg_endpoint_cooldown() -> std::time::Duration {
      std::time::Duration::from_secs(secs)
  }
  
@@ -297,7 +297,7 @@ index 46ad6c6..6e42b03 100644
  async fn hunt_wg_peer(
      identity: &account::Identity,
      candidates: &[(String, aethernoize::AetherNoizeConfig)],
-@@ -1102,6 +1262,13 @@ async fn run_wireguard(identity: account::Identity, listen: SocketAddr, lastconn
+@@ -1104,6 +1264,13 @@ async fn run_wireguard(identity: account::Identity, listen: SocketAddr, lastconn
          .map_err(|_| AetherError::Other("invalid ipv4".into()))?;
  
      let mut quick: Option<(SocketAddr, aethernoize::AetherNoizeConfig, String)> = None;
@@ -311,7 +311,7 @@ index 46ad6c6..6e42b03 100644
  
      if forced.is_none() {
          if let Some(assigned) = std::env::var("AETHER_TEAM_ENDPOINT")
-@@ -1161,8 +1328,31 @@ async fn run_wireguard(identity: account::Identity, listen: SocketAddr, lastconn
+@@ -1163,8 +1330,31 @@ async fn run_wireguard(identity: account::Identity, listen: SocketAddr, lastconn
                      .await
                      {
                          Ok(rtt) => {
@@ -345,7 +345,7 @@ index 46ad6c6..6e42b03 100644
                          }
                          Err(e) => {
                              log::warn!("[-] cached endpoint {peer} no longer works ({e}); scanning fresh");
-@@ -1173,7 +1363,7 @@ async fn run_wireguard(identity: account::Identity, listen: SocketAddr, lastconn
+@@ -1175,7 +1365,7 @@ async fn run_wireguard(identity: account::Identity, listen: SocketAddr, lastconn
          }
      }
  
@@ -354,7 +354,7 @@ index 46ad6c6..6e42b03 100644
          (String::new(), prober::IpScan::V4)
      } else {
          let mode_str = select_scan_mode_str().await;
-@@ -1201,7 +1391,11 @@ async fn run_wireguard(identity: account::Identity, listen: SocketAddr, lastconn
+@@ -1203,7 +1393,11 @@ async fn run_wireguard(identity: account::Identity, listen: SocketAddr, lastconn
              consecutive_fails_on_peer = 0;
          }
  
@@ -366,7 +366,7 @@ index 46ad6c6..6e42b03 100644
              q
          } else {
              let retried = match &last_good {
-@@ -1219,7 +1413,20 @@ async fn run_wireguard(identity: account::Identity, listen: SocketAddr, lastconn
+@@ -1221,7 +1415,20 @@ async fn run_wireguard(identity: account::Identity, listen: SocketAddr, lastconn
                      )
                      .await
                      {
@@ -388,7 +388,7 @@ index 46ad6c6..6e42b03 100644
                          Err(e) => {
                              log::warn!("[-] last known-good endpoint {p} no longer responds ({e}); rescanning");
                              None
-@@ -1295,17 +1502,51 @@ async fn run_wireguard(identity: account::Identity, listen: SocketAddr, lastconn
+@@ -1297,17 +1504,48 @@ async fn run_wireguard(identity: account::Identity, listen: SocketAddr, lastconn
          }
          last_good = Some((peer, profile.clone(), profile_name));
  
@@ -415,10 +415,7 @@ index 46ad6c6..6e42b03 100644
 +        {
 +            let cooldown = wg_endpoint_cooldown();
 +
-+            endpoint_cooldowns.insert(
-+                peer,
-+                Instant::now() + cooldown
-+            );
++            endpoint_cooldowns.insert(peer, Instant::now() + cooldown);
 +
 +            log::warn!(
 +                "[-] smart reconnect WG: cached endpoint {peer} died after {:?}; excluding it for {:?} and rescanning fresh",

@@ -1,5 +1,5 @@
 diff --git a/aether/src/socks.rs b/aether/src/socks.rs
-index 20bb18c..1d19778 100644
+index 47530a8..5a02d64 100644
 --- a/aether/src/socks.rs
 +++ b/aether/src/socks.rs
 @@ -2,7 +2,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -11,8 +11,8 @@ index 20bb18c..1d19778 100644
  use tokio::sync::mpsc;
  
  use crate::error::{AetherError, Result};
-@@ -114,8 +114,23 @@ pub(crate) fn proxy_connect_succeeded(head: &[u8]) -> Option<bool> {
-     Some((200..300).contains(&status))
+@@ -125,8 +125,23 @@ pub(crate) fn warn_if_world_reachable(kind: &str, listen: SocketAddr) {
+     );
  }
  
 +fn bind_reusable_tcp_listener(listen: SocketAddr) -> Result<TcpListener> {
@@ -22,9 +22,9 @@ index 20bb18c..1d19778 100644
 +        TcpSocket::new_v6()?
 +    };
 +
-+    // Make local proxy restart tolerant of recently closed TCP sockets.
-+    // SO_REUSEPORT is deliberately NOT enabled: another active listener
-+    // must still block ownership of the same local proxy port.
++    // Allow a clean immediate restart after the previous local proxy closes.
++    // SO_REUSEPORT is deliberately not enabled, so another active listener
++    // still owns and blocks the same local port.
 +    socket.set_reuseaddr(true)?;
 +    socket.bind(listen)?;
 +    Ok(socket.listen(1024)?)
@@ -34,14 +34,14 @@ index 20bb18c..1d19778 100644
 -    let listener = TcpListener::bind(listen).await?;
 +    let listener = bind_reusable_tcp_listener(listen)?;
      log::info!("socks5 listening on {listen}");
+     warn_if_world_reachable("socks5", listen);
      let bind_ip = listen.ip();
- 
-@@ -1284,7 +1299,7 @@ mod tests {
+@@ -1296,7 +1311,7 @@ mod tests {
  const HTTP_HEAD_LIMIT: usize = 16 * 1024;
  
  pub async fn serve_http(listen: SocketAddr, stack: StackHandle) -> Result<()> {
 -    let listener = TcpListener::bind(listen).await?;
 +    let listener = bind_reusable_tcp_listener(listen)?;
      log::info!("http proxy listening on {listen}");
+     warn_if_world_reachable("http proxy", listen);
  
-     loop {

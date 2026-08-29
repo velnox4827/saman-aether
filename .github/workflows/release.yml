@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 env:
-  AETHER_COMMIT: "e05cbd78b8f17873abee553904a85610b88c0382"
+  AETHER_COMMIT: "a916ff6fbbb4ebafe8314c53cf3718eb51dcae53"
 
 jobs:
   release:

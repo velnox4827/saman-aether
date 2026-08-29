@@ -1,4 +1,4 @@
-name: Build Saman Tunnel v1.3.7 Local Proxy Restart Debug APKs
+name: Build Saman Tunnel v1.4.0 Aether 1.8.0 Debug APKs
 
 on:
   workflow_dispatch:
@@ -50,8 +50,9 @@ jobs:
           mkdir -p "$RUNNER_TEMP/Aether"
           git -C "$RUNNER_TEMP/Aether" init
           git -C "$RUNNER_TEMP/Aether" remote add origin https://github.com/CluvexStudio/Aether.git
-          git -C "$RUNNER_TEMP/Aether" fetch --depth 1 origin e05cbd78b8f17873abee553904a85610b88c0382
+          git -C "$RUNNER_TEMP/Aether" fetch --depth 1 origin a916ff6fbbb4ebafe8314c53cf3718eb51dcae53
           git -C "$RUNNER_TEMP/Aether" checkout --detach FETCH_HEAD
+          grep -q '^version = "1.8.0"$' "$RUNNER_TEMP/Aether/aether/Cargo.toml"
 
       - name: Apply Saman Smart Reconnect patch
         run: |
@@ -157,17 +158,17 @@ jobs:
           O="android-app/app/build/outputs/apk"
           mkdir -p dist
           cp "$(find "$O" -type f -name '*arm64-v8a*debug*.apk' | head -n1)" \
-             dist/Saman-Tunnel-v1.3.7-arm64-v8a-debug.apk
+             dist/Saman-Tunnel-v1.4.0-arm64-v8a-debug.apk
           cp "$(find "$O" -type f -name '*armeabi-v7a*debug*.apk' | head -n1)" \
-             dist/Saman-Tunnel-v1.3.7-armeabi-v7a-debug.apk
+             dist/Saman-Tunnel-v1.4.0-armeabi-v7a-debug.apk
           cp "$(find "$O" -type f -name '*universal*debug*.apk' | head -n1)" \
-             dist/Saman-Tunnel-v1.3.7-universal-arm-debug.apk
+             dist/Saman-Tunnel-v1.4.0-universal-arm-debug.apk
           ls -lh dist
 
       - uses: actions/upload-artifact@v4
         name: Upload Multi-ABI Debug APKs
         with:
-          name: saman-tunnel-v1.3.7-port-restart-debug
+          name: saman-tunnel-v1.4.0-aether180-debug
           path: dist/*.apk
           if-no-files-found: error
           retention-days: 30
