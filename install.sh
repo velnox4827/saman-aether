@@ -165,7 +165,12 @@ mkdir -p "$BACKUP_DIR"
 
 backup_file() {
     local f="$1"
-    [ -e "$f" ] && cp -a "$f" "$BACKUP_DIR/$(basename "$f")"
+
+    if [ -e "$f" ]; then
+        cp -a "$f" "$BACKUP_DIR/$(basename "$f")"
+    fi
+
+    return 0
 }
 
 for f in \
@@ -186,10 +191,10 @@ cp -f "$TMP/saman-aether-core" "$CORE_BIN"
 chmod +x "$CORE_BIN"
 printf '%s\n' "$VERSION" > "$VERSION_FILE"
 
-curl -fsSL "$BASE/aether-shortcut-runner" \
+curl -fsSL --retry 3 --retry-delay 2 "$BASE/aether-shortcut-runner" \
     -o "$HOME/.aether-shortcut-runner"
 
-curl -fsSL "$BASE/saman-aether-diagnostics" \
+curl -fsSL --retry 3 --retry-delay 2 "$BASE/saman-aether-diagnostics" \
     -o "$PREFIX/bin/saman-aether-diagnostics"
 
 echo "[4/5] Installing Termux:Widget shortcuts..."
@@ -202,7 +207,7 @@ for NAME in \
     4-Aether-MASQUE-H2 \
     5-Aether-SAFE-LOG
 do
-    curl -fsSL "$BASE/shortcuts/$NAME" \
+    curl -fsSL --retry 3 --retry-delay 2 "$BASE/shortcuts/$NAME" \
         -o "$HOME/.shortcuts/$NAME"
 done
 
