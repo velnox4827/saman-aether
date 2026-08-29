@@ -1,131 +1,249 @@
-# راهنمای Saman Aether با Termux + Termux:Widget
+# راهنمای Saman Aether — Termux + Termux:Widget v1.4.0
 
-این راهنما مربوط به **روش Termux** پروژه است. این روش مستقل از APK برنامه Saman Tunnel است و برای کسانی است که می‌خواهند Aether رسمی را داخل Termux اجرا کنند و از میانبرهای Termux:Widget استفاده کنند.
+این نسخه، روش Termux پروژه Saman Tunnel است و مستقل از APK اندروید اجرا می‌شود.
+
+از v1.4.0 به بعد، Installer نسخه Termux دیگر مجبور نیست باینری رسمی خام Aether را برای قابلیت‌های سامان استفاده کند. یک باینری Patch‌شده با نام زیر نصب می‌شود:
+
+```text
+$PREFIX/bin/saman-aether-core
+```
+
+این فایل کنار `aether` رسمی نصب می‌شود و آن را overwrite نمی‌کند.
+
+## تغییرات v1.4.0
+
+- Smart Reconnect برای WireGuard، MASQUE H3، MASQUE H2 و GOOL
+- Scan پیش‌فرض همچنان `balanced`
+- `--quick-reconnect` همچنان فعال
+- `--reconnect-secs 1`
+- SOCKS5 روی `127.0.0.1:1819`
+- HTTP CONNECT روی `127.0.0.1:1820`
+- Listenerهای محلی Patch شده‌اند تا Restart بعد از Stop تمیزتر انجام شود
+- قبل از Start، فقط Listenerهای واقعی 1819/1820 بررسی می‌شوند؛ TIME_WAIT به‌عنوان Proxy فعال در نظر گرفته نمی‌شود
+- readiness هر 250ms از Log خود Aether بررسی می‌شود و اتصال تستی به SOCKS ایجاد نمی‌کند
+- MASQUE H2 به Termux:Widget اضافه شده
+- Log فعلی و Previous برای هر Mode نگه‌داری می‌شود
+- Diagnostics در دو حالت Safe و Full
+- نمایش مرحله اتصال در Termux
+
+## بهبودهای Aether v1.8.0
+
+این نسخه علاوه بر Patchهای Saman، اصلاحات upstream v1.8.0 را هم دارد؛ از جمله پایداری بهتر GOOL، مقاومت بیشتر WireGuard در برابر خطای Task/Panic، اصلاح Authentication، بهینه‌سازی HTTP proxy و جلوگیری از reconnect loop در مقدار صفر.
+
+## Smart Reconnect
+
+### WireGuard
+
+Cached endpoint:
+
+```text
+RTT <= 650ms
+→ Quick Reconnect
+
+RTT > 650ms
+→ Fresh Balanced Scan
+```
+
+اگر Cached tunnel در کمتر از 20 ثانیه از کار بیفتد، مسیر Cache‌شده کنار گذاشته می‌شود.
+
+### MASQUE H3
+
+```text
+Cached verify <= 1800ms
+→ reuse
+
+Cached verify > 1800ms
+→ Fresh Balanced Scan
+```
+
+### MASQUE H2
+
+```text
+Cached verify <= 2500ms
+→ reuse
+
+Cached verify > 2500ms
+→ Fresh Balanced Scan
+```
+
+### GOOL
+
+اگر Pair مربوط به Outer + Inner در کمتر از 20 ثانیه از کار بیفتد، Pair کنار گذاشته می‌شود و Fresh Balanced Scan انجام می‌شود.
+
+> این آستانه‌ها فقط برای تصمیم‌گیری درباره Cache هستند. Endpointهایی که در Fresh Balanced Scan پیدا می‌شوند صرفاً به دلیل این آستانه‌ها رد نمی‌شوند.
 
 ## پیش‌نیازها
 
-روی Android نصب کنید:
+- Termux
+- Termux:Widget
 
-1. **Termux**
-2. **Termux:Widget**
+بهتر است هر دو از یک منبع سازگار نصب شده باشند.
 
-بهتر است هر دو را از یک منبع سازگار نصب کنید تا مشکل Signature پیش نیاید.
-
-## نصب
-
-Termux را باز کنید و اجرا کنید:
+## نصب / آپدیت
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/velnox4827/saman-aether/main/install.sh | bash
 ```
 
-Installer:
+Installer معماری دستگاه را تشخیص می‌دهد و یکی از Coreهای آماده را دانلود می‌کند:
 
-- پکیج‌های لازم را نصب می‌کند.
-- Aether رسمی را نصب یا آپدیت می‌کند.
-- Runner سامان را نصب می‌کند.
-- Shortcutهای Termux:Widget را می‌سازد.
+```text
+arm64
+armv7
+x86_64
+```
 
-بعد از پایان نصب باید این Shortcutها ساخته شوند:
+فایل با SHA256 بررسی می‌شود.
+
+## Shortcutهای Termux:Widget
 
 ```text
 0-STOP-Aether
 1-Aether-MASQUE
 2-Aether-WG
 3-Aether-GOOL
+4-Aether-MASQUE-H2
+5-Aether-SAFE-LOG
 ```
 
-## اضافه کردن Termux:Widget
+`1-Aether-MASQUE` برای سازگاری با نسخه‌های قدیمی نام قبلی را نگه داشته و MASQUE H3 است.
 
-1. به Home Screen گوشی بروید.
-2. روی فضای خالی چند ثانیه نگه دارید.
-3. **Widgets** را باز کنید.
-4. **Termux:Widget** را پیدا کنید.
-5. Widget را روی صفحه قرار دهید.
-6. در صورت نیاز Widget را Refresh کنید.
-
-بعد باید Shortcutهای بالا نمایش داده شوند.
-
-## عملکرد Shortcutها
-
-| Shortcut | عملکرد |
-|---|---|
-| `0-STOP-Aether` | توقف Aether |
-| `1-Aether-MASQUE` | اجرای MASQUE |
-| `2-Aether-WG` | اجرای WireGuard |
-| `3-Aether-GOOL` | اجرای GOOL |
-
-## SOCKS5
-
-بعد از اتصال موفق:
+## Proxyها
 
 ```text
-Protocol: SOCKS5
-Host: 127.0.0.1
-Port: 1819
+SOCKS5
+127.0.0.1:1819
+
+HTTP CONNECT
+127.0.0.1:1820
 ```
 
-## تنظیمات فعلی Shortcutها
+Saman Aether خودش VPN سراسری Android نیست؛ Local Proxy می‌سازد.
 
-### MASQUE
+## تنظیمات Modeها
+
+### MASQUE H3
 
 ```text
---masque -4 --bind 127.0.0.1:1819 --scan balanced --noize firewall --quick-reconnect
+--masque -4
+--bind 127.0.0.1:1819
+--http-proxy 127.0.0.1:1820
+--reconnect-secs 1
+--scan balanced
+--noize firewall
+--quick-reconnect
+```
+
+### MASQUE H2
+
+```text
+--masque --h2 -4
+--bind 127.0.0.1:1819
+--http-proxy 127.0.0.1:1820
+--reconnect-secs 1
+--scan balanced
+--noize firewall
+--quick-reconnect
 ```
 
 ### WireGuard
 
 ```text
---wg -4 --bind 127.0.0.1:1819 --scan balanced --noize balanced --keepalive 5 --quick-reconnect
+--wg -4
+--bind 127.0.0.1:1819
+--http-proxy 127.0.0.1:1820
+--reconnect-secs 1
+--scan balanced
+--noize balanced
+--keepalive 5
+--quick-reconnect
 ```
 
 ### GOOL
 
 ```text
---gool -4 --bind 127.0.0.1:1819 --scan balanced --noize balanced --keepalive 5 --quick-reconnect
+--gool -4
+--bind 127.0.0.1:1819
+--http-proxy 127.0.0.1:1820
+--reconnect-secs 1
+--scan balanced
+--noize balanced
+--keepalive 5
+--quick-reconnect
 ```
 
-## آپدیت
+## Diagnostics
 
-برای آپدیت Aether و Refresh شدن Shortcutها همان دستور نصب را دوباره اجرا کنید:
+گزارش پیشنهادی برای اشتراک‌گذاری:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/velnox4827/saman-aether/main/install.sh | bash
+saman-aether-diagnostics safe
 ```
 
-## حذف Shortcutهای سامان
+یا Shortcut:
+
+```text
+5-Aether-SAFE-LOG
+```
+
+گزارش کامل:
+
+```bash
+saman-aether-diagnostics full
+```
+
+Safe report فقط قسمت‌های اخیر Log را جمع می‌کند و بعضی شناسه‌های شناخته‌شده را Redact می‌کند. Full history برای عیب‌یابی کامل است و قبل از انتشار عمومی باید بررسی شود.
+
+اگر `termux-setup-storage` قبلاً اجرا شده باشد، فایل Diagnostics در Downloads ذخیره می‌شود؛ در غیر این صورت داخل `$HOME` قرار می‌گیرد.
+
+## Logها
+
+```text
+~/aether-wg.log
+~/aether-wg.previous.log
+
+~/aether-gool.log
+~/aether-gool.previous.log
+
+~/aether-masque-h3.log
+~/aether-masque-h3.previous.log
+
+~/aether-masque-h2.log
+~/aether-masque-h2.previous.log
+```
+
+## Restart و Port Conflict
+
+قبل از Start، Runner تا حدود 2 ثانیه برای آزادشدن Listener قبلی صبر می‌کند.
+
+بررسی پورت با `ss -ltn` انجام می‌شود و به SOCKS وصل نمی‌شود؛ بنابراین readiness/port check خودش `early eof` مصنوعی تولید نمی‌کند.
+
+اگر برنامه دیگری واقعاً روی 1819 یا 1820 Listener داشته باشد، Start متوقف می‌شود و پورت درگیر نمایش داده می‌شود.
+
+## حذف نسخه Termux سامان
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/velnox4827/saman-aether/main/install.sh | bash -s -- uninstall
 ```
 
-این کار Shortcutها و Runner سامان را حذف می‌کند، ولی Aether اصلی را حذف نمی‌کند.
+این دستور `saman-aether-core`، Runner، Diagnostics و Shortcutهای سامان را حذف می‌کند.
 
-## فایل‌های پروژه مربوط به Termux
+اگر Aether رسمی را جداگانه نصب کرده باشید، دست‌نخورده باقی می‌ماند.
 
-```text
-install.sh
-aether-shortcut-runner
-shortcuts/
-├── 0-STOP-Aether
-├── 1-Aether-MASQUE
-├── 2-Aether-WG
-└── 3-Aether-GOOL
-```
+## Source / License
 
-## گزارش مشکل یا پیشنهاد
+Core این نسخه از Aether Core v1.8.0 و Patchهای موجود در همین Repository ساخته می‌شود.
 
-اگر مشکل مربوط به Saman Aether / Termux / Widget بود، در GitHub Issue باز کنید:
+Upstream:
 
-https://github.com/velnox4827/saman-aether/issues
+https://github.com/CluvexStudio/Aether
 
-در عنوان یا متن Issue بنویسید که از **Termux/Widget version** استفاده می‌کنید تا با نسخه APK اشتباه نشود.
+Repository:
 
+https://github.com/velnox4827/saman-aether
+
+License: GNU AGPL-3.0
 
 ## گروه تلگرام
 
-برای پرسش‌های عمومی درباره نسخه Termux/Widget:
-
 https://t.me/SamanTunnel
-
-لطفاً در پیام مشخص کنید که از **Termux/Widget version** استفاده می‌کنید.

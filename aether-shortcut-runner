@@ -1,64 +1,200 @@
 #!/data/data/com.termux/files/usr/bin/bash
+set -u
+set -o pipefail
 
-MODE="$1"
+VERSION="1.4.0"
+AETHER_BASE_VERSION="1.8.0"
+MODE="${1:-}"
+
+CORE_BIN="${SAMAN_AETHER_CORE:-$PREFIX/bin/saman-aether-core}"
+STATE_DIR="$HOME/.saman-aether"
+PID_FILE="$STATE_DIR/aether.pid"
+
+SOCKS_PORT=1819
+HTTP_PORT=1820
+
+mkdir -p "$STATE_DIR"
 
 clear
 echo "================================"
-echo "        AETHER CORE"
+echo "       SAMAN AETHER"
+echo "     Termux v$VERSION"
+echo "   Aether Core v$AETHER_BASE_VERSION"
 echo "================================"
 echo "Mode: $MODE"
 echo
 
-pkill -x aether 2>/dev/null || true
-sleep 1
+if [ ! -x "$CORE_BIN" ]; then
+    echo "ERROR: patched Saman Aether Core is not installed."
+    echo
+    echo "Run:"
+    echo "curl -fsSL https://raw.githubusercontent.com/velnox4827/saman-aether/main/install.sh | bash"
+    exit 1
+fi
+
+export AETHER_SMART_WG_MAX_RTT_MS=650
+export AETHER_SMART_MASQUE_H3_MAX_VERIFY_MS=1800
+export AETHER_SMART_MASQUE_H2_MAX_VERIFY_MS=2500
+export AETHER_SMART_SHORT_LIVED_SECS=20
+
+stop_core() {
+    local pid=""
+
+    if [ -f "$PID_FILE" ]; then
+        pid="$(cat "$PID_FILE" 2>/dev/null || true)"
+    fi
+
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+        kill -TERM "$pid" 2>/dev/null || true
+
+        for _ in $(seq 1 20); do
+            kill -0 "$pid" 2>/dev/null || break
+            sleep 0.1
+        done
+
+        if kill -0 "$pid" 2>/dev/null; then
+            echo "Previous core still running — forcing stop..."
+            kill -KILL "$pid" 2>/dev/null || true
+        fi
+    fi
+
+    rm -f "$PID_FILE"
+}
+
+port_listening() {
+    local port="$1"
+
+    ss -ltnH 2>/dev/null |
+        awk -v suffix=":$port" '
+            $4 ~ (suffix "$") { found=1 }
+            END { exit(found ? 0 : 1) }
+        '
+}
+
+wait_local_ports() {
+    local i
+    local socks_busy
+    local http_busy
+    local announced=0
+
+    for i in $(seq 0 8); do
+        socks_busy=0
+        http_busy=0
+
+        port_listening "$SOCKS_PORT" && socks_busy=1
+        port_listening "$HTTP_PORT" && http_busy=1
+
+        if [ "$socks_busy" -eq 0 ] &&
+           [ "$http_busy" -eq 0 ]; then
+            if [ "$announced" -eq 1 ]; then
+                echo "Local proxy ports are free."
+            fi
+            return 0
+        fi
+
+        if [ "$announced" -eq 0 ]; then
+            echo "Waiting for local proxy port hand-off..."
+            announced=1
+        fi
+
+        [ "$i" -eq 8 ] && break
+        sleep 0.25
+    done
+
+    echo
+    echo "Local proxy port is still busy:"
+    port_listening "$SOCKS_PORT" &&
+        echo "  SOCKS5 :1819 is listening"
+    port_listening "$HTTP_PORT" &&
+        echo "  HTTP   :1820 is listening"
+    echo
+    echo "Stop the other local proxy first."
+    return 1
+}
+
+stop_core
+wait_local_ports || exit 1
 
 command -v termux-wake-lock >/dev/null 2>&1 &&
     termux-wake-lock >/dev/null 2>&1 || true
 
+COMMON_ARGS=(
+    --bind "127.0.0.1:$SOCKS_PORT"
+    --http-proxy "127.0.0.1:$HTTP_PORT"
+    --reconnect-secs 1
+)
+
 case "$MODE" in
+    MASQUE|MASQUE_H3)
+        MODE_KEY="masque-h3"
+        MODE_LABEL="MASQUE H3"
+        ARGS=(
+            --masque
+            -4
+            "${COMMON_ARGS[@]}"
+            --scan balanced
+            --noize firewall
+            --quick-reconnect
+        )
+        ;;
 
-MASQUE)
-    ARGS=(
-        --masque
-        -4
-        --bind 127.0.0.1:1819
-        --scan balanced
-        --noize firewall
-        --quick-reconnect
-    )
-    ;;
+    MASQUE_H2)
+        MODE_KEY="masque-h2"
+        MODE_LABEL="MASQUE H2"
+        ARGS=(
+            --masque
+            --h2
+            -4
+            "${COMMON_ARGS[@]}"
+            --scan balanced
+            --noize firewall
+            --quick-reconnect
+        )
+        ;;
 
-WG)
-    ARGS=(
-        --wg
-        -4
-        --bind 127.0.0.1:1819
-        --scan balanced
-        --noize balanced
-        --keepalive 5
-        --quick-reconnect
-    )
-    ;;
+    WG)
+        MODE_KEY="wg"
+        MODE_LABEL="WireGuard"
+        ARGS=(
+            --wg
+            -4
+            "${COMMON_ARGS[@]}"
+            --scan balanced
+            --noize balanced
+            --keepalive 5
+            --quick-reconnect
+        )
+        ;;
 
-GOOL)
-    ARGS=(
-        --gool
-        -4
-        --bind 127.0.0.1:1819
-        --scan balanced
-        --noize balanced
-        --keepalive 5
-        --quick-reconnect
-    )
-    ;;
+    GOOL)
+        MODE_KEY="gool"
+        MODE_LABEL="GOOL"
+        ARGS=(
+            --gool
+            -4
+            "${COMMON_ARGS[@]}"
+            --scan balanced
+            --noize balanced
+            --keepalive 5
+            --quick-reconnect
+        )
+        ;;
 
-*)
-    echo "Unknown mode: $MODE"
-    exit 1
-    ;;
+    *)
+        echo "Unknown mode: $MODE"
+        echo "Valid: MASQUE / MASQUE_H2 / WG / GOOL"
+        exit 1
+        ;;
 esac
 
-LOG="$HOME/aether-${MODE,,}.log"
+LOG="$HOME/aether-${MODE_KEY}.log"
+PREVIOUS_LOG="$HOME/aether-${MODE_KEY}.previous.log"
+
+if [ -f "$LOG" ]; then
+    mv -f "$LOG" "$PREVIOUS_LOG" 2>/dev/null || true
+fi
+
+: > "$LOG"
 
 country_name() {
     case "$1" in
@@ -95,32 +231,92 @@ country_name() {
 get_exit_info() {
     local trace
 
-    trace="$(curl -4 \
-        --silent \
-        --max-time 15 \
-        --socks5-hostname 127.0.0.1:1819 \
-        https://www.cloudflare.com/cdn-cgi/trace \
-        2>/dev/null || true)"
+    trace="$(
+        curl -4 \
+            --silent \
+            --max-time 15 \
+            --socks5-hostname "127.0.0.1:$SOCKS_PORT" \
+            https://www.cloudflare.com/cdn-cgi/trace \
+            2>/dev/null || true
+    )"
 
-    CHECK_IP="$(printf '%s\n' "$trace" |
-        sed -n 's/^ip=//p' | head -n1)"
+    CHECK_IP="$(
+        printf '%s\n' "$trace" |
+            sed -n 's/^ip=//p' |
+            head -n1
+    )"
 
-    CHECK_CC="$(printf '%s\n' "$trace" |
-        sed -n 's/^loc=//p' | head -n1)"
+    CHECK_CC="$(
+        printf '%s\n' "$trace" |
+            sed -n 's/^loc=//p' |
+            head -n1
+    )"
 }
 
-aether "${ARGS[@]}" >"$LOG" 2>&1 &
-PIPE_PID=$!
+connection_phase() {
+    local t
 
+    t="$(tail -n 120 "$LOG" 2>/dev/null || true)"
+
+    if printf '%s\n' "$t" |
+        grep -Eqi 'smart reconnect WG.*RTT.*scanning fresh'; then
+        echo "WG cached endpoint too slow — fresh balanced scan"
+
+    elif printf '%s\n' "$t" |
+        grep -Eqi 'smart reconnect MASQUE.*slower than'; then
+        echo "MASQUE cached gateway too slow — fresh balanced scan"
+
+    elif printf '%s\n' "$t" |
+        grep -Eqi 'smart reconnect GOOL.*died after'; then
+        echo "GOOL pair was short-lived — fresh balanced scan"
+
+    elif printf '%s\n' "$t" |
+        grep -Eqi 'smart reconnect.*died after'; then
+        echo "Cached path was short-lived — fresh balanced scan"
+
+    elif printf '%s\n' "$t" |
+        grep -Eqi 'verifying cached'; then
+        echo "Checking cached endpoint"
+
+    elif printf '%s\n' "$t" |
+        grep -Eqi 'blacklisting and rescanning|scanning fresh'; then
+        echo "Fresh balanced scan"
+
+    elif printf '%s\n' "$t" |
+        grep -Eqi 'hunting for .*working|scan mode=balanced'; then
+        echo "Scanning balanced endpoints"
+
+    elif printf '%s\n' "$t" |
+        grep -Eqi 'establishing inner|inner endpoint'; then
+        echo "Establishing inner tunnel"
+
+    elif printf '%s\n' "$t" |
+        grep -Eqi 'establishing outer'; then
+        echo "Establishing outer tunnel"
+
+    elif printf '%s\n' "$t" |
+        grep -Eqi 'validating.*tunnel'; then
+        echo "Validating tunnel"
+
+    else
+        echo "Preparing $MODE_LABEL"
+    fi
+}
+
+CORE_PID=""
 WATCH_PID=""
+
+start_core() {
+    "$CORE_BIN" "${ARGS[@]}" >>"$LOG" 2>&1 &
+    CORE_PID=$!
+    printf '%s\n' "$CORE_PID" > "$PID_FILE"
+}
 
 cleanup() {
     [ -n "$WATCH_PID" ] &&
         kill "$WATCH_PID" 2>/dev/null || true
 
-    pkill -x aether 2>/dev/null || true
-
-    kill "$PIPE_PID" 2>/dev/null || true
+    stop_core
 
     command -v termux-wake-unlock >/dev/null 2>&1 &&
         termux-wake-unlock >/dev/null 2>&1 || true
@@ -128,39 +324,63 @@ cleanup() {
 
 trap cleanup INT TERM EXIT
 
-echo
-echo "Waiting for Aether SOCKS5..."
+wait_ready() {
+    local i
+    local phase=""
+    local previous_phase=""
 
-READY=0
-
-for i in $(seq 1 120); do
-
-    if ! kill -0 "$PIPE_PID" 2>/dev/null; then
-        echo
-        echo "Aether stopped."
-        exit 1
-    fi
-
-    if (echo >/dev/tcp/127.0.0.1/1819) \
-        >/dev/null 2>&1; then
-
-        READY=1
-        break
-    fi
-
-    sleep 1
-done
-
-if [ "$READY" != "1" ]; then
     echo
-    echo "SOCKS5 did not become ready."
+    echo "Connecting..."
+
+    # Same 120-second maximum, checked every 250 ms.
+    for i in $(seq 1 480); do
+        if ! kill -0 "$CORE_PID" 2>/dev/null; then
+            echo
+            echo "Aether Core stopped before SOCKS5 became ready."
+            echo "Log: $LOG"
+            return 1
+        fi
+
+        # No TCP readiness connection is opened here, so this checker
+        # does not generate artificial SOCKS "early eof" entries.
+        if grep -Eqi \
+            'socks5 server listening|socks5.*listening|listening.*socks5' \
+            "$LOG" 2>/dev/null; then
+            return 0
+        fi
+
+        if [ $((i % 4)) -eq 0 ]; then
+            phase="$(connection_phase)"
+
+            if [ "$phase" != "$previous_phase" ]; then
+                echo "  $phase"
+                previous_phase="$phase"
+            fi
+        fi
+
+        sleep 0.25
+    done
+
+    echo
+    echo "SOCKS5 did not become ready within 120 seconds."
+    echo "Log: $LOG"
+    return 1
+}
+
+start_core
+
+if ! wait_ready; then
     exit 1
 fi
 
 echo
 echo "================================"
 echo "       AETHER CONNECTED"
-echo " SOCKS5: 127.0.0.1:1819"
+echo " Mode : $MODE_LABEL"
+echo " SOCKS5       127.0.0.1:$SOCKS_PORT"
+echo " HTTP CONNECT 127.0.0.1:$HTTP_PORT"
+echo " Scan : balanced"
+echo " Smart Reconnect: ON"
 echo "================================"
 
 echo
@@ -175,24 +395,17 @@ echo
 echo "================================"
 
 if [ -n "$CURRENT_IP" ]; then
-
     CURRENT_COUNTRY="$(country_name "$CURRENT_CC")"
-
     echo " Exit IP : $CURRENT_IP"
     echo " Country : $CURRENT_COUNTRY ($CURRENT_CC)"
-
 else
-
     echo " Exit IP : Unknown"
     echo " Country : Unknown"
-
 fi
 
 echo "================================"
 
-
 watch_aether_events() {
-
     local need_check=0
     local new_ip
     local new_cc
@@ -201,28 +414,22 @@ watch_aether_events() {
 
     tail -n 0 -F "$LOG" 2>/dev/null |
     while IFS= read -r line; do
-
         case "$line" in
-
             *"reconnecting"*|\
             *"Restarting after network change"*|\
-            *"blacklisting and rescanning"*)
-
+            *"blacklisting and rescanning"*|\
+            *"scanning fresh"*|\
+            *"smart reconnect"*)
                 need_check=1
                 ;;
-
         esac
 
-
         [ "$need_check" -eq 1 ] || continue
-
 
         SUCCESS=0
 
         case "$MODE" in
-
             GOOL)
-
                 case "$line" in
                     *"[inner] wireguard tunnel validated"*|\
                     *"socks5 server listening"*)
@@ -232,7 +439,6 @@ watch_aether_events() {
                 ;;
 
             WG)
-
                 case "$line" in
                     *"wireguard tunnel validated"*|\
                     *"socks5 server listening"*)
@@ -241,33 +447,27 @@ watch_aether_events() {
                 esac
                 ;;
 
-            MASQUE)
-
+            MASQUE|MASQUE_H3|MASQUE_H2)
                 case "$line" in
                     *"socks5 server listening"*)
                         SUCCESS=1
                         ;;
                 esac
                 ;;
-
         esac
-
 
         [ "$SUCCESS" -eq 1 ] || continue
 
-        sleep 1
-
+        sleep 0.5
         get_exit_info
 
         new_ip="$CHECK_IP"
         new_cc="$CHECK_CC"
 
         [ -n "$new_ip" ] || continue
-
         need_check=0
 
         if [ "$new_ip" != "$CURRENT_IP" ]; then
-
             old_country="$(country_name "$CURRENT_CC")"
             new_country="$(country_name "$new_cc")"
 
@@ -277,7 +477,6 @@ watch_aether_events() {
             echo "================================"
             echo " Old IP  : $CURRENT_IP"
             echo " New IP  : $new_ip"
-            echo
             echo " Country : $old_country ($CURRENT_CC)"
             echo "        -> $new_country ($new_cc)"
             echo " Time    : $(date '+%H:%M:%S')"
@@ -285,19 +484,16 @@ watch_aether_events() {
 
             CURRENT_IP="$new_ip"
             CURRENT_CC="$new_cc"
-
         fi
-
     done
 }
-
 
 watch_aether_events &
 WATCH_PID=$!
 
-
 echo
 echo "Aether is monitoring connection..."
+echo "Log: $LOG"
 echo
 echo "Returning to Home..."
 
@@ -306,11 +502,11 @@ am start \
     -c android.intent.category.HOME \
     >/dev/null 2>&1 || true
 
-
 while true; do
-
-    wait "$PIPE_PID"
+    wait "$CORE_PID"
     RC=$?
+
+    rm -f "$PID_FILE"
 
     if [ "$RC" -ne 101 ]; then
         exit "$RC"
@@ -321,11 +517,19 @@ while true; do
         echo "Aether exited with code 101."
         echo "Restarting after network change..."
         date
-    } >> "$LOG"
+    } >>"$LOG"
 
-    sleep 2
+    echo
+    echo "Network change detected — restarting Aether..."
 
-    aether "${ARGS[@]}" >>"$LOG" 2>&1 &
-    PIPE_PID=$!
+    wait_local_ports || exit 1
+    sleep 0.25
 
+    start_core
+
+    if ! wait_ready; then
+        exit 1
+    fi
+
+    echo "Aether reconnected."
 done

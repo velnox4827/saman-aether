@@ -1,5 +1,26 @@
 # Changelog
 
+## Saman Aether Termux v1.4.0
+
+Patched Termux + Termux:Widget release based on Aether Core v1.8.0.
+
+- Prebuilt patched `saman-aether-core` for arm64, armv7 and x86_64
+- Inherits upstream Aether v1.8.0 stability fixes
+- Keeps separately installed upstream `aether` untouched
+- Smart Reconnect for WG / MASQUE H3 / MASQUE H2 / GOOL
+- WG cached RTT threshold `650 ms`
+- MASQUE H3 cached verification threshold `1800 ms`
+- MASQUE H2 cached verification threshold `2500 ms`
+- Short-lived path/pair threshold `20 s`
+- Fresh scans remain `balanced`
+- Local SOCKS5/HTTP reusable address binding
+- HTTP CONNECT `127.0.0.1:1820`
+- SOCKS5 `127.0.0.1:1819`
+- `--reconnect-secs 1`
+- MASQUE H2 shortcut
+- 250 ms log-based readiness detection
+- Safe / Full diagnostics
+
 ## v1.3.7
 
 Smart Reconnect and local-proxy restart Stable release.

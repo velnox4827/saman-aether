@@ -1,0 +1,4 @@
+#!/data/data/com.termux/files/usr/bin/bash
+saman-aether-diagnostics safe
+echo
+read -r -p "Press Enter to close..." _

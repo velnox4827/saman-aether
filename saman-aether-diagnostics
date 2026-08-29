@@ -1,0 +1,107 @@
+#!/data/data/com.termux/files/usr/bin/bash
+set -euo pipefail
+
+VERSION="1.4.0"
+MODE="${1:-safe}"
+STAMP="$(date +%Y%m%d-%H%M%S)"
+
+if [ -d "$HOME/storage/downloads" ]; then
+    OUT_DIR="$HOME/storage/downloads"
+else
+    OUT_DIR="$HOME"
+fi
+
+case "$MODE" in
+    safe)
+        OUT="$OUT_DIR/Saman-Aether-Termux-diagnostics-safe-$STAMP.txt"
+        ;;
+    full)
+        OUT="$OUT_DIR/Saman-Aether-Termux-diagnostics-full-$STAMP.txt"
+        ;;
+    *)
+        echo "Usage: saman-aether-diagnostics [safe|full]"
+        exit 1
+        ;;
+esac
+
+sanitize_stream() {
+    sed -E \
+        -e 's/(device=)[0-9a-fA-F-]{16,}/\1<redacted>/g' \
+        -e 's/(device_id[=: ]+)[0-9a-fA-F-]{16,}/\1<redacted>/g' \
+        -e 's/(ipv6=)[0-9a-fA-F:]+/\1<redacted>/g'
+}
+
+{
+    echo "Saman Aether Termux diagnostics"
+    echo "==============================="
+    echo "Termux edition: v$VERSION"
+    echo "Aether Core base: v1.8.0"
+    echo "Report: $MODE"
+    echo "Date: $(date)"
+    echo "Android: $(getprop ro.build.version.release 2>/dev/null || echo unknown)"
+    echo "ABI: $(getprop ro.product.cpu.abi 2>/dev/null || echo unknown)"
+    echo "Core: $($PREFIX/bin/saman-aether-core --version 2>/dev/null | head -n1 || echo installed)"
+    echo
+    echo "Smart Reconnect thresholds:"
+    echo "  WG cached RTT: 650ms"
+    echo "  MASQUE H3 verify: 1800ms"
+    echo "  MASQUE H2 verify: 2500ms"
+    echo "  short-lived path: 20s"
+    echo
+
+    for base in \
+        aether-masque-h3 \
+        aether-masque-h2 \
+        aether-wg \
+        aether-gool
+    do
+        current="$HOME/$base.log"
+        previous="$HOME/$base.previous.log"
+
+        if [ "$MODE" = "safe" ]; then
+            if [ -f "$current" ]; then
+                echo "---- $base.log (recent) ----"
+                tail -c 300000 "$current" 2>/dev/null |
+                    sanitize_stream
+                echo
+            fi
+
+            if [ -f "$previous" ]; then
+                echo "---- $base.previous.log (recent) ----"
+                tail -c 80000 "$previous" 2>/dev/null |
+                    sanitize_stream
+                echo
+            fi
+        else
+            if [ -f "$current" ]; then
+                echo "---- $base.log ----"
+                cat "$current"
+                echo
+            fi
+
+            if [ -f "$previous" ]; then
+                echo "---- $base.previous.log ----"
+                cat "$previous"
+                echo
+            fi
+        fi
+    done
+} >"$OUT"
+
+SIZE="$(wc -c <"$OUT" | tr -d ' ')"
+
+if [ "$SIZE" -eq 0 ]; then
+    echo "ERROR: diagnostics file is empty."
+    rm -f "$OUT"
+    exit 1
+fi
+
+echo "Diagnostics saved:"
+echo "  $OUT"
+echo "Size: $SIZE bytes"
+
+if [ "$MODE" = "safe" ]; then
+    echo "Safe report redacts known device/IPv6 identifiers."
+else
+    echo "WARNING: Full history may contain network addresses and identifiers."
+fi
