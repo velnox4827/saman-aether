@@ -6,7 +6,7 @@ AETHER_BASE_VERSION="1.8.0"
 TERMUX_TAG="termux-v1.4.0"
 REPO="velnox4827/saman-aether"
 BASE="https://raw.githubusercontent.com/$REPO/main"
-API="https://api.github.com/repos/$REPO"
+RELEASE_BASE="https://github.com/$REPO/releases/download/$TERMUX_TAG"
 
 CORE_BIN="$PREFIX/bin/saman-aether-core"
 VERSION_FILE="$PREFIX/etc/saman-aether-termux.version"
@@ -108,35 +108,17 @@ ARCHIVE="saman-aether-termux-${ARCH}.tar.gz"
 echo "[2/5] Downloading patched Saman Aether Core..."
 echo "Architecture: $ARCH"
 
-JSON="$(curl -fsSL "$API/releases/tags/$TERMUX_TAG")"
-
-URL="$(
-    printf '%s' "$JSON" |
-        jq -r --arg n "$ARCHIVE" \
-        '.assets[] | select(.name==$n) | .browser_download_url' |
-        head -n1
-)"
-
-SUM_URL="$(
-    printf '%s' "$JSON" |
-        jq -r --arg n "$ARCHIVE.sha256" \
-        '.assets[] | select(.name==$n) | .browser_download_url' |
-        head -n1
-)"
-
-if [ -z "$URL" ] || [ "$URL" = "null" ]; then
-    echo "ERROR: $ARCHIVE not found in $TERMUX_TAG."
-    exit 1
-fi
+URL="$RELEASE_BASE/$ARCHIVE"
+SUM_URL="$RELEASE_BASE/$ARCHIVE.sha256"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-curl -fL --progress-bar "$URL" -o "$TMP/$ARCHIVE"
+curl -fL --retry 3 --retry-delay 2 --progress-bar "$URL" -o "$TMP/$ARCHIVE"
 
 if [ -n "$SUM_URL" ] && [ "$SUM_URL" != "null" ]; then
     EXPECTED="$(
-        curl -fsSL "$SUM_URL" |
+        curl -fL --retry 3 --retry-delay 2 --silent --show-error "$SUM_URL" |
             awk '{print $1}' |
             head -n1
     )"
