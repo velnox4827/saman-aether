@@ -1,5 +1,25 @@
 # Changelog
 
+## v1.4.0
+
+Stable Android upgrade to Aether Core v1.8.0.
+
+- versionCode `140`
+- Aether Core v1.8.0 pinned at `a916ff6fbbb4ebafe8314c53cf3718eb51dcae53`
+- Inherits Aether v1.8.0 GOOL stability fixes
+- Inherits improved WireGuard task/panic resilience
+- Inherits upstream authentication fix
+- Inherits optimized HTTP proxy handling
+- Inherits reconnect zero-value guard
+- Smart Reconnect rebased for WG / MASQUE H3 / MASQUE H2 / GOOL
+- Cache thresholds remain `650 ms / 1800 ms / 2500 ms / 20 s`
+- Fresh scan remains `balanced`
+- Local SOCKS5/HTTP reusable listener patch rebased onto v1.8.0
+- `--quick-reconnect` and `--reconnect-secs 1`
+- Home Screen Widget retained
+- Safe / Full diagnostics retained
+- Stable APKs: ARM64 / ARM32 / Universal ARM
+
 ## Saman Aether Termux v1.4.0
 
 Patched Termux + Termux:Widget release based on Aether Core v1.8.0.
