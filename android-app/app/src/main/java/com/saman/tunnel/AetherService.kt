@@ -35,6 +35,7 @@ class AetherService : Service() {
     }
 
     private val executor = Executors.newSingleThreadExecutor()
+    private val jobLock = Any()
 
     @Volatile private var jobId: Long = 0L
     @Volatile private var generation: Long = 0L
@@ -92,12 +93,11 @@ class AetherService : Service() {
 
     override fun onDestroy() {
         generation++
-        val id = jobId
+        val id = claimJob()
         if (id != 0L) {
             runCatching { NativeBridge.cancelJob(id) }
             releaseJob(id)
         }
-        jobId = 0L
         if (!currentPhase.shouldPreserveOnServiceDestroy) {
             setState("Stopped — service ended", "")
         }
@@ -202,7 +202,13 @@ class AetherService : Service() {
             return
         }
 
-        jobId = id
+        if (generation != myGeneration) {
+            runCatching { NativeBridge.cancelJob(id) }
+            releaseJob(id)
+            return
+        }
+
+        assignJob(id)
         LogStore.append(
             this,
             "CORE",
@@ -224,8 +230,8 @@ class AetherService : Service() {
             if (polled.optString("state") == "done") {
                 val result = polled.optJSONObject("result")
                 LogStore.append(this, "NATIVE", "Job ended before proxy ready")
+                if (claimJob(id) == 0L) return
                 releaseJob(id)
-                jobId = 0L
                 fail(
                     result?.optString("error")
                         ?: "Core stopped before local proxy became ready",
@@ -289,8 +295,8 @@ class AetherService : Service() {
                     LogStore.append(this, "NATIVE", "Job completed")
                     val result = polled.optJSONObject("result")
                     val error = result?.optString("error")
+                    if (claimJob(id) == 0L) return
                     releaseJob(id)
-                    jobId = 0L
 
                     if (!error.isNullOrBlank()) {
                         fail(error, mode)
@@ -371,7 +377,7 @@ class AetherService : Service() {
     }
 
     private fun stopCore() {
-        val id = jobId
+        val id = claimJob()
         val mode = currentMode
 
         generation++
@@ -404,7 +410,6 @@ class AetherService : Service() {
             }
 
             Thread.sleep(250)
-            jobId = 0L
             currentMode = ""
             setState("Stopped", "")
             stopForeground(STOP_FOREGROUND_REMOVE)
@@ -430,14 +435,13 @@ class AetherService : Service() {
         setState("Error: $message", mode)
         updateNotification("Error — open Saman Tunnel")
 
-        val id = jobId
+        val id = claimJob()
         Thread {
             if (id != 0L) {
                 runCatching { NativeBridge.cancelJob(id) }
                 releaseJob(id)
             }
             Thread.sleep(250)
-            jobId = 0L
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             Thread.sleep(100)
@@ -538,6 +542,23 @@ class AetherService : Service() {
                 LogStore.append(this, "NATIVE", "freeJob failed: ${it.javaClass.simpleName}")
             }
     }
+
+    private fun assignJob(id: Long) {
+        synchronized(jobLock) {
+            jobId = id
+        }
+    }
+
+    private fun claimJob(expectedId: Long? = null): Long =
+        synchronized(jobLock) {
+            val id = jobId
+            if (id == 0L || (expectedId != null && id != expectedId)) {
+                0L
+            } else {
+                jobId = 0L
+                id
+            }
+        }
 
     private fun setState(status: String, mode: String) {
         currentMode = mode

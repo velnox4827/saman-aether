@@ -1,7 +1,11 @@
 package com.saman.tunnel
 
 object DiagnosticsSanitizer {
-    private val bearer = Regex("(?i)(authorization\\s*:\\s*bearer\\s+)[^\\s]+")
+    private val authorization = Regex("(?im)(authorization\\s*:\\s*\\S+\\s+)[^\\r\\n]+")
+    private val cookie = Regex("(?im)((?:set-)?cookie\\s*:\\s*)[^\\r\\n]+")
+    private val privateKey = Regex(
+        "(?s)-----BEGIN [^-\\r\\n]*PRIVATE KEY-----.*?-----END [^-\\r\\n]*PRIVATE KEY-----"
+    )
     private val jsonSecret = Regex(
         "(?i)([\\\"'](?:token|secret|password|passwd|api[_-]?key|private[_-]?key)[\\\"']\\s*:\\s*[\\\"'])[^\\\"']*([\\\"'])"
     )
@@ -14,7 +18,9 @@ object DiagnosticsSanitizer {
     private val sensitiveQuery = Regex("(?i)([?&](?:token|secret|password|passwd|key|api_key)=)[^&#\\s]+")
 
     fun sanitize(input: String): String = input
-        .replace(bearer, "$1[REDACTED]")
+        .replace(authorization, "$1[REDACTED]")
+        .replace(cookie, "$1[REDACTED]")
+        .replace(privateKey, "[REDACTED PRIVATE KEY]")
         .replace(jsonSecret, "$1[REDACTED]$2")
         .replace(namedSecret, "$1$2[REDACTED]")
         .replace(deviceId, "$1[REDACTED]")

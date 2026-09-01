@@ -2,6 +2,7 @@ package com.saman.tunnel
 
 import java.net.ServerSocket
 import kotlin.concurrent.thread
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -31,16 +32,23 @@ class CorePolicyTest {
 
     @Test
     fun diagnosticsRedactsSensitiveFields() {
-        val sensitive = "Authorization: Bearer abcdefghijklmnop token=secret123 api_key: header-secret {\"password\":\"json-secret\"} device=123e4567-e89b-12d3-a456-426614174000 ipv6=2001:db8::1 https://u:p@example.com/x?key=value"
+        val sensitive = """Authorization: Bearer abcdefghijklmnop
+Authorization: Basic dXNlcjpwYXNz
+Cookie: session=cookie-secret
+ token=secret123 api_key: header-secret {"password":"json-secret"}
+-----BEGIN PRIVATE KEY-----
+pem-secret
+-----END PRIVATE KEY-----
+device=123e4567-e89b-12d3-a456-426614174000 ipv6=2001:db8::1 https://u:p@example.com/x?key=value"""
         val sanitized = DiagnosticsSanitizer.sanitize(sensitive)
-        assertFalse(sanitized.contains("abcdefghijklmnop"))
-        assertFalse(sanitized.contains("secret123"))
-        assertFalse(sanitized.contains("header-secret"))
-        assertFalse(sanitized.contains("json-secret"))
-        assertFalse(sanitized.contains("123e4567"))
-        assertFalse(sanitized.contains("2001:db8"))
-        assertFalse(sanitized.contains("u:p@"))
-        assertFalse(sanitized.contains("key=value"))
+        listOf("abcdefghijklmnop", "dXNlcjpwYXNz", "cookie-secret", "secret123", "header-secret", "json-secret", "pem-secret", "123e4567", "2001:db8", "u:p@", "key=value")
+            .forEach { assertFalse(sanitized.contains(it)) }
+    }
+
+    @Test
+    fun logRotationHonorsConfiguredLimit() {
+        assertTrue(LogRotationPolicy.shouldRotate(LogRotationPolicy.MAX_CORE_BYTES + 1))
+        assertFalse(LogRotationPolicy.shouldRotate(LogRotationPolicy.MAX_CORE_BYTES))
     }
 
     @Test
@@ -49,7 +57,13 @@ class CorePolicyTest {
             val responder = thread {
                 server.accept().use { socket ->
                     val request = ByteArray(3)
-                    socket.getInputStream().read(request)
+                    var offset = 0
+                    while (offset < request.size) {
+                        val count = socket.getInputStream().read(request, offset, request.size - offset)
+                        if (count < 0) break
+                        offset += count
+                    }
+                    assertArrayEquals(byteArrayOf(5, 1, 0), request)
                     socket.getOutputStream().write(byteArrayOf(5, 0))
                     socket.getOutputStream().flush()
                 }

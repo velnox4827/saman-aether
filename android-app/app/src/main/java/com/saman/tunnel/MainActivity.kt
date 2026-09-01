@@ -60,6 +60,8 @@ class MainActivity : Activity() {
     private val handler = Handler(Looper.getMainLooper())
     private var lastStartTap = 0L
     private var pendingDiagnosticsFull = false
+    private var modeSwitchGeneration = 0L
+    private var pendingModeSwitch: Runnable? = null
 
     private val refresh = object : Runnable {
         override fun run() {
@@ -113,6 +115,11 @@ class MainActivity : Activity() {
     override fun onPause() {
         handler.removeCallbacks(refresh)
         super.onPause()
+    }
+
+    override fun onDestroy() {
+        cancelPendingModeSwitch()
+        super.onDestroy()
     }
 
     private fun dp(value: Int): Int =
@@ -643,6 +650,7 @@ class MainActivity : Activity() {
     }
 
     private fun start(mode: String) {
+        cancelPendingModeSwitch()
         if (isBusy()) {
             Toast.makeText(
                 this,
@@ -683,27 +691,52 @@ class MainActivity : Activity() {
                 "Mode switch requested -> $mode; waiting for confirmed stop"
             )
 
-            stop()
-            restartWhenStopped(mode, 30)
+            val switchGeneration = modeSwitchGeneration
+            stop(cancelPendingSwitch = false)
+            restartWhenStopped(mode, 30, switchGeneration)
         } else {
             launchCoreService(mode)
         }
     }
 
-    private fun restartWhenStopped(mode: String, attemptsRemaining: Int) {
-        val status = getSharedPreferences(AetherService.PREFS, MODE_PRIVATE)
-            .getString(AetherService.KEY_STATUS, "Stopped")
-            .orEmpty()
-        if (TunnelPhase.fromStatus(status) == TunnelPhase.STOPPED) {
-            launchCoreService(mode)
-            return
+    private fun restartWhenStopped(
+        mode: String,
+        attemptsRemaining: Int,
+        switchGeneration: Long,
+        oldProcessStopped: Boolean = false
+    ) {
+        val callback = Runnable {
+            if (switchGeneration != modeSwitchGeneration || isFinishing || isDestroyed) return@Runnable
+
+            if (oldProcessStopped) {
+                pendingModeSwitch = null
+                launchCoreService(mode)
+                return@Runnable
+            }
+
+            val status = getSharedPreferences(AetherService.PREFS, MODE_PRIVATE)
+                .getString(AetherService.KEY_STATUS, "Stopped")
+                .orEmpty()
+            if (TunnelPhase.fromStatus(status) == TunnelPhase.STOPPED) {
+                restartWhenStopped(mode, attemptsRemaining, switchGeneration, oldProcessStopped = true)
+                return@Runnable
+            }
+            if (attemptsRemaining <= 0) {
+                pendingModeSwitch = null
+                LogStore.append(this, "ERROR", "Mode switch timed out waiting for stop")
+                Toast.makeText(this, "Previous tunnel did not stop in time", Toast.LENGTH_LONG).show()
+                return@Runnable
+            }
+            restartWhenStopped(mode, attemptsRemaining - 1, switchGeneration)
         }
-        if (attemptsRemaining <= 0) {
-            LogStore.append(this, "ERROR", "Mode switch timed out waiting for stop")
-            Toast.makeText(this, "Previous tunnel did not stop in time", Toast.LENGTH_LONG).show()
-            return
-        }
-        handler.postDelayed({ restartWhenStopped(mode, attemptsRemaining - 1) }, 200L)
+        pendingModeSwitch = callback
+        handler.postDelayed(callback, if (oldProcessStopped) 500L else 200L)
+    }
+
+    private fun cancelPendingModeSwitch() {
+        modeSwitchGeneration++
+        pendingModeSwitch?.let(handler::removeCallbacks)
+        pendingModeSwitch = null
     }
 
     private fun launchCoreService(mode: String) {
@@ -729,7 +762,8 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun stop() {
+    private fun stop(cancelPendingSwitch: Boolean = true) {
+        if (cancelPendingSwitch) cancelPendingModeSwitch()
         LogStore.append(this, "UI", "Stop requested")
         startService(Intent(this, AetherService::class.java).apply {
             action = AetherService.ACTION_STOP
