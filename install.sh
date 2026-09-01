@@ -1,258 +1,372 @@
 #!/data/data/com.termux/files/usr/bin/bash
-set -euo pipefail
+set -Eeuo pipefail
 
-VERSION="1.4.0"
+SAMAN_TERMUX_VERSION="1.5.0"
+SAMAN_TUNNEL_VERSION="1.5.0"
 AETHER_BASE_VERSION="1.8.0"
-TERMUX_TAG="termux-v1.4.0"
 REPO="velnox4827/saman-aether"
-BASE="https://raw.githubusercontent.com/$REPO/main"
-RELEASE_BASE="https://github.com/$REPO/releases/download/$TERMUX_TAG"
-
-CORE_BIN="$PREFIX/bin/saman-aether-core"
-VERSION_FILE="$PREFIX/etc/saman-aether-termux.version"
-
+SOURCE_REF="${SAMAN_SOURCE_REF:-main}"
+API_BASE="https://api.github.com/repos/$REPO"
+TERMUX_RELEASE_FALLBACK="termux-v1.4.0"
 ACTION="${1:-install}"
 
-echo "================================"
-echo "       SAMAN AETHER"
-echo "     Termux v$VERSION"
-echo "   Aether Core v$AETHER_BASE_VERSION"
-echo "================================"
-echo
+CORE_BIN="$PREFIX/bin/saman-aether-core"
+DIAGNOSTICS_BIN="$PREFIX/bin/saman-aether-diagnostics"
+CONTROL_BIN="$PREFIX/bin/aether-control"
+VERSION_FILE="$PREFIX/etc/saman-aether-termux.version"
+CENTER_ROOT="$HOME/.local/share/saman-center-v2"
+RUNNER="$HOME/.aether-shortcut-runner"
+SAMAN_BIN="$HOME/bin/saman"
+SAMAN2_BIN="$HOME/bin/saman2"
+SHORTCUT="$HOME/.shortcuts/Saman-Center"
+SHORTCUT_V2="$HOME/.shortcuts/Saman-Center-v2"
+STATE_DIR="$HOME/.saman-aether"
+BACKUP_ROOT="$HOME/.saman-aether-backups"
+TMP=""
+BACKUP_DIR=""
+INSTALL_STARTED=0
+ROLLBACK_DONE=0
+
+log() { printf '%s\n' "$*"; }
+die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
+have() { command -v "$1" >/dev/null 2>&1; }
+
+usage() {
+    cat <<'EOF'
+Usage: install.sh [install|update|check|uninstall]
+
+  install     Clean install or idempotent repair (default)
+  update      Check releases, back up, and update
+  check       Report installed and latest stable versions
+  uninstall   Back up and remove canonical Saman files
+
+Environment:
+  SAMAN_SOURCE_REF=<git-ref>  Source ref used for maintenance testing (default: main)
+EOF
+}
 
 detect_arch() {
     case "$(uname -m)" in
-        aarch64|arm64)
-            echo "arm64"
-            ;;
-        armv7l|armv8l|arm)
-            echo "armv7"
-            ;;
-        x86_64|amd64)
-            echo "x86_64"
-            ;;
-        *)
-            echo "unsupported"
-            ;;
+        aarch64|arm64) printf 'arm64\n' ;;
+        armv7l|armv8l|arm) printf 'armv7\n' ;;
+        x86_64|amd64) printf 'x86_64\n' ;;
+        *) return 1 ;;
     esac
 }
 
-stop_core() {
-    local pid=""
+require_termux() {
+    [ -n "${PREFIX:-}" ] || die "PREFIX is not set; run this installer inside Termux."
+    case "$PREFIX" in
+        */com.termux/files/usr) ;;
+        *) die "unsupported PREFIX: $PREFIX" ;;
+    esac
+}
 
-    if [ -f "$HOME/.saman-aether/aether.pid" ]; then
-        pid="$(cat "$HOME/.saman-aether/aether.pid" 2>/dev/null || true)"
+install_requirements() {
+    have pkg || die "Termux pkg command not found. Install Termux from F-Droid or GitHub."
+    log "[1/6] Checking Termux dependencies..."
+    pkg install -y bash curl coreutils procps grep sed tar jq iproute2 >/dev/null
+    for command_name in bash curl sha256sum tar jq ss awk sed; do
+        have "$command_name" || die "required command is unavailable after package install: $command_name"
+    done
+}
+
+check_readonly_requirements() {
+    local missing=0 command_name
+    for command_name in curl jq; do
+        if ! have "$command_name"; then
+            printf 'ERROR: required command is missing: %s\n' "$command_name" >&2
+            missing=1
+        fi
+    done
+    [ "$missing" -eq 0 ] || die "install missing dependencies with: pkg install curl jq"
+}
+
+api_json() {
+    local url="$1" endpoint
+    if have gh && gh auth status >/dev/null 2>&1; then
+        endpoint="${url#https://api.github.com/}"
+        gh api -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' "$endpoint"
+    else
+        curl --proto '=https' --tlsv1.2 -fsSL --retry 3 --retry-delay 2 \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' "$url"
     fi
+}
 
-    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-        kill -TERM "$pid" 2>/dev/null || true
+latest_android_tag() {
+    api_json "$API_BASE/releases?per_page=30" |
+        jq -r '[.[] | select((.draft|not) and (.prerelease|not) and (.tag_name|test("^v[0-9]+\\.[0-9]+\\.[0-9]+$")))] | first | .tag_name // empty'
+}
 
-        for _ in $(seq 1 20); do
-            kill -0 "$pid" 2>/dev/null || break
-            sleep 0.1
-        done
+latest_termux_release_json() {
+    api_json "$API_BASE/releases?per_page=30" |
+        jq -c '[.[] | select((.draft|not) and (.prerelease|not) and (.tag_name|test("^termux-v[0-9]+\\.[0-9]+\\.[0-9]+$")))] | first // empty'
+}
 
-        kill -0 "$pid" 2>/dev/null &&
+installed_version() {
+    if [ -s "$VERSION_FILE" ]; then
+        tr -d '\r\n' < "$VERSION_FILE"
+    else
+        printf 'not installed\n'
+    fi
+}
+
+check_versions() {
+    local android_tag termux_json termux_tag
+    android_tag="$(latest_android_tag)" || die "could not query the latest Android release."
+    termux_json="$(latest_termux_release_json)" || die "could not query the latest Termux release."
+    termux_tag="$(jq -r '.tag_name // empty' <<<"$termux_json")"
+    [ -n "$termux_tag" ] || termux_tag="$TERMUX_RELEASE_FALLBACK"
+    printf 'Installed Saman Termux : %s\n' "$(installed_version)"
+    printf 'Installer integration  : %s\n' "$SAMAN_TERMUX_VERSION"
+    printf 'Latest Termux core      : %s\n' "$termux_tag"
+    printf 'Saman Tunnel stable     : %s\n' "${android_tag:-unavailable}"
+    printf 'Aether Core base        : %s\n' "$AETHER_BASE_VERSION"
+}
+
+make_tmp() {
+    TMP="$(mktemp -d)"
+}
+
+cleanup() {
+    local rc=$?
+    if [ "$rc" -ne 0 ] && [ "$INSTALL_STARTED" -eq 1 ] && [ "$ROLLBACK_DONE" -eq 0 ]; then
+        rollback || true
+    fi
+    [ -n "$TMP" ] && rm -rf "$TMP"
+    exit "$rc"
+}
+trap cleanup EXIT INT TERM
+
+targets() {
+    printf '%s\n' \
+        "$CORE_BIN" "$DIAGNOSTICS_BIN" "$CONTROL_BIN" "$VERSION_FILE" \
+        "$CENTER_ROOT" "$RUNNER" "$SAMAN_BIN" "$SAMAN2_BIN" \
+        "$SHORTCUT" "$SHORTCUT_V2"
+}
+
+create_backup() {
+    local target relative stamp
+    umask 077
+    stamp="$(date +%Y%m%d-%H%M%S)"
+    BACKUP_DIR="$BACKUP_ROOT/$stamp"
+    mkdir -p "$BACKUP_DIR/root"
+    : > "$BACKUP_DIR/existing.list"
+    : > "$BACKUP_DIR/absent.list"
+    while IFS= read -r target; do
+        relative="${target#/}"
+        if [ -e "$target" ] || [ -L "$target" ]; then
+            mkdir -p "$BACKUP_DIR/root/$(dirname "$relative")"
+            cp -a "$target" "$BACKUP_DIR/root/$relative"
+            printf '%s\n' "$target" >> "$BACKUP_DIR/existing.list"
+        else
+            printf '%s\n' "$target" >> "$BACKUP_DIR/absent.list"
+        fi
+    done < <(targets)
+    printf '%s\n' "$SAMAN_TERMUX_VERSION" > "$BACKUP_DIR/installer.version"
+    log "Backup: $BACKUP_DIR"
+}
+
+rollback() {
+    local target relative
+    [ -n "$BACKUP_DIR" ] && [ -d "$BACKUP_DIR" ] || return 0
+    log "Installation failed; restoring backup..." >&2
+    if [ -f "$BACKUP_DIR/absent.list" ]; then
+        while IFS= read -r target; do
+            [ -n "$target" ] && rm -rf "$target"
+        done < "$BACKUP_DIR/absent.list"
+    fi
+    if [ -f "$BACKUP_DIR/existing.list" ]; then
+        while IFS= read -r target; do
+            [ -n "$target" ] || continue
+            relative="${target#/}"
+            rm -rf "$target"
+            mkdir -p "$(dirname "$target")"
+            cp -a "$BACKUP_DIR/root/$relative" "$target"
+        done < "$BACKUP_DIR/existing.list"
+    fi
+    ROLLBACK_DONE=1
+    log "Rollback complete." >&2
+}
+
+core_pid_matches_installed_binary() {
+    local pid="${1:-}" expected actual
+    [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+    kill -0 "$pid" 2>/dev/null || return 1
+    expected="$(realpath -m "$CORE_BIN" 2>/dev/null || true)"
+    actual="$(readlink "/proc/$pid/exe" 2>/dev/null || true)"
+    actual="${actual% (deleted)}"
+    [ -n "$expected" ] && [ "$actual" = "$expected" ]
+}
+
+installed_core_pids() {
+    local proc
+    for proc in /proc/[0-9]*; do
+        core_pid_matches_installed_binary "${proc##*/}" && printf '%s\n' "${proc##*/}"
+    done
+}
+
+stop_canonical_core() {
+    local pids=() pid alive=0
+    while IFS= read -r pid; do [ -n "$pid" ] && pids+=("$pid"); done < <(installed_core_pids)
+    [ "${#pids[@]}" -gt 0 ] || { rm -f "$STATE_DIR/aether.pid"; return 0; }
+    log "Stopping ${#pids[@]} installed canonical Aether Core process(es)..."
+    for pid in "${pids[@]}"; do
+        core_pid_matches_installed_binary "$pid" && kill -TERM "$pid" 2>/dev/null || true
+    done
+    for _ in $(seq 1 50); do
+        alive=0
+        for pid in "${pids[@]}"; do core_pid_matches_installed_binary "$pid" && alive=1; done
+        [ "$alive" -eq 0 ] && break
+        sleep 0.1
+    done
+    for pid in "${pids[@]}"; do
+        if core_pid_matches_installed_binary "$pid"; then
             kill -KILL "$pid" 2>/dev/null || true
+        fi
+    done
+    sleep 0.1
+    if [ -n "$(installed_core_pids)" ]; then
+        die "could not stop all installed canonical Aether Core processes; live files were not replaced."
     fi
-
-    rm -f "$HOME/.saman-aether/aether.pid"
+    rm -f "$STATE_DIR/aether.pid"
 }
 
-if [ "$ACTION" = "uninstall" ]; then
-    echo "Removing Saman Aether Termux files..."
-
-    stop_core
-
-    rm -f "$CORE_BIN"
-    rm -f "$VERSION_FILE"
-    rm -f "$PREFIX/bin/saman-aether-diagnostics"
-    rm -f "$HOME/.aether-shortcut-runner"
-
-    rm -f \
-        "$HOME/.shortcuts/0-STOP-Aether" \
-        "$HOME/.shortcuts/1-Aether-MASQUE" \
-        "$HOME/.shortcuts/2-Aether-WG" \
-        "$HOME/.shortcuts/3-Aether-GOOL" \
-        "$HOME/.shortcuts/4-Aether-MASQUE-H2" \
-        "$HOME/.shortcuts/5-Aether-SAFE-LOG"
-
-    echo
-    echo "Saman Aether Termux removed."
-    echo "Any separate upstream 'aether' installation was left untouched."
-    exit 0
-fi
-
-echo "[1/5] Installing requirements..."
-
-pkg install -y \
-    bash \
-    curl \
-    coreutils \
-    procps \
-    grep \
-    sed \
-    tar \
-    jq \
-    iproute2 >/dev/null
-
-ARCH="$(detect_arch)"
-
-if [ "$ARCH" = "unsupported" ]; then
-    echo "ERROR: unsupported architecture: $(uname -m)"
-    exit 1
-fi
-
-ARCHIVE="saman-aether-termux-${ARCH}.tar.gz"
-
-echo "[2/5] Downloading patched Saman Aether Core..."
-echo "Architecture: $ARCH"
-
-URL="$RELEASE_BASE/$ARCHIVE"
-SUM_URL="$RELEASE_BASE/$ARCHIVE.sha256"
-
-TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
-
-curl -fL --retry 3 --retry-delay 2 --progress-bar "$URL" -o "$TMP/$ARCHIVE"
-
-if [ -n "$SUM_URL" ] && [ "$SUM_URL" != "null" ]; then
-    EXPECTED="$(
-        curl -fL --retry 3 --retry-delay 2 --silent --show-error "$SUM_URL" |
-            awk '{print $1}' |
-            head -n1
-    )"
-
-    ACTUAL="$(
-        sha256sum "$TMP/$ARCHIVE" |
-            awk '{print $1}'
-    )"
-
-    if [ -z "$EXPECTED" ] || [ "$EXPECTED" != "$ACTUAL" ]; then
-        echo "ERROR: SHA256 verification failed."
-        echo "Expected: $EXPECTED"
-        echo "Actual:   $ACTUAL"
-        exit 1
-    fi
-
-    echo "SHA256: verified"
-else
-    echo "WARNING: checksum asset not found."
-fi
-
-tar -xzf "$TMP/$ARCHIVE" -C "$TMP"
-
-test -f "$TMP/saman-aether-core" || {
-    echo "ERROR: saman-aether-core missing from archive."
-    exit 1
+local_proxy_ports_free() {
+    local listeners
+    listeners="$(ss -ltnH 2>/dev/null)" || return 1
+    ! awk '$4 ~ /:(1819|1820)$/ {found=1} END{exit(found?0:1)}' <<<"$listeners"
 }
 
-chmod +x "$TMP/saman-aether-core"
-
-echo "[3/5] Installing core + runner..."
-
-stop_core
-
-mkdir -p \
-    "$PREFIX/bin" \
-    "$PREFIX/etc" \
-    "$HOME/.shortcuts" \
-    "$HOME/.saman-aether"
-
-STAMP="$(date +%Y%m%d-%H%M%S)"
-BACKUP_DIR="$HOME/.saman-aether-backups/$STAMP"
-mkdir -p "$BACKUP_DIR"
-
-backup_file() {
-    local f="$1"
-
-    if [ -e "$f" ]; then
-        cp -a "$f" "$BACKUP_DIR/$(basename "$f")"
-    fi
-
-    return 0
+download_source() {
+    local commit archive root encoded_ref
+    log "[2/6] Resolving trusted source ref $SOURCE_REF..."
+    encoded_ref="$(printf '%s' "$SOURCE_REF" | jq -sRr @uri)"
+    commit="$(api_json "$API_BASE/commits/$encoded_ref" | jq -r '.sha // empty')" ||
+        die "could not resolve GitHub source ref: $SOURCE_REF"
+    [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || die "GitHub returned an invalid source commit."
+    archive="$TMP/source.tar.gz"
+    curl --proto '=https' --tlsv1.2 -fL --retry 3 --retry-delay 2 \
+        "https://github.com/$REPO/archive/$commit.tar.gz" -o "$archive"
+    tar -tzf "$archive" >/dev/null || die "source archive integrity check failed."
+    mkdir -p "$TMP/source"
+    tar -xzf "$archive" -C "$TMP/source"
+    root="$(printf '%s\n' "$TMP/source"/* | head -n1)"
+    [ -f "$root/install.sh" ] || die "source archive does not contain install.sh."
+    [ -x "$root/aether-shortcut-runner" ] || die "source archive does not contain the runner."
+    [ -x "$root/termux/saman-center-v2/saman2" ] || die "source archive does not contain Saman Center."
+    printf '%s\n' "$root" > "$TMP/source-root"
+    printf '%s\n' "$commit" > "$TMP/source-commit"
 }
 
-for f in \
-    "$CORE_BIN" \
-    "$PREFIX/bin/saman-aether-diagnostics" \
-    "$HOME/.aether-shortcut-runner" \
-    "$HOME/.shortcuts/0-STOP-Aether" \
-    "$HOME/.shortcuts/1-Aether-MASQUE" \
-    "$HOME/.shortcuts/2-Aether-WG" \
-    "$HOME/.shortcuts/3-Aether-GOOL" \
-    "$HOME/.shortcuts/4-Aether-MASQUE-H2" \
-    "$HOME/.shortcuts/5-Aether-SAFE-LOG"
-do
-    backup_file "$f"
-done
+download_core() {
+    local arch release_json tag archive url checksum_url expected actual
+    arch="$(detect_arch)" || die "unsupported architecture: $(uname -m)"
+    release_json="$(latest_termux_release_json)" || die "could not query Termux releases."
+    tag="$(jq -r '.tag_name // empty' <<<"$release_json")"
+    [ -n "$tag" ] || die "no stable Termux core release was found."
+    archive="saman-aether-termux-${arch}.tar.gz"
+    url="$(jq -r --arg name "$archive" '.assets[] | select(.name == $name) | .browser_download_url' <<<"$release_json")"
+    checksum_url="$(jq -r --arg name "$archive.sha256" '.assets[] | select(.name == $name) | .browser_download_url' <<<"$release_json")"
+    [[ "$url" == "https://github.com/$REPO/releases/download/$tag/$archive" ]] ||
+        die "trusted core asset not found for $arch in $tag."
+    [[ "$checksum_url" == "https://github.com/$REPO/releases/download/$tag/$archive.sha256" ]] ||
+        die "trusted checksum asset not found for $arch in $tag."
+    log "[3/6] Downloading $tag core for $arch..."
+    curl --proto '=https' --tlsv1.2 -fL --retry 3 --retry-delay 2 "$url" -o "$TMP/$archive"
+    expected="$(curl --proto '=https' --tlsv1.2 -fsSL --retry 3 "$checksum_url" | awk 'NR==1 {print $1}')"
+    actual="$(sha256sum "$TMP/$archive" | awk '{print $1}')"
+    [[ "$expected" =~ ^[0-9a-fA-F]{64}$ ]] || die "release checksum is invalid."
+    [ "${expected,,}" = "$actual" ] || die "SHA-256 mismatch; refusing to install."
+    tar -tzf "$TMP/$archive" | grep -qx 'saman-aether-core' || die "core archive layout is invalid."
+    tar -xzf "$TMP/$archive" -C "$TMP" saman-aether-core
+    chmod 0755 "$TMP/saman-aether-core"
+    printf '%s\n' "$tag" > "$TMP/termux-tag"
+    log "SHA-256: verified"
+}
 
-cp -f "$TMP/saman-aether-core" "$CORE_BIN"
-chmod +x "$CORE_BIN"
-printf '%s\n' "$VERSION" > "$VERSION_FILE"
+write_wrapper() {
+    local destination target
+    destination="$1"; target="$2"
+    printf '#!/data/data/com.termux/files/usr/bin/bash\nexec "%s" "$@"\n' "$target" > "$destination"
+    chmod 0755 "$destination"
+}
 
-curl -fsSL --retry 3 --retry-delay 2 "$BASE/aether-shortcut-runner" \
-    -o "$HOME/.aether-shortcut-runner"
+install_files() {
+    local source_root
+    source_root="$(<"$TMP/source-root")"
+    log "[4/6] Backing up the current installation..."
+    create_backup
+    INSTALL_STARTED=1
+    stop_canonical_core
+    mkdir -p "$PREFIX/bin" "$PREFIX/etc" "$HOME/bin" "$HOME/.shortcuts" "$STATE_DIR" "$(dirname "$CENTER_ROOT")"
+    rm -rf "$CENTER_ROOT"
+    cp -a "$source_root/termux/saman-center-v2" "$CENTER_ROOT"
+    install -m 0755 "$TMP/saman-aether-core" "$CORE_BIN"
+    install -m 0755 "$source_root/saman-aether-diagnostics" "$DIAGNOSTICS_BIN"
+    install -m 0755 "$source_root/termux/aether-control" "$CONTROL_BIN"
+    install -m 0755 "$source_root/aether-shortcut-runner" "$RUNNER"
+    write_wrapper "$SAMAN_BIN" "$CENTER_ROOT/saman2"
+    write_wrapper "$SAMAN2_BIN" "$CENTER_ROOT/saman2"
+    write_wrapper "$SHORTCUT" "$SAMAN_BIN"
+    write_wrapper "$SHORTCUT_V2" "$SAMAN_BIN"
+    printf '%s\n' "$SAMAN_TERMUX_VERSION" > "$VERSION_FILE"
+    chmod 0755 "$CENTER_ROOT/saman2" "$CENTER_ROOT/lib/"*.sh "$CENTER_ROOT/modules/"*.sh
+}
 
-curl -fsSL --retry 3 --retry-delay 2 "$BASE/saman-aether-diagnostics" \
-    -o "$PREFIX/bin/saman-aether-diagnostics"
+verify_install() {
+    local command_path
+    log "[5/6] Verifying canonical command routing..."
+    for command_path in "$CORE_BIN" "$DIAGNOSTICS_BIN" "$CONTROL_BIN" "$RUNNER" "$SAMAN_BIN" "$SAMAN2_BIN" "$SHORTCUT"; do
+        [ -x "$command_path" ] || die "installed command is not executable: $command_path"
+    done
+    bash -n "$RUNNER" "$DIAGNOSTICS_BIN" "$CONTROL_BIN" "$SAMAN_BIN" "$SAMAN2_BIN" "$CENTER_ROOT/saman2" "$CENTER_ROOT/lib/"*.sh "$CENTER_ROOT/modules/"*.sh
+    [ "$("$SAMAN_BIN" version)" = "2.0.0-alpha5" ] || die "Saman Center version check failed."
+    "$CORE_BIN" --version 2>/dev/null | grep -q '1\.8\.0' || die "Aether Core version check failed."
+    [ "$(<"$VERSION_FILE")" = "$SAMAN_TERMUX_VERSION" ] || die "version file verification failed."
+    [ -z "$(installed_core_pids)" ] || die "an old canonical Aether Core process survived the update."
+    local_proxy_ports_free || die "local proxy port 1819 or 1820 is already in use; rolling back."
+    INSTALL_STARTED=0
+    log "[6/6] Install verified."
+}
 
-echo "[4/5] Installing Termux:Widget shortcuts..."
+uninstall() {
+    require_termux
+    create_backup
+    stop_canonical_core
+    while IFS= read -r target; do rm -rf "$target"; done < <(targets)
+    log "Canonical Saman Termux files removed."
+    log "User configuration, logs, backups, upstream aether, and legacy compatibility shortcuts were retained."
+}
 
-for NAME in \
-    0-STOP-Aether \
-    1-Aether-MASQUE \
-    2-Aether-WG \
-    3-Aether-GOOL \
-    4-Aether-MASQUE-H2 \
-    5-Aether-SAFE-LOG
-do
-    curl -fsSL --retry 3 --retry-delay 2 "$BASE/shortcuts/$NAME" \
-        -o "$HOME/.shortcuts/$NAME"
-done
+main() {
+    case "$ACTION" in
+        help|-h|--help) usage ;;
+        check) require_termux; check_readonly_requirements; check_versions ;;
+        uninstall) uninstall ;;
+        install|update)
+            require_termux
+            install_requirements
+            make_tmp
+            download_source
+            download_core
+            install_files
+            verify_install
+            log
+            log "Saman Termux integration: v$SAMAN_TERMUX_VERSION"
+            log "Saman Tunnel stable: v$SAMAN_TUNNEL_VERSION"
+            log "Aether Core: v$AETHER_BASE_VERSION ($(cat "$TMP/termux-tag"))"
+            log "Canonical command: saman"
+            log "Compatibility commands: saman2, aether-control"
+            log "Local proxies: SOCKS5 127.0.0.1:1819; HTTP CONNECT 127.0.0.1:1820"
+            log "Refresh Termux:Widget after installation."
+            ;;
+        *) usage >&2; exit 2 ;;
+    esac
+}
 
-chmod +x \
-    "$HOME/.aether-shortcut-runner" \
-    "$PREFIX/bin/saman-aether-diagnostics" \
-    "$HOME/.shortcuts/"*
-
-echo "[5/5] Verifying installation..."
-
-test -x "$CORE_BIN"
-"$CORE_BIN" --version 2>/dev/null || true
-
-echo
-echo "================================"
-echo "       INSTALL COMPLETE"
-echo "================================"
-echo
-echo "Saman Aether Termux: v$VERSION"
-echo "Core release: $TERMUX_TAG"
-echo
-echo "Shortcuts:"
-echo "  0-STOP-Aether"
-echo "  1-Aether-MASQUE      (H3)"
-echo "  2-Aether-WG"
-echo "  3-Aether-GOOL"
-echo "  4-Aether-MASQUE-H2"
-echo "  5-Aether-SAFE-LOG"
-echo
-echo "Local proxies:"
-echo "  SOCKS5       127.0.0.1:1819"
-echo "  HTTP CONNECT 127.0.0.1:1820"
-echo
-echo "Smart Reconnect:"
-echo "  WG cache RTT       650ms"
-echo "  MASQUE H3 verify   1800ms"
-echo "  MASQUE H2 verify   2500ms"
-echo "  short-lived path   20s"
-echo "  scan remains       balanced"
-echo
-echo "Diagnostics:"
-echo "  saman-aether-diagnostics safe"
-echo "  saman-aether-diagnostics full"
-echo
-echo "The upstream 'aether' binary, if installed separately,"
-echo "was not overwritten."
-echo
-echo "Refresh Termux:Widget after updating."
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

@@ -1,4 +1,4 @@
-name: Build Saman Aether Termux v1.4.0 Core
+name: Build Saman Aether Termux Core
 
 on:
   push:
@@ -11,6 +11,7 @@ permissions:
 
 env:
   AETHER_COMMIT: "a916ff6fbbb4ebafe8314c53cf3718eb51dcae53"
+  CARGO_NDK_VERSION: "4.1.2"
 
 jobs:
   android:
@@ -37,6 +38,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: "1.89.0"
           targets: ${{ matrix.target }}
 
       - name: Install Go
@@ -54,7 +56,7 @@ jobs:
           ndk-version: r26d
 
       - name: Install cargo-ndk
-        run: cargo install cargo-ndk --locked
+        run: cargo install cargo-ndk --version "$CARGO_NDK_VERSION" --locked
 
       - name: Checkout pinned Aether Core
         run: |
@@ -144,20 +146,20 @@ jobs:
         run: |
           set -euxo pipefail
           cd dist
-          for f in *.tar.gz; do
-            sha256sum "$f" > "$f.sha256"
+          for f in ./*.tar.gz; do
+            sha256sum "$f" > "${f#./}.sha256"
           done
           ls -lh
-          cat *.sha256
+          cat ./*.sha256
 
       - name: Prepare release notes
         run: |
           cat > /tmp/termux-notes.md <<'NOTES'
-          # Saman Aether Termux v1.4.0
+          # Saman Aether Termux Core
 
           Patched Aether Core for **Termux + Termux:Widget**, based on Aether Core v1.8.0 source.
 
-          ## Termux v1.4.0
+          ## Patched core build
 
           - Aether v1.8.0 base
           - GOOL stability fixes from Aether v1.8.0
@@ -197,7 +199,7 @@ jobs:
       - name: Publish non-latest Termux release
         uses: softprops/action-gh-release@v2
         with:
-          name: Saman Aether Termux v1.4.0
+          name: Saman Aether Termux ${{ github.ref_name }}
           body_path: /tmp/termux-notes.md
           files: |
             dist/*.tar.gz

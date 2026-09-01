@@ -1,0 +1,41 @@
+#!/data/data/com.termux/files/usr/bin/bash
+set -euo pipefail
+
+SAMAN="$HOME/bin/saman"
+
+usage() {
+    printf '%s\n' \
+        'Usage: aether-control status|stop|test|probe|exit|logs' \
+        '       aether-control start|restart wg|gool|h3|h2' \
+        '       aether-control diagnostics [safe|full]' >&2
+}
+
+fail_usage() {
+    printf 'aether-control: %s\n' "$1" >&2
+    usage
+    exit 2
+}
+
+command_name="${1:-}"
+case "$command_name" in
+    status|stop|test|probe|exit|logs)
+        [ "$#" -eq 1 ] || fail_usage "invalid arguments"
+        ;;
+    start|restart)
+        [ "$#" -eq 2 ] || fail_usage "$command_name requires exactly one mode"
+        case "$2" in wg|gool|h3|h2) ;; *) fail_usage "invalid Aether mode: $2" ;; esac
+        ;;
+    diagnostics)
+        [ "$#" -le 2 ] || fail_usage "diagnostics accepts at most one mode"
+        case "${2:-safe}" in safe|full) ;; *) fail_usage "diagnostics mode must be safe or full" ;; esac
+        ;;
+    '') fail_usage "missing command" ;;
+    *) fail_usage "unknown command: $command_name" ;;
+esac
+
+if [ ! -x "$SAMAN" ]; then
+    printf 'aether-control: canonical Saman command is missing or not executable: %s\n' "$SAMAN" >&2
+    exit 127
+fi
+
+exec "$SAMAN" aether "$@"
