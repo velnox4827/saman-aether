@@ -16,6 +16,14 @@ val hasSamanReleaseSigning =
     !samanKeyAlias.isNullOrBlank() &&
     !samanKeyPassword.isNullOrBlank()
 
+val releaseRequested = gradle.startParameter.taskNames.any {
+    it.contains("release", ignoreCase = true)
+}
+
+if (releaseRequested && !hasSamanReleaseSigning) {
+    throw GradleException("Release signing properties are required for release tasks")
+}
+
 android {
     namespace = "com.saman.tunnel"
     compileSdk = 36
@@ -24,8 +32,8 @@ android {
         applicationId = "com.saman.tunnel"
         minSdk = 24
         targetSdk = 35
-        versionCode = 140
-        versionName = "1.4.0"
+        versionCode = 150
+        versionName = "1.5.0"
         manifestPlaceholders["appLabel"] = "Saman Tunnel"
 
         ndk {
@@ -49,6 +57,8 @@ android {
                 storePassword = samanKeystorePassword
                 keyAlias = samanKeyAlias
                 keyPassword = samanKeyPassword
+                enableV2Signing = true
+                enableV3Signing = true
             }
         }
     }
@@ -56,9 +66,6 @@ android {
     buildTypes {
         debug {
             isDebuggable = true
-            if (hasSamanReleaseSigning) {
-                signingConfig = signingConfigs.getByName("samanRelease")
-            }
         }
 
         release {
@@ -90,6 +97,10 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+}
+
+dependencies {
+    testImplementation("junit:junit:4.13.2")
 }
 
 kotlin {

@@ -9,7 +9,8 @@
     <application
         android:icon="@mipmap/saman_app_icon_v120"
         android:roundIcon="@mipmap/saman_app_icon_v120_round"
-        android:allowBackup="true"
+        android:allowBackup="false"
+        android:usesCleartextTraffic="false"
         android:label="${appLabel}"
         android:logo="@mipmap/saman_app_icon_v120"
         android:supportsRtl="true"

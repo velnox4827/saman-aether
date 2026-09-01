@@ -26,6 +26,7 @@ class AetherService : Service() {
         const val KEY_STATUS = "status"
         const val KEY_MODE = "mode"
         const val KEY_LAST_MODE = "last_mode"
+        const val KEY_PHASE = "phase"
 
         private const val CHANNEL_ID = "saman_tunnel_core"
         private const val NOTIFICATION_ID = 1819
@@ -38,6 +39,7 @@ class AetherService : Service() {
     @Volatile private var jobId: Long = 0L
     @Volatile private var generation: Long = 0L
     @Volatile private var currentMode: String = ""
+    @Volatile private var currentPhase: TunnelPhase = TunnelPhase.STOPPED
 
     override fun onCreate() {
         super.onCreate()
@@ -50,6 +52,7 @@ class AetherService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        var restartPolicy = START_NOT_STICKY
         when (intent?.action) {
             ACTION_STOP -> stopCore()
 
@@ -65,7 +68,7 @@ class AetherService : Service() {
                         "SERVICE",
                         "Ignoring duplicate start mode=$mode jobId=$jobId"
                     )
-                    return START_NOT_STICKY
+                    return START_REDELIVER_INTENT
                 }
 
                 currentMode = mode
@@ -76,10 +79,13 @@ class AetherService : Service() {
                 )
                 beginForeground("Preparing ${modeLabel(mode)}…")
                 requestStart(mode)
+                restartPolicy = START_REDELIVER_INTENT
             }
+
+            else -> stopSelf(startId)
         }
 
-        return START_NOT_STICKY
+        return restartPolicy
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -89,6 +95,11 @@ class AetherService : Service() {
         val id = jobId
         if (id != 0L) {
             runCatching { NativeBridge.cancelJob(id) }
+            releaseJob(id)
+        }
+        jobId = 0L
+        if (!currentPhase.shouldPreserveOnServiceDestroy) {
+            setState("Stopped — service ended", "")
         }
 
         LogStore.append(
@@ -169,12 +180,13 @@ class AetherService : Service() {
     }
 
     private fun launchCore(mode: String, myGeneration: Long) {
-        val args = JSONArray(argumentsFor(mode)).toString()
-        LogStore.append(this, "CORE", "Starting mode=$mode args=$args")
+        val modeArguments = argumentsFor(mode)
+        val args = JSONArray(modeArguments).toString()
+        LogStore.append(this, "CORE", "Starting mode=$mode argumentCount=${modeArguments.size}")
 
         val rawStarted = NativeBridge.startCore(args, filesDir.absolutePath)
-        LogStore.append(this, "NATIVE", "startCore reply=$rawStarted")
         val started = JSONObject(rawStarted)
+        LogStore.append(this, "NATIVE", "startCore ok=${started.optBoolean("ok")}")
 
         if (!started.optBoolean("ok")) {
             fail(
@@ -211,11 +223,8 @@ class AetherService : Service() {
 
             if (polled.optString("state") == "done") {
                 val result = polled.optJSONObject("result")
-                LogStore.append(
-                    this,
-                    "NATIVE",
-                    "Job ended before proxy ready: $rawPoll"
-                )
+                LogStore.append(this, "NATIVE", "Job ended before proxy ready")
+                releaseJob(id)
                 jobId = 0L
                 fail(
                     result?.optString("error")
@@ -249,7 +258,7 @@ class AetherService : Service() {
                 }
             }
 
-            if (isPortInUse(SOCKS_PORT)) {
+            if (ProxyHealth.probeSocks5("127.0.0.1", SOCKS_PORT, 750)) {
                 val httpReady = isPortInUse(HTTP_PORT)
                 LogStore.append(
                     this,
@@ -277,9 +286,10 @@ class AetherService : Service() {
                 val polled = JSONObject(rawPoll)
 
                 if (polled.optString("state") == "done") {
-                    LogStore.append(this, "NATIVE", "Job done: $rawPoll")
+                    LogStore.append(this, "NATIVE", "Job completed")
                     val result = polled.optJSONObject("result")
                     val error = result?.optString("error")
+                    releaseJob(id)
                     jobId = 0L
 
                     if (!error.isNullOrBlank()) {
@@ -292,7 +302,7 @@ class AetherService : Service() {
                     return
                 }
 
-                if (isPortInUse(SOCKS_PORT)) {
+                if (ProxyHealth.probeSocks5("127.0.0.1", SOCKS_PORT, 750)) {
                     if (consecutiveSocksFailures > 0) {
                         LogStore.append(
                             this,
@@ -377,19 +387,20 @@ class AetherService : Service() {
         Thread {
             if (id != 0L) {
                 runCatching {
-                    val reply = NativeBridge.cancelJob(id)
+                    NativeBridge.cancelJob(id)
                     LogStore.append(
                         this,
                         "NATIVE",
-                        "cancelJob reply=$reply"
+                        "cancelJob completed"
                     )
                 }.onFailure {
                     LogStore.append(
                         this,
                         "NATIVE",
-                        "cancelJob failed: ${it.stackTraceToString()}"
+                        "cancelJob failed: ${it.javaClass.simpleName}"
                     )
                 }
+                releaseJob(id)
             }
 
             Thread.sleep(250)
@@ -397,6 +408,7 @@ class AetherService : Service() {
             currentMode = ""
             setState("Stopped", "")
             stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
 
             Thread.sleep(150)
             LogStore.append(
@@ -419,16 +431,18 @@ class AetherService : Service() {
         updateNotification("Error — open Saman Tunnel")
 
         val id = jobId
-        if (id != 0L) {
-            Thread {
+        Thread {
+            if (id != 0L) {
                 runCatching { NativeBridge.cancelJob(id) }
-                Thread.sleep(250)
-                jobId = 0L
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                Thread.sleep(100)
-                Process.killProcess(Process.myPid())
-            }.start()
-        }
+                releaseJob(id)
+            }
+            Thread.sleep(250)
+            jobId = 0L
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            Thread.sleep(100)
+            Process.killProcess(Process.myPid())
+        }.start()
     }
 
     private fun argumentsFor(mode: String): List<String> {
@@ -513,12 +527,21 @@ class AetherService : Service() {
         Thread {
             Thread.sleep(delayMs)
             stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
             Process.killProcess(Process.myPid())
         }.start()
     }
 
+    private fun releaseJob(id: Long) {
+        runCatching { NativeBridge.freeJob(id) }
+            .onFailure {
+                LogStore.append(this, "NATIVE", "freeJob failed: ${it.javaClass.simpleName}")
+            }
+    }
+
     private fun setState(status: String, mode: String) {
         currentMode = mode
+        currentPhase = TunnelPhase.fromStatus(status)
         LogStore.append(
             this,
             "STATE",
@@ -530,8 +553,14 @@ class AetherService : Service() {
                 action = TunnelStateReceiver.ACTION_STATE
                 putExtra(TunnelStateReceiver.EXTRA_STATUS, status)
                 putExtra(TunnelStateReceiver.EXTRA_MODE, mode)
+                putExtra(TunnelStateReceiver.EXTRA_PHASE, currentPhase.name)
             }
         )
+    }
+
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        LogStore.append(this, "SERVICE", "Foreground-service timeout type=$fgsType")
+        stopCore()
     }
 
     private fun createNotificationChannel() {
@@ -575,6 +604,14 @@ class AetherService : Service() {
                 PendingIntent.FLAG_UPDATE_CURRENT
         )
 
+        val stopPending = PendingIntent.getService(
+            this,
+            1,
+            Intent(this, AetherService::class.java).apply { action = ACTION_STOP },
+            PendingIntent.FLAG_IMMUTABLE or
+                PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
         val builder =
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 Notification.Builder(this, CHANNEL_ID)
@@ -589,6 +626,7 @@ class AetherService : Service() {
             .setColor(Color.rgb(68, 145, 255))
             .setOngoing(true)
             .setContentIntent(pending)
+            .addAction(android.R.drawable.ic_media_pause, "Stop", stopPending)
             .build()
     }
 }

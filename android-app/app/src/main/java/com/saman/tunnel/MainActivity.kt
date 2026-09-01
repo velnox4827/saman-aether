@@ -32,20 +32,21 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.InetSocketAddress
 import java.net.Proxy
 import java.net.URL
-import kotlin.math.max
+
 
 class MainActivity : Activity() {
 
     companion object {
         private const val REQUEST_SAVE_DIAGNOSTICS = 2002
         private const val RELEASES_API =
-            "https://api.github.com/repos/velnox4827/saman-aether/releases/latest"
+            "https://api.github.com/repos/velnox4827/saman-aether/releases?per_page=10"
     }
 
     private lateinit var modeView: TextView
@@ -634,13 +635,11 @@ class MainActivity : Activity() {
     }
 
     private fun isBusy(): Boolean {
-        val status = getSharedPreferences(AetherService.PREFS, MODE_PRIVATE)
-            .getString(AetherService.KEY_STATUS, "") ?: ""
-
-        return status.startsWith("Starting", true) ||
-            status.startsWith("Connecting", true) ||
-            status.startsWith("Switching", true) ||
-            status.startsWith("Stopping", true)
+        val phase = getSharedPreferences(AetherService.PREFS, MODE_PRIVATE)
+            .getString(AetherService.KEY_PHASE, TunnelPhase.STOPPED.name)
+            ?.let { runCatching { TunnelPhase.valueOf(it) }.getOrNull() }
+            ?: TunnelPhase.STOPPED
+        return phase.isBusy
     }
 
     private fun start(mode: String) {
@@ -676,26 +675,35 @@ class MainActivity : Activity() {
                 "Stopped"
             ).orEmpty()
 
-        val active =
-            status.startsWith("Connected", true) ||
-                status.startsWith("Connection unstable", true)
-
-        if (active) {
+        val phase = TunnelPhase.fromStatus(status)
+        if (phase == TunnelPhase.CONNECTED || phase == TunnelPhase.DEGRADED) {
             LogStore.append(
                 this,
                 "UI",
-                "Mode switch requested -> $mode; restarting isolated core"
+                "Mode switch requested -> $mode; waiting for confirmed stop"
             )
 
             stop()
-
-            handler.postDelayed(
-                { launchCoreService(mode) },
-                1000L
-            )
+            restartWhenStopped(mode, 30)
         } else {
             launchCoreService(mode)
         }
+    }
+
+    private fun restartWhenStopped(mode: String, attemptsRemaining: Int) {
+        val status = getSharedPreferences(AetherService.PREFS, MODE_PRIVATE)
+            .getString(AetherService.KEY_STATUS, "Stopped")
+            .orEmpty()
+        if (TunnelPhase.fromStatus(status) == TunnelPhase.STOPPED) {
+            launchCoreService(mode)
+            return
+        }
+        if (attemptsRemaining <= 0) {
+            LogStore.append(this, "ERROR", "Mode switch timed out waiting for stop")
+            Toast.makeText(this, "Previous tunnel did not stop in time", Toast.LENGTH_LONG).show()
+            return
+        }
+        handler.postDelayed({ restartWhenStopped(mode, attemptsRemaining - 1) }, 200L)
     }
 
     private fun launchCoreService(mode: String) {
@@ -800,8 +808,8 @@ class MainActivity : Activity() {
         AlertDialog.Builder(this)
             .setTitle("Save full history?")
             .setMessage(
-                "Full diagnostics can include Aether device identifiers " +
-                    "and network addresses. Use Safe report when sharing."
+                "Full diagnostics include all retained history and may contain " +
+                    "network metadata even after automatic redaction. Use Safe report when sharing."
             )
             .setPositiveButton("Save full") { _, _ ->
                 saveDiagnosticsTxt(
@@ -1191,7 +1199,7 @@ class MainActivity : Activity() {
                     val current = currentVersion()
                     val latest = release.first.removePrefix("v")
 
-                    if (compareVersions(latest, current) > 0) {
+                    if (ReleaseVersion.compare(latest, current) > 0) {
                         LogStore.append(this, "UPDATE", "Update available current=$current latest=$latest")
 
                         AlertDialog.Builder(this)
@@ -1228,14 +1236,16 @@ class MainActivity : Activity() {
             .getString(AetherService.KEY_STATUS, "")
             ?.startsWith("Connected", true) == true
 
-        val attempts = mutableListOf<Proxy?>()
-        if (connected) {
-            attempts += Proxy(
-                Proxy.Type.SOCKS,
-                InetSocketAddress.createUnresolved("127.0.0.1", 1819)
+        val attempts = if (connected) {
+            listOf(
+                Proxy(
+                    Proxy.Type.SOCKS,
+                    InetSocketAddress.createUnresolved("127.0.0.1", 1819)
+                )
             )
+        } else {
+            listOf<Proxy?>(null)
         }
-        attempts += null
 
         var lastError: Throwable? = null
 
@@ -1263,15 +1273,17 @@ class MainActivity : Activity() {
                 val body = connection.inputStream.bufferedReader().use { it.readText() }
                 connection.disconnect()
 
-                val json = JSONObject(body)
-                val tag = json.optString("tag_name")
-                val url = json.optString(
-                    "html_url",
-                    "https://github.com/velnox4827/saman-aether/releases/latest"
-                )
-
-                if (tag.isBlank()) error("Latest GitHub release has no tag.")
-                return tag to url
+                val releases = JSONArray(body)
+                for (index in 0 until releases.length()) {
+                    val release = releases.optJSONObject(index) ?: continue
+                    if (release.optBoolean("draft") || release.optBoolean("prerelease")) continue
+                    val tag = release.optString("tag_name")
+                    val url = release.optString("html_url")
+                    if (!ReleaseVersion.isAndroidReleaseTag(tag)) continue
+                    if (!ReleaseVersion.isTrustedReleaseUrl(url)) continue
+                    return tag to url
+                }
+                error("No trusted stable Android release was found.")
             } catch (t: Throwable) {
                 lastError = t
             }
@@ -1284,25 +1296,6 @@ class MainActivity : Activity() {
         runCatching {
             packageManager.getPackageInfo(packageName, 0).versionName ?: "0.0.0"
         }.getOrDefault("0.0.0")
-
-    private fun compareVersions(a: String, b: String): Int {
-        fun parts(v: String): List<Int> =
-            v.removePrefix("v")
-                .split(".")
-                .map { token -> token.takeWhile { it.isDigit() }.toIntOrNull() ?: 0 }
-
-        val pa = parts(a)
-        val pb = parts(b)
-        val count = max(pa.size, pb.size)
-
-        for (i in 0 until count) {
-            val av = pa.getOrElse(i) { 0 }
-            val bv = pb.getOrElse(i) { 0 }
-            if (av != bv) return av.compareTo(bv)
-        }
-
-        return 0
-    }
 
     private fun prettyMode(mode: String): String = when (mode.uppercase()) {
         "MASQUE_H3", "MASQUE" -> "MASQUE H3"

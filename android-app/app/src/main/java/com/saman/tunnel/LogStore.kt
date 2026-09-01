@@ -13,7 +13,6 @@ object LogStore {
     private const val CORE_LOG = "aether-core.log"
     private const val CORE_OLD_LOG = "aether-core.previous.log"
 
-    private const val MAX_APP_BYTES = 1024 * 1024L
 
     private const val SAFE_APP_BYTES = 256 * 1024
     private const val SAFE_CORE_BYTES = 1400 * 1024
@@ -21,22 +20,14 @@ object LogStore {
     private const val SAFE_SESSION_COUNT = 10
     private const val PHASE_TAIL_BYTES = 96 * 1024
 
-    private val deviceIdRegex = Regex(
-        """(?i)(device=)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"""
-    )
-
-    private val ipv6FieldRegex = Regex(
-        """(?i)(ipv6=)[0-9a-f:]+"""
-    )
 
     @Synchronized
     fun append(context: Context, tag: String, message: String) {
         runCatching {
             val file = File(context.filesDir, APP_LOG)
 
-            if (file.exists() && file.length() > MAX_APP_BYTES) {
-                val text = file.readText()
-                file.writeText(limitTailUtf8(text, 512 * 1024))
+            if (file.exists() && LogRotationPolicy.shouldRotate(file.length(), LogRotationPolicy.MAX_APP_BYTES)) {
+                file.writeText(readTailBytes(file, 512 * 1024))
             }
 
             val ts = SimpleDateFormat(
@@ -59,7 +50,7 @@ object LogStore {
         buildDiagnostics(
             context = context,
             fullHistory = true,
-            sanitized = false
+            sanitized = true
         )
 
     private fun buildDiagnostics(
@@ -91,7 +82,7 @@ object LogStore {
             appendLine(
                 "Report: " +
                     if (fullHistory) {
-                        "FULL HISTORY (not sanitized)"
+                        "FULL HISTORY (sanitized)"
                     } else {
                         "SAFE RECENT (sanitized, last $SAFE_SESSION_COUNT sessions)"
                     }
@@ -322,17 +313,8 @@ object LogStore {
         )
     }
 
-    private fun sanitize(text: String): String {
-        if (text.isBlank()) return text
-
-        return text
-            .replace(deviceIdRegex) {
-                "${it.groupValues[1]}<redacted>"
-            }
-            .replace(ipv6FieldRegex) {
-                "${it.groupValues[1]}<redacted>"
-            }
-    }
+    private fun sanitize(text: String): String =
+        DiagnosticsSanitizer.sanitize(text)
 
     private fun recentSessions(
         text: String,
