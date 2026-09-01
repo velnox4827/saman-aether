@@ -881,6 +881,7 @@ class MainActivity : Activity() {
             LogStore.diagnostics(this)
         }
 
+    @android.annotation.TargetApi(Build.VERSION_CODES.Q)
     private fun saveDiagnosticsToDownloads(
         fullHistory: Boolean
     ) {
