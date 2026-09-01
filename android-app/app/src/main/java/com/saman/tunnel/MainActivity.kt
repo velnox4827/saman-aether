@@ -39,7 +39,7 @@ import java.net.HttpURLConnection
 import java.net.InetSocketAddress
 import java.net.Proxy
 import java.net.URL
-
+import kotlin.math.max
 
 class MainActivity : Activity() {
 
