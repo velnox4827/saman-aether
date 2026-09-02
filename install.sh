@@ -5,6 +5,7 @@ SAMAN_TERMUX_VERSION="1.5.0"
 SAMAN_TUNNEL_VERSION="1.5.0"
 AETHER_BASE_VERSION="1.8.0"
 REPO="velnox4827/saman-aether"
+PINNED_TERMUX_TAG="termux-v$SAMAN_TERMUX_VERSION"
 SOURCE_REF="${SAMAN_SOURCE_REF:-termux-v1.5.0}"
 API_BASE="https://api.github.com/repos/$REPO"
 TERMUX_RELEASE_FALLBACK="termux-v1.5.0"
@@ -41,7 +42,7 @@ Usage: install.sh [install|update|check|uninstall]
   uninstall   Back up and remove canonical Saman files
 
 Environment:
-  SAMAN_SOURCE_REF=<git-ref>  Source ref used for maintenance testing (default: termux-v1.5.0)
+  SAMAN_SOURCE_REF=<git-ref>  Optional source ref; must match the resolved Termux release tag
 EOF
 }
 
@@ -103,6 +104,10 @@ latest_android_tag() {
 latest_termux_release_json() {
     api_json "$API_BASE/releases?per_page=30" |
         jq -c '[.[] | select((.draft|not) and (.prerelease|not) and (.tag_name|test("^termux-v[0-9]+\\.[0-9]+\\.[0-9]+$")))] | first // empty'
+}
+
+pinned_termux_release_json() {
+    api_json "$API_BASE/releases/tags/$PINNED_TERMUX_TAG"
 }
 
 installed_version() {
@@ -261,12 +266,41 @@ download_source() {
     printf '%s\n' "$commit" > "$TMP/source-commit"
 }
 
+resolve_termux_release() {
+    local release_json tag
+    case "$ACTION" in
+        install)
+            release_json="$(pinned_termux_release_json)" ||
+                die "could not query pinned Termux release $PINNED_TERMUX_TAG."
+            ;;
+        update)
+            release_json="$(latest_termux_release_json)" || die "could not query Termux releases."
+            ;;
+        *) die "unsupported core release action: $ACTION" ;;
+    esac
+    tag="$(jq -r '.tag_name // empty' <<<"$release_json")"
+    [ -n "$tag" ] || die "no stable Termux core release was found."
+    [ "$(jq -r '.draft or .prerelease' <<<"$release_json")" = false ] ||
+        die "Termux core release must be stable."
+    if [ "$ACTION" = install ]; then
+        [ "$tag" = "$PINNED_TERMUX_TAG" ] || die "pinned Termux release tag mismatch."
+    else
+        [[ "$tag" =~ ^termux-v[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "invalid Termux release tag."
+    fi
+    if [ -n "${SAMAN_SOURCE_REF:-}" ] && [ "$SOURCE_REF" != "$tag" ]; then
+        die "source ref $SOURCE_REF does not match resolved Termux release $tag."
+    fi
+    SOURCE_REF="$tag"
+    printf '%s\n' "$release_json" > "$TMP/termux-release.json"
+    printf '%s\n' "$tag" > "$TMP/termux-tag"
+}
+
 download_core() {
     local arch release_json tag archive url checksum_url expected actual
     arch="$(detect_arch)" || die "unsupported architecture: $(uname -m)"
-    release_json="$(latest_termux_release_json)" || die "could not query Termux releases."
-    tag="$(jq -r '.tag_name // empty' <<<"$release_json")"
-    [ -n "$tag" ] || die "no stable Termux core release was found."
+    [ -s "$TMP/termux-release.json" ] || resolve_termux_release
+    release_json="$(<"$TMP/termux-release.json")"
+    tag="$(<"$TMP/termux-tag")"
     archive="saman-aether-termux-${arch}.tar.gz"
     url="$(jq -r --arg name "$archive" '.assets[] | select(.name == $name) | .browser_download_url' <<<"$release_json")"
     checksum_url="$(jq -r --arg name "$archive.sha256" '.assets[] | select(.name == $name) | .browser_download_url' <<<"$release_json")"
@@ -283,7 +317,6 @@ download_core() {
     tar -tzf "$TMP/$archive" | grep -qx 'saman-aether-core' || die "core archive layout is invalid."
     tar -xzf "$TMP/$archive" -C "$TMP" saman-aether-core
     chmod 0755 "$TMP/saman-aether-core"
-    printf '%s\n' "$tag" > "$TMP/termux-tag"
     log "SHA-256: verified"
 }
 
@@ -350,6 +383,7 @@ main() {
             require_termux
             install_requirements
             make_tmp
+            resolve_termux_release
             download_source
             download_core
             install_files

@@ -106,4 +106,91 @@ grep -q 'SHA-256 mismatch; refusing to install' "$ROOT/install.sh" || fail "chec
 grep -q 'rollback' "$ROOT/install.sh" || fail "rollback support"
 pass "installer update safety policy"
 
+# A v1.5.0 install must ignore a hypothetical newer stable Termux release and
+# select the pinned v1.5.0 core asset plus checksum for every supported arch.
+release_object() {
+    local tag="$1" arch assets=''
+    for arch in arm64 armv7 x86_64; do
+        assets+="{\"name\":\"saman-aether-termux-$arch.tar.gz\",\"browser_download_url\":\"https://github.com/$REPO/releases/download/$tag/saman-aether-termux-$arch.tar.gz\"},"
+        assets+="{\"name\":\"saman-aether-termux-$arch.tar.gz.sha256\",\"browser_download_url\":\"https://github.com/$REPO/releases/download/$tag/saman-aether-termux-$arch.tar.gz.sha256\"},"
+    done
+    printf '{\"tag_name\":\"%s\",\"draft\":false,\"prerelease\":false,\"assets\":[%s]}' "$tag" "${assets%,}"
+}
+api_json() {
+    case "$1" in
+        "$API_BASE/releases/tags/termux-v1.5.0") release_object termux-v1.5.0 ;;
+        "$API_BASE/releases?per_page=30")
+            printf '[%s,%s]\n' "$(release_object termux-v1.6.0)" "$(release_object termux-v1.5.0)"
+            ;;
+        *) fail "unexpected release API URL: $1" ;;
+    esac
+}
+detect_arch() { printf '%s\n' "$TEST_ARCH"; }
+curl() {
+    local arg url='' out=''
+    while [ "$#" -gt 0 ]; do
+        arg="$1"; shift
+        case "$arg" in
+            https://*) url="$arg" ;;
+            -o) out="$1"; shift ;;
+        esac
+    done
+    printf '%s\n' "$url" >> "$TEST_TMP/core-urls"
+    if [ -n "$out" ]; then printf 'archive\n' > "$out"; else printf '%064d\n' 0; fi
+}
+sha256sum() { printf '%064d  %s\n' 0 "$1"; }
+tar() {
+    case " $* " in
+        *' -tzf '*) printf 'saman-aether-core\n' ;;
+        *' -xzf '*) : > "$TMP/saman-aether-core" ;;
+    esac
+}
+ACTION=install
+for TEST_ARCH in arm64 armv7 x86_64; do
+    TMP="$TEST_TMP/core-$TEST_ARCH"
+    mkdir -p "$TMP"
+    download_core >/dev/null
+    [ "$(<"$TMP/termux-tag")" = 'termux-v1.5.0' ] || fail "install selected an unpinned core for $TEST_ARCH"
+done
+if grep -q '/releases/download/termux-v1.6.0/' "$TEST_TMP/core-urls"; then
+    fail "v1.5.0 install selected a hypothetical newer core"
+fi
+for TEST_ARCH in arm64 armv7 x86_64; do
+    grep -qx "https://github.com/$REPO/releases/download/termux-v1.5.0/saman-aether-termux-$TEST_ARCH.tar.gz" "$TEST_TMP/core-urls" ||
+        fail "pinned core archive URL missing for $TEST_ARCH"
+    grep -qx "https://github.com/$REPO/releases/download/termux-v1.5.0/saman-aether-termux-$TEST_ARCH.tar.gz.sha256" "$TEST_TMP/core-urls" ||
+        fail "pinned checksum URL missing for $TEST_ARCH"
+done
+mkdir -p "$TEST_TMP/mismatched-install" "$TEST_TMP/mismatched-update"
+if (
+    ACTION=install
+    SAMAN_SOURCE_REF=termux-v9.9.9
+    SOURCE_REF=termux-v9.9.9
+    TMP="$TEST_TMP/mismatched-install"
+    : "$ACTION" "$SAMAN_SOURCE_REF" "$SOURCE_REF"
+    resolve_termux_release
+) 2>/dev/null; then
+    fail "install accepted a source ref that diverges from its pinned core"
+fi
+if (
+    ACTION=update
+    SAMAN_SOURCE_REF=termux-v9.9.9
+    SOURCE_REF=termux-v9.9.9
+    TMP="$TEST_TMP/mismatched-update"
+    : "$ACTION" "$SAMAN_SOURCE_REF" "$SOURCE_REF"
+    resolve_termux_release
+) 2>/dev/null; then
+    fail "update accepted a source ref that diverges from its selected core"
+fi
+ACTION=update
+: "$ACTION" # Consumed by the functions sourced from install.sh.
+TEST_ARCH=arm64
+TMP="$TEST_TMP/update-core"
+mkdir -p "$TMP"
+download_core >/dev/null
+[ "$(<"$TMP/termux-tag")" = 'termux-v1.6.0' ] || fail "update did not select the latest stable core"
+[ "$SOURCE_REF" = 'termux-v1.6.0' ] || fail "update source and core tags diverged"
+unset -f api_json detect_arch curl sha256sum tar release_object
+pass "version-pinned Termux core selection"
+
 printf 'All Termux maintenance tests passed.\n'
