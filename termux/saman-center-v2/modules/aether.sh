@@ -290,7 +290,7 @@ s2_aether_probe() {
     if [ -n "${ip:-}" ]; then s2_ok "Aether proxy is working"; else s2_err "Proxy is listening but internet test failed"; fi
 }
 
-s2_aether_exit() { s2_aether_probe; }
+s2_aether_exit() { s2_aether_probe full; }
 
 s2_aether_start() {
     local mode="${1:-}" runner="$HOME/.aether-shortcut-runner"
