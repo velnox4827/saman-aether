@@ -1,0 +1,42 @@
+name: Termux maintenance
+
+on:
+  push:
+    branches: [main, "release/**", "maintenance/**"]
+    paths:
+      - "install.sh"
+      - "aether-shortcut-runner"
+      - "saman-aether-diagnostics"
+      - "termux/**"
+      - ".github/workflows/termux-maintenance.yml"
+  pull_request:
+    paths:
+      - "install.sh"
+      - "aether-shortcut-runner"
+      - "saman-aether-diagnostics"
+      - "termux/**"
+      - ".github/workflows/termux-maintenance.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  shell-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - name: Run Termux maintenance tests
+        run: bash termux/tests/test-termux.sh
+      - name: ShellCheck canonical scripts
+        run: |
+          shellcheck --severity=warning \
+            install.sh \
+            aether-shortcut-runner \
+            saman-aether-diagnostics \
+            termux/aether-control \
+            termux/saman-center-v2/saman2 \
+            termux/saman-center-v2/lib/*.sh \
+            termux/saman-center-v2/modules/*.sh

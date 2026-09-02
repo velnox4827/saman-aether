@@ -10,6 +10,8 @@ permissions:
 
 env:
   AETHER_COMMIT: "a916ff6fbbb4ebafe8314c53cf3718eb51dcae53"
+  CARGO_NDK_VERSION: "4.1.2"
+  RELEASE_CERT_SHA256: "03233edadf89ed27c7cf80452916a7bd25e8c74abe0f12d2eefcb8b290b48805"
 
 jobs:
   release:
@@ -45,10 +47,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         name: Rust ARM targets
         with:
+          toolchain: "1.89.0"
           targets: aarch64-linux-android,armv7-linux-androideabi
 
       - name: cargo-ndk
-        run: cargo install cargo-ndk --locked
+        run: cargo install cargo-ndk --version "$CARGO_NDK_VERSION" --locked
 
       - name: Checkout Aether Core
         run: |
@@ -114,7 +117,7 @@ jobs:
           KEY_ALIAS: ${{ secrets.SAMAN_RELEASE_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.SAMAN_RELEASE_KEY_PASSWORD }}
         run: |
-          gradle :app:assembleRelease \
+          ./gradlew --no-daemon :app:assembleRelease \
             -PSAMAN_KEYSTORE_FILE="$RUNNER_TEMP/saman-release.jks" \
             -PSAMAN_KEYSTORE_PASSWORD="$STORE_PASSWORD" \
             -PSAMAN_KEY_ALIAS="$KEY_ALIAS" \
@@ -141,12 +144,13 @@ jobs:
           unzip -p "$UNI" lib/armeabi-v7a/libsamanbridge.so > /tmp/b32.so
           readelf -d /tmp/b64.so | grep -q 'Shared library: \[libaether.so\]'
           readelf -d /tmp/b32.so | grep -q 'Shared library: \[libaether.so\]'
-          ! readelf -d /tmp/b64.so | grep -q '/home/runner'
-          ! readelf -d /tmp/b32.so | grep -q '/home/runner'
+          if readelf -d /tmp/b64.so | grep -q '/home/runner'; then exit 1; fi
+          if readelf -d /tmp/b32.so | grep -q '/home/runner'; then exit 1; fi
 
           V="${GITHUB_REF_NAME#v}"
           for APK in "$A64" "$A32" "$UNI"; do
-            "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$APK"
+            CERTS="$("$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK")"
+            grep -q "certificate SHA-256 digest: $RELEASE_CERT_SHA256" <<<"$CERTS"
             B="$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK")"
             echo "$B" | grep -q "package: name='com.saman.tunnel'"
             echo "$B" | grep -q "versionName='${V}'"
@@ -168,51 +172,25 @@ jobs:
           cp "$(find "$O" -type f -name '*armeabi-v7a*release*.apk' | head -n1)" "dist/Saman-Tunnel-${T}-armeabi-v7a.apk"
           cp "$(find "$O" -type f -name '*universal*release*.apk' | head -n1)" "dist/Saman-Tunnel-${T}-universal-arm.apk"
           cd dist
+          sha256sum ./*.apk > SHA256SUMS
           for A in *.apk; do sha256sum "$A" > "${A}.sha256"; done
           ls -lh
 
       - name: Release notes
         run: |
-          cat > /tmp/notes.md <<'NOTES'
-          # Saman Tunnel v1.4.0
+          set -euo pipefail
+          TAG="$GITHUB_REF_NAME"
+          awk -v heading="## $TAG" '
+            $0 == heading { found=1 }
+            found && $0 ~ /^## / && $0 != heading { exit }
+            found { print }
+          ' CHANGELOG.md > /tmp/notes.md
+          if [ ! -s /tmp/notes.md ]; then
+            printf '# Saman Tunnel %s\n\nSee CHANGELOG.md for details.\n' "$TAG" > /tmp/notes.md
+          fi
+          cat >> /tmp/notes.md <<'NOTES'
 
-          Stable Android release based on **Aether Core v1.8.0**.
-
-          ## Aether v1.8.0 base
-          - GOOL stability/crash fixes
-          - Better WireGuard task/panic resilience
-          - Upstream authentication fix
-          - More efficient HTTP proxy handling
-          - Guard against zero-value reconnect busy loops
-
-          ## Saman Tunnel
-          - Smart Reconnect retained for WG / MASQUE H3 / MASQUE H2 / GOOL
-          - Default scan remains `balanced`; Turbo is not forced
-          - WG cached RTT above `650 ms` -> fresh balanced scan
-          - MASQUE H3 cached verify above `1800 ms` -> fresh balanced scan
-          - MASQUE H2 cached verify above `2500 ms` -> fresh balanced scan
-          - Cached WG/MASQUE paths under `20 s` are discarded
-          - Short-lived GOOL outer+inner pairs are dropped before fresh scan
-          - Reusable SOCKS5/HTTP local listeners retained for cleaner restart
-          - `--quick-reconnect` and `--reconnect-secs 1` retained
-          - Home Screen Widget retained
-          - Safe / Full diagnostics retained
-
-          ## Local proxies
-          - SOCKS5: `127.0.0.1:1819`
-          - HTTP CONNECT: `127.0.0.1:1820`
-
-          ## APK choices
-          - arm64-v8a
-          - armeabi-v7a
-          - universal-arm
-
-          Minimum Android: **7.0 / API 24**
-
-          Telegram: https://t.me/SamanTunnel
-          GitHub: https://github.com/velnox4827/saman-aether
-          Upstream: https://github.com/CluvexStudio/Aether
-          License: GNU AGPL-3.0
+          Verify downloaded APKs with the attached `SHA256SUMS` file and verify signing-certificate continuity before installation.
           NOTES
 
       - name: Create GitHub Stable Release

@@ -94,7 +94,7 @@ Java_com_saman_tunnel_NativeBridge_startCore(JNIEnv *env, jobject thiz, jstring 
         STDERR_FILENO,
         "[samanbridge] smart-reconnect wg=650ms masque-h3=1800ms masque-h2=2500ms short-lived=20s\n"
     );
-    dprintf(STDERR_FILENO, "[samanbridge] args=%s\n", args);
+    dprintf(STDERR_FILENO, "[samanbridge] core start requested\n");
 
     char *reply = aether_core_start(args);
 

@@ -1,0 +1,35 @@
+# Secrets and local credentials
+*.jks
+*.keystore
+*.p12
+*.pem
+*.key
+.env
+.env.*
+!.env.example
+local.properties
+gradle.properties.local
+
+# Android/native build outputs
+android-app/.gradle/
+android-app/app/build/
+android-app/app/src/main/jniLibs/
+*.apk
+*.aab
+
+# Rust/native build outputs
+Aether/
+target/
+
+# Local runtime state and diagnostics
+*.log
+*.pid
+Saman-*-diagnostics-*.txt
+saman2-safe-*.txt
+
+# Editor/OS caches
+.idea/
+.vscode/
+.DS_Store
+__pycache__/
+*.pyc

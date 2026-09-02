@@ -2,13 +2,16 @@
 set -u
 set -o pipefail
 
-VERSION="1.4.0"
+VERSION="1.5.0"
+SAMAN_TUNNEL_VERSION="1.5.0"
 AETHER_BASE_VERSION="1.8.0"
 MODE="${1:-}"
 
 CORE_BIN="${SAMAN_AETHER_CORE:-$PREFIX/bin/saman-aether-core}"
 STATE_DIR="$HOME/.saman-aether"
 PID_FILE="$STATE_DIR/aether.pid"
+MAX_CURRENT_LOG_BYTES=$((5 * 1024 * 1024))
+MAX_PREVIOUS_LOG_BYTES=$((1024 * 1024))
 
 SOCKS_PORT=1819
 HTTP_PORT=1820
@@ -20,6 +23,7 @@ echo "================================"
 echo "       SAMAN AETHER"
 echo "     Termux v$VERSION"
 echo "   Aether Core v$AETHER_BASE_VERSION"
+echo " Saman Tunnel v$SAMAN_TUNNEL_VERSION"
 echo "================================"
 echo "Mode: $MODE"
 echo
@@ -37,27 +41,51 @@ export AETHER_SMART_MASQUE_H3_MAX_VERIFY_MS=1800
 export AETHER_SMART_MASQUE_H2_MAX_VERIFY_MS=2500
 export AETHER_SMART_SHORT_LIVED_SECS=20
 
+core_pid_valid() {
+    local pid="${1:-}" expected actual
+    [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+    kill -0 "$pid" 2>/dev/null || return 1
+    expected="$(readlink -f "$CORE_BIN" 2>/dev/null || true)"
+    actual="$(readlink -f "/proc/$pid/exe" 2>/dev/null || true)"
+    [ -n "$expected" ] && [ "$actual" = "$expected" ]
+}
+
+core_pids() {
+    local proc expected actual
+    expected="$(readlink -f "$CORE_BIN" 2>/dev/null || true)"
+    [ -n "$expected" ] || return 0
+    for proc in /proc/[0-9]*; do
+        [ -r "$proc/exe" ] || continue
+        actual="$(readlink -f "$proc/exe" 2>/dev/null || true)"
+        [ "$actual" = "$expected" ] && printf '%s\n' "${proc##*/}"
+    done
+}
+
+stop_pid() {
+    local pid="$1"
+    core_pid_valid "$pid" || return 0
+    kill -TERM "$pid" 2>/dev/null || true
+    for _ in $(seq 1 50); do core_pid_valid "$pid" || return 0; sleep 0.1; done
+    echo "Aether Core PID $pid did not stop in 5 seconds; forcing stop..."
+    core_pid_valid "$pid" && kill -KILL "$pid" 2>/dev/null || true
+}
+
 stop_core() {
-    local pid=""
-
-    if [ -f "$PID_FILE" ]; then
-        pid="$(cat "$PID_FILE" 2>/dev/null || true)"
+    local pid="${1:-}"
+    [ -n "$pid" ] || { [ -s "$PID_FILE" ] && pid="$(<"$PID_FILE")"; }
+    [ -n "$pid" ] && stop_pid "$pid"
+    if [ -s "$PID_FILE" ] && [ "$(<"$PID_FILE")" = "$pid" ]; then
+        rm -f "$PID_FILE"
     fi
+}
 
-    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-        kill -TERM "$pid" 2>/dev/null || true
-
-        for _ in $(seq 1 20); do
-            kill -0 "$pid" 2>/dev/null || break
-            sleep 0.1
-        done
-
-        if kill -0 "$pid" 2>/dev/null; then
-            echo "Previous core still running — forcing stop..."
-            kill -KILL "$pid" 2>/dev/null || true
-        fi
-    fi
-
+stop_orphan_cores() {
+    local pid
+    while IFS= read -r pid; do
+        [ -n "$pid" ] || continue
+        echo "Stopping orphaned canonical Aether Core PID $pid..."
+        stop_pid "$pid"
+    done < <(core_pids)
     rm -f "$PID_FILE"
 }
 
@@ -112,7 +140,7 @@ wait_local_ports() {
     return 1
 }
 
-stop_core
+stop_orphan_cores
 wait_local_ports || exit 1
 
 command -v termux-wake-lock >/dev/null 2>&1 &&
@@ -190,11 +218,22 @@ esac
 LOG="$HOME/aether-${MODE_KEY}.log"
 PREVIOUS_LOG="$HOME/aether-${MODE_KEY}.previous.log"
 
-if [ -f "$LOG" ]; then
-    mv -f "$LOG" "$PREVIOUS_LOG" 2>/dev/null || true
-fi
+rotate_mode_logs() {
+    local tmp
+    if [ -f "$LOG" ]; then
+        tmp="$(mktemp "$STATE_DIR/log.XXXXXX")"
+        tail -c "$MAX_PREVIOUS_LOG_BYTES" "$LOG" > "$tmp" 2>/dev/null || true
+        mv -f "$tmp" "$PREVIOUS_LOG"
+    fi
+    if [ -f "$PREVIOUS_LOG" ] && [ "$(wc -c < "$PREVIOUS_LOG" 2>/dev/null || echo 0)" -gt "$MAX_PREVIOUS_LOG_BYTES" ]; then
+        tmp="$(mktemp "$STATE_DIR/log.XXXXXX")"
+        tail -c "$MAX_PREVIOUS_LOG_BYTES" "$PREVIOUS_LOG" > "$tmp" 2>/dev/null || true
+        mv -f "$tmp" "$PREVIOUS_LOG"
+    fi
+    : > "$LOG"
+}
 
-: > "$LOG"
+rotate_mode_logs
 
 country_name() {
     case "$1" in
@@ -305,18 +344,38 @@ connection_phase() {
 
 CORE_PID=""
 WATCH_PID=""
+GUARD_PID=""
+
+guard_log_size() {
+    local tmp size
+    while core_pid_valid "$CORE_PID"; do
+        size="$(wc -c < "$LOG" 2>/dev/null || echo 0)"
+        if [[ "$size" =~ ^[0-9]+$ ]] && [ "$size" -gt "$MAX_CURRENT_LOG_BYTES" ]; then
+            tmp="$(mktemp "$STATE_DIR/log.XXXXXX")"
+            tail -c "$MAX_PREVIOUS_LOG_BYTES" "$LOG" > "$tmp" 2>/dev/null || true
+            mv -f "$tmp" "$PREVIOUS_LOG"
+            : > "$LOG"
+            printf '%s\n' "[Saman] Active log exceeded $MAX_CURRENT_LOG_BYTES bytes and was rotated." >> "$LOG"
+        fi
+        sleep 15
+    done
+}
 
 start_core() {
     "$CORE_BIN" "${ARGS[@]}" >>"$LOG" 2>&1 &
     CORE_PID=$!
     printf '%s\n' "$CORE_PID" > "$PID_FILE"
+    guard_log_size &
+    GUARD_PID=$!
 }
 
 cleanup() {
     [ -n "$WATCH_PID" ] &&
         kill "$WATCH_PID" 2>/dev/null || true
+    [ -n "$GUARD_PID" ] &&
+        kill "$GUARD_PID" 2>/dev/null || true
 
-    stop_core
+    stop_core "${CORE_PID:-}"
 
     command -v termux-wake-unlock >/dev/null 2>&1 &&
         termux-wake-unlock >/dev/null 2>&1 || true
@@ -506,7 +565,9 @@ while true; do
     wait "$CORE_PID"
     RC=$?
 
-    rm -f "$PID_FILE"
+    if [ -s "$PID_FILE" ] && [ "$(<"$PID_FILE")" = "$CORE_PID" ]; then
+        rm -f "$PID_FILE"
+    fi
 
     if [ "$RC" -ne 101 ]; then
         exit "$RC"

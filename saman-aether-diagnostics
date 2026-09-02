@@ -1,46 +1,116 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -euo pipefail
 
-VERSION="1.4.0"
+VERSION="1.5.0"
+SAMAN_TUNNEL_VERSION="1.5.0"
+AETHER_BASE_VERSION="1.8.0"
 MODE="${1:-safe}"
 STAMP="$(date +%Y%m%d-%H%M%S)"
+STATE_DIR="$HOME/.saman-aether"
+PID_FILE="$STATE_DIR/aether.pid"
+CORE_BIN="$PREFIX/bin/saman-aether-core"
+SAMAN_BIN="$HOME/bin/saman"
 
 if [ -d "$HOME/storage/downloads" ]; then
-    OUT_DIR="$HOME/storage/downloads"
+    OUT_DIR="$HOME/storage/downloads/SamanCenter/Diagnostics"
 else
-    OUT_DIR="$HOME"
+    OUT_DIR="$HOME/SamanCenter/Diagnostics"
 fi
+mkdir -p "$OUT_DIR"
 
 case "$MODE" in
-    safe)
-        OUT="$OUT_DIR/Saman-Aether-Termux-diagnostics-safe-$STAMP.txt"
-        ;;
-    full)
-        OUT="$OUT_DIR/Saman-Aether-Termux-diagnostics-full-$STAMP.txt"
-        ;;
-    *)
-        echo "Usage: saman-aether-diagnostics [safe|full]"
-        exit 1
-        ;;
+    safe) OUT="$OUT_DIR/Saman-Aether-Termux-diagnostics-safe-$STAMP.txt" ;;
+    full) OUT="$OUT_DIR/Saman-Aether-Termux-diagnostics-full-sanitized-$STAMP.txt" ;;
+    *) printf 'Usage: saman-aether-diagnostics [safe|full]\n' >&2; exit 2 ;;
 esac
 
 sanitize_stream() {
     sed -E \
-        -e 's/(device=)[0-9a-fA-F-]{16,}/\1<redacted>/g' \
-        -e 's/(device_id[=: ]+)[0-9a-fA-F-]{16,}/\1<redacted>/g' \
-        -e 's/(ipv6=)[0-9a-fA-F:]+/\1<redacted>/g'
+        -e 's#(Authorization:[[:space:]]*(Bearer|Basic)[[:space:]]+)[^[:space:]]+#\1<redacted>#Ig' \
+        -e 's#(Cookie:)[^\r\n]*#\1 <redacted>#Ig' \
+        -e 's#((token|api[_-]?key|password|passwd|rpc\.secret)[[:space:]]*[=:][[:space:]]*)[^,[:space:]"}]+#\1<redacted>#Ig' \
+        -e 's#(device(_id)?[=: ]+)[0-9a-fA-F-]{16,}#\1<redacted>#g' \
+        -e 's#(ipv6=)[0-9a-fA-F:]+#\1<redacted>#g' \
+        -e 's#(https?://)[^/@:[:space:]]+:[^/@[:space:]]+@#\1<redacted>@#g' \
+        -e 's#([?&](key|token|secret|password)=)[^&[:space:]]+#\1<redacted>#Ig' \
+        -e '/-----BEGIN .*PRIVATE KEY-----/,/-----END .*PRIVATE KEY-----/c\[REDACTED PRIVATE KEY]'
+}
+
+pid_is_core() {
+    local pid="${1:-}" expected actual
+    [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+    kill -0 "$pid" 2>/dev/null || return 1
+    expected="$(readlink -f "$CORE_BIN" 2>/dev/null || true)"
+    actual="$(readlink -f "/proc/$pid/exe" 2>/dev/null || true)"
+    [ -n "$expected" ] && [ "$actual" = "$expected" ]
+}
+
+core_pids() {
+    local proc expected actual
+    expected="$(readlink -f "$CORE_BIN" 2>/dev/null || true)"
+    [ -n "$expected" ] || return 0
+    for proc in /proc/[0-9]*; do
+        [ -r "$proc/exe" ] || continue
+        actual="$(readlink -f "$proc/exe" 2>/dev/null || true)"
+        [ "$actual" = "$expected" ] && printf '%s\n' "${proc##*/}"
+    done
+}
+
+port_listening() {
+    local port="$1"
+    ss -ltnH 2>/dev/null | awk -v p=":$port" '$4 ~ (p "$"){found=1} END{exit(found?0:1)}'
+}
+
+status_block() {
+    local pid='' process_count=0 candidate socks=DOWN http=DOWN health=OFF mode=unknown
+    [ -s "$PID_FILE" ] && pid="$(<"$PID_FILE")"
+    while IFS= read -r candidate; do [ -n "$candidate" ] && process_count=$((process_count + 1)); done < <(core_pids)
+    port_listening 1819 && socks=LISTENING
+    port_listening 1820 && http=LISTENING
+    if pid_is_core "$pid"; then
+        health=CONNECTING
+        if [ "$socks" = LISTENING ] || [ "$http" = LISTENING ]; then health=PARTIAL; fi
+        if [ "$socks" = LISTENING ] && [ "$http" = LISTENING ]; then health=READY; fi
+    elif [ "$socks" = LISTENING ] || [ "$http" = LISTENING ]; then
+        health="PORT CONFLICT"
+    fi
+    if [ -x "$SAMAN_BIN" ]; then
+        mode="$("$SAMAN_BIN" aether status 2>/dev/null | awk -F': ' '$1 ~ /^Mode[[:space:]]*$/ {print $2; exit}')"
+        [ -n "$mode" ] || mode=unknown
+    fi
+    printf 'Running: %s\n' "$([ "$process_count" -gt 0 ] && echo yes || echo no)"
+    printf 'Process count: %s\n' "$process_count"
+    printf 'Tracked PID: %s\n' "${pid:-none}"
+    printf 'Tracked PID valid: %s\n' "$(pid_is_core "$pid" && echo yes || echo no)"
+    printf 'Mode: %s\n' "$mode"
+    printf 'Health: %s\n' "$health"
+    printf 'SOCKS5 expected: 127.0.0.1:1819 (%s)\n' "$socks"
+    printf 'HTTP CONNECT expected: 127.0.0.1:1820 (%s)\n' "$http"
 }
 
 {
     echo "Saman Aether Termux diagnostics"
     echo "==============================="
-    echo "Termux edition: v$VERSION"
-    echo "Aether Core base: v1.8.0"
-    echo "Report: $MODE"
+    echo "Saman Termux integration: v$VERSION"
+    echo "Saman Tunnel stable: v$SAMAN_TUNNEL_VERSION"
+    echo "Aether Core base: v$AETHER_BASE_VERSION"
+    echo "Report: $MODE (always sanitized)"
     echo "Date: $(date)"
     echo "Android: $(getprop ro.build.version.release 2>/dev/null || echo unknown)"
-    echo "ABI: $(getprop ro.product.cpu.abi 2>/dev/null || echo unknown)"
-    echo "Core: $($PREFIX/bin/saman-aether-core --version 2>/dev/null | head -n1 || echo installed)"
+    echo "Android SDK: $(getprop ro.build.version.sdk 2>/dev/null || echo unknown)"
+    echo "ABI: $(getprop ro.product.cpu.abi 2>/dev/null || uname -m)"
+    echo "Core version: $($CORE_BIN --version 2>/dev/null | head -n1 || echo not-installed)"
+    echo "Saman Center: $($SAMAN_BIN version 2>/dev/null || echo not-installed)"
+    echo
+    echo "Relevant paths:"
+    printf '  canonical command: %s\n' "$SAMAN_BIN"
+    printf '  compatibility command: %s\n' "$PREFIX/bin/aether-control"
+    printf '  core: %s\n' "$CORE_BIN"
+    printf '  runner: %s\n' "$HOME/.aether-shortcut-runner"
+    printf '  state: %s\n' "$STATE_DIR"
+    echo
+    echo "Runtime status:"
+    status_block
     echo
     echo "Smart Reconnect thresholds:"
     echo "  WG cached RTT: 650ms"
@@ -49,59 +119,29 @@ sanitize_stream() {
     echo "  short-lived path: 20s"
     echo
 
-    for base in \
-        aether-masque-h3 \
-        aether-masque-h2 \
-        aether-wg \
-        aether-gool
-    do
+    for base in aether-masque-h3 aether-masque-h2 aether-wg aether-gool; do
         current="$HOME/$base.log"
         previous="$HOME/$base.previous.log"
-
-        if [ "$MODE" = "safe" ]; then
-            if [ -f "$current" ]; then
-                echo "---- $base.log (recent) ----"
-                tail -c 300000 "$current" 2>/dev/null |
-                    sanitize_stream
-                echo
-            fi
-
-            if [ -f "$previous" ]; then
-                echo "---- $base.previous.log (recent) ----"
-                tail -c 80000 "$previous" 2>/dev/null |
-                    sanitize_stream
-                echo
-            fi
-        else
-            if [ -f "$current" ]; then
-                echo "---- $base.log ----"
-                cat "$current"
-                echo
-            fi
-
-            if [ -f "$previous" ]; then
-                echo "---- $base.previous.log ----"
-                cat "$previous"
-                echo
-            fi
+        if [ "$MODE" = safe ]; then current_bytes=300000; previous_bytes=80000; else current_bytes=5242880; previous_bytes=1048576; fi
+        if [ -f "$current" ]; then
+            echo "---- $base.log (bounded tail) ----"
+            tail -c "$current_bytes" "$current" 2>/dev/null | sanitize_stream
+            echo
+        fi
+        if [ -f "$previous" ]; then
+            echo "---- $base.previous.log (bounded tail) ----"
+            tail -c "$previous_bytes" "$previous" 2>/dev/null | sanitize_stream
+            echo
         fi
     done
-} >"$OUT"
+} | sanitize_stream > "$OUT"
 
-SIZE="$(wc -c <"$OUT" | tr -d ' ')"
-
+SIZE="$(wc -c < "$OUT" | tr -d ' ')"
 if [ "$SIZE" -eq 0 ]; then
-    echo "ERROR: diagnostics file is empty."
     rm -f "$OUT"
+    echo "ERROR: diagnostics file is empty." >&2
     exit 1
 fi
-
-echo "Diagnostics saved:"
-echo "  $OUT"
-echo "Size: $SIZE bytes"
-
-if [ "$MODE" = "safe" ]; then
-    echo "Safe report redacts known device/IPv6 identifiers."
-else
-    echo "WARNING: Full history may contain network addresses and identifiers."
-fi
+chmod 0600 "$OUT" 2>/dev/null || true
+printf 'Diagnostics saved:\n  %s\nSize: %s bytes\n' "$OUT" "$SIZE"
+echo "All report modes redact known credentials, tokens, private keys, identifiers, and credential-bearing URLs."

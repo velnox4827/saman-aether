@@ -1,5 +1,32 @@
 # Changelog
 
+## Post-v1.5.0 maintenance
+
+- Replaced the outdated README with complete, equivalent English and Persian documentation for Saman Tunnel v1.5.0 and the canonical Saman/Termux architecture.
+- Added the current Saman Center v2 implementation to the repository; `saman` is the canonical command and `saman2` remains a compatibility entry point.
+- Kept `aether-control` as a validation and delegation wrapper instead of duplicating process control.
+- Modernized the Termux installer with architecture detection, stable GitHub release discovery, trusted asset selection, mandatory SHA-256 verification, private backups, rollback, idempotent routing, and configuration preservation.
+- Stopped creating obsolete independent `0-Aether-*` through `3-Aether-*` shortcuts; the centralized `Saman-Center` shortcut is installed instead.
+- Hardened Aether PID identity checks, stale PID recovery, orphan detection and cleanup, restart timeouts, port-conflict reporting, bounded per-mode logs, and sanitized diagnostics.
+- Added Termux shell tests, ShellCheck validation, and a dedicated GitHub Actions maintenance workflow.
+
+## v1.5.0
+
+Stable Android lifecycle, health, logging, diagnostics, and update-safety release.
+
+- versionCode `150`; versionName `1.5.0`
+- Built from commit `bcb96b530aa08f6faac7e60f06dc7b26cd64e37c`
+- Aether Core v1.8.0 pinned at `a916ff6fbbb4ebafe8314c53cf3718eb51dcae53`
+- Explicit startup, connection, mode-switch, stopping, stopped, degraded, and failed phases
+- Confirmed native-process shutdown before restart and safer service/process interruption recovery
+- Protocol-aware SOCKS5 health checks and local proxy restart handling
+- Smart Reconnect for WireGuard, MASQUE H3, MASQUE H2, and GOOL
+- Bounded app/core logs and sanitized Safe/Full diagnostics
+- Stable Android release-tag filtering and trusted GitHub release URL validation
+- Android backup disabled and cleartext traffic disabled
+- Signed ARM64, ARM32, and Universal ARM APKs plus `SHA256SUMS`
+- Existing signing certificate continuity verified with SHA-256 fingerprint `03233edadf89ed27c7cf80452916a7bd25e8c74abe0f12d2eefcb8b290b48805`
+
 ## v1.4.0
 
 Stable Android upgrade to Aether Core v1.8.0.

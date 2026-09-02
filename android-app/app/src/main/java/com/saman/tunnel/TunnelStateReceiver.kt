@@ -12,6 +12,7 @@ class TunnelStateReceiver : BroadcastReceiver() {
 
         const val EXTRA_STATUS = "status"
         const val EXTRA_MODE = "mode"
+        const val EXTRA_PHASE = "phase"
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -25,12 +26,16 @@ class TunnelStateReceiver : BroadcastReceiver() {
             intent.getStringExtra(EXTRA_MODE)
                 ?: ""
 
+        val phase = intent.getStringExtra(EXTRA_PHASE)
+            ?: TunnelPhase.fromStatus(status).name
+
         context.getSharedPreferences(
             AetherService.PREFS,
             Context.MODE_PRIVATE
         ).edit()
             .putString(AetherService.KEY_STATUS, status)
             .putString(AetherService.KEY_MODE, mode)
+            .putString(AetherService.KEY_PHASE, phase)
             .commit()
 
         LogStore.append(

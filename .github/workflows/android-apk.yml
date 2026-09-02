@@ -1,9 +1,9 @@
-name: Build Saman Tunnel v1.4.0 Aether 1.8.0 Debug APKs
+name: Build Saman Tunnel v1.5.0 APKs
 
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, "release/**"]
     paths:
       - "android-app/**"
       - ".github/workflows/android-apk.yml"
@@ -11,164 +11,142 @@ on:
 permissions:
   contents: read
 
+env:
+  AETHER_COMMIT: "a916ff6fbbb4ebafe8314c53cf3718eb51dcae53"
+  CARGO_NDK_VERSION: "4.1.2"
+  RELEASE_CERT_SHA256: "03233edadf89ed27c7cf80452916a7bd25e8c74abe0f12d2eefcb8b290b48805"
+
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
-        name: Checkout Saman project
-
-      - uses: actions/setup-java@v5
-        name: Set up Java 17
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
         with:
           distribution: temurin
           java-version: "17"
-
-      - uses: android-actions/setup-android@v3
-        name: Set up Android SDK
-
-      - name: Install Android packages
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
+      - name: Install pinned Android packages
         run: |
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager "platforms;android-36" "build-tools;35.0.0" "ndk;26.3.11579264" "cmake;3.22.1"
-
-      - uses: gradle/actions/setup-gradle@v4
-        name: Set up Gradle
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
         with:
-          gradle-version: "8.13"
-
-      - uses: dtolnay/rust-toolchain@stable
-        name: Install Rust ARM targets
-        with:
+          toolchain: "1.89.0"
           targets: aarch64-linux-android,armv7-linux-androideabi
-
-      - name: Install cargo-ndk
-        run: cargo install cargo-ndk --locked
-
+      - name: Install pinned cargo-ndk
+        run: cargo install cargo-ndk --version "$CARGO_NDK_VERSION" --locked
       - name: Checkout pinned Aether Core
         run: |
-          mkdir -p "$RUNNER_TEMP/Aether"
-          git -C "$RUNNER_TEMP/Aether" init
+          set -euxo pipefail
+          git init "$RUNNER_TEMP/Aether"
           git -C "$RUNNER_TEMP/Aether" remote add origin https://github.com/CluvexStudio/Aether.git
-          git -C "$RUNNER_TEMP/Aether" fetch --depth 1 origin a916ff6fbbb4ebafe8314c53cf3718eb51dcae53
+          git -C "$RUNNER_TEMP/Aether" fetch --depth 1 origin "$AETHER_COMMIT"
           git -C "$RUNNER_TEMP/Aether" checkout --detach FETCH_HEAD
+          test "$(git -C "$RUNNER_TEMP/Aether" rev-parse HEAD)" = "$AETHER_COMMIT"
           grep -q '^version = "1.8.0"$' "$RUNNER_TEMP/Aether/aether/Cargo.toml"
-
-      - name: Apply Saman Smart Reconnect patch
+      - name: Apply verified Saman patches
         run: |
           set -euxo pipefail
-          PATCH="$GITHUB_WORKSPACE/android-app/aether-patches/smart-reconnect-all-modes.patch"
-          test -s "$PATCH"
-          git -C "$RUNNER_TEMP/Aether" apply --check "$PATCH"
-          git -C "$RUNNER_TEMP/Aether" apply "$PATCH"
+          for PATCH in android-app/aether-patches/smart-reconnect-all-modes.patch android-app/aether-patches/local-proxy-reuseaddr.patch; do
+            test -s "$PATCH"
+            git -C "$RUNNER_TEMP/Aether" apply --check "$GITHUB_WORKSPACE/$PATCH"
+            git -C "$RUNNER_TEMP/Aether" apply "$GITHUB_WORKSPACE/$PATCH"
+          done
           grep -q 'smart reconnect WG' "$RUNNER_TEMP/Aether/aether/src/lib.rs"
           grep -q 'smart reconnect MASQUE' "$RUNNER_TEMP/Aether/aether/src/lib.rs"
           grep -q 'smart reconnect GOOL' "$RUNNER_TEMP/Aether/aether/src/lib.rs"
-
-      - name: Apply Saman local proxy restart patch
-        run: |
-          set -euxo pipefail
-          PATCH="$GITHUB_WORKSPACE/android-app/aether-patches/local-proxy-reuseaddr.patch"
-          test -s "$PATCH"
-          git -C "$RUNNER_TEMP/Aether" apply --check "$PATCH"
-          git -C "$RUNNER_TEMP/Aether" apply "$PATCH"
           grep -q 'bind_reusable_tcp_listener' "$RUNNER_TEMP/Aether/aether/src/socks.rs"
           grep -q 'set_reuseaddr(true)' "$RUNNER_TEMP/Aether/aether/src/socks.rs"
-
-      - name: Build Aether ARM64
+      - name: Build native libraries
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/26.3.11579264
           ANDROID_NDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}/ndk/26.3.11579264
         run: |
           set -euxo pipefail
           cd "$RUNNER_TEMP/Aether/aether"
-          cargo ndk -t arm64-v8a --platform 24 build --release --lib
-          mkdir -p "$GITHUB_WORKSPACE/android-app/app/src/main/jniLibs/arm64-v8a"
-          cp target/aarch64-linux-android/release/libaether.so \
-             "$GITHUB_WORKSPACE/android-app/app/src/main/jniLibs/arm64-v8a/libaether.so"
-
-      - name: Build Aether ARM32
-        env:
-          ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/26.3.11579264
-          ANDROID_NDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}/ndk/26.3.11579264
-        run: |
-          set -euxo pipefail
-          cd "$RUNNER_TEMP/Aether/aether"
-          cargo ndk -t armeabi-v7a --platform 24 build --release --lib
-          mkdir -p "$GITHUB_WORKSPACE/android-app/app/src/main/jniLibs/armeabi-v7a"
-          cp target/armv7-linux-androideabi/release/libaether.so \
-             "$GITHUB_WORKSPACE/android-app/app/src/main/jniLibs/armeabi-v7a/libaether.so"
-
-      - name: Restore signing key
-        env:
-          KEYSTORE_B64: ${{ secrets.SAMAN_RELEASE_KEYSTORE_B64 }}
-        run: |
-          test -n "$KEYSTORE_B64"
-          printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/saman-debug.jks"
-
-      - name: Build signed Debug APKs
+          cargo ndk -t arm64-v8a -t armeabi-v7a --platform 24 build --release --lib
+          install -Dm755 target/aarch64-linux-android/release/libaether.so "$GITHUB_WORKSPACE/android-app/app/src/main/jniLibs/arm64-v8a/libaether.so"
+          install -Dm755 target/armv7-linux-androideabi/release/libaether.so "$GITHUB_WORKSPACE/android-app/app/src/main/jniLibs/armeabi-v7a/libaether.so"
+      - name: Unit tests and lint
         working-directory: android-app
-        env:
-          STORE_PASSWORD: ${{ secrets.SAMAN_RELEASE_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.SAMAN_RELEASE_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.SAMAN_RELEASE_KEY_PASSWORD }}
-        run: |
-          gradle :app:assembleDebug \
-            -PSAMAN_KEYSTORE_FILE="$RUNNER_TEMP/saman-debug.jks" \
-            -PSAMAN_KEYSTORE_PASSWORD="$STORE_PASSWORD" \
-            -PSAMAN_KEY_ALIAS="$KEY_ALIAS" \
-            -PSAMAN_KEY_PASSWORD="$KEY_PASSWORD"
-          find app/build/outputs/apk -type f -name '*.apk' -print
-
-      - name: Verify three APKs
+        run: ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug
+      - name: Build debug APKs
+        working-directory: android-app
+        run: ./gradlew --no-daemon :app:assembleDebug
+      - name: Verify debug APKs
         run: |
           set -euxo pipefail
           O="android-app/app/build/outputs/apk"
-          A64="$(find "$O" -type f -name '*arm64-v8a*debug*.apk' | head -n1)"
-          A32="$(find "$O" -type f -name '*armeabi-v7a*debug*.apk' | head -n1)"
-          UNI="$(find "$O" -type f -name '*universal*debug*.apk' | head -n1)"
+          A64="$(find "$O" -type f -name '*arm64-v8a*debug*.apk' -print -quit)"
+          A32="$(find "$O" -type f -name '*armeabi-v7a*debug*.apk' -print -quit)"
+          UNI="$(find "$O" -type f -name '*universal*debug*.apk' -print -quit)"
           test -f "$A64"; test -f "$A32"; test -f "$UNI"
-
+          for APK in "$A64" "$A32" "$UNI"; do
+            "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$APK"
+            B="$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK")"
+            grep -q "package: name='com.saman.tunnel' versionCode='150' versionName='1.5.0'" <<<"$B"
+          done
+          mkdir -p dist
+          cp "$A64" dist/Saman-Tunnel-v1.5.0-arm64-v8a-debug.apk
+          cp "$A32" dist/Saman-Tunnel-v1.5.0-armeabi-v7a-debug.apk
+          cp "$UNI" dist/Saman-Tunnel-v1.5.0-universal-arm-debug.apk
+          (cd dist && sha256sum ./*.apk > SHA256SUMS)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: saman-tunnel-v1.5.0-debug
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30
+      - name: Restore release signing identity
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          KEYSTORE_B64: ${{ secrets.SAMAN_RELEASE_KEYSTORE_B64 }}
+        run: |
+          set -euo pipefail
+          test -n "$KEYSTORE_B64"
+          umask 077
+          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/saman-release.jks"
+      - name: Build signed release APKs
+        if: github.event_name == 'workflow_dispatch'
+        working-directory: android-app
+        env:
+          ORG_GRADLE_PROJECT_SAMAN_KEYSTORE_FILE: ${{ runner.temp }}/saman-release.jks
+          ORG_GRADLE_PROJECT_SAMAN_KEYSTORE_PASSWORD: ${{ secrets.SAMAN_RELEASE_KEYSTORE_PASSWORD }}
+          ORG_GRADLE_PROJECT_SAMAN_KEY_ALIAS: ${{ secrets.SAMAN_RELEASE_KEY_ALIAS }}
+          ORG_GRADLE_PROJECT_SAMAN_KEY_PASSWORD: ${{ secrets.SAMAN_RELEASE_KEY_PASSWORD }}
+        run: ./gradlew --no-daemon :app:assembleRelease
+      - name: Verify signed release APKs
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          set -euo pipefail
+          O="android-app/app/build/outputs/apk"
+          A64="$(find "$O" -type f -name '*arm64-v8a*release*.apk' -print -quit)"
+          A32="$(find "$O" -type f -name '*armeabi-v7a*release*.apk' -print -quit)"
+          UNI="$(find "$O" -type f -name '*universal*release*.apk' -print -quit)"
+          test -f "$A64"; test -f "$A32"; test -f "$UNI"
+          mkdir -p dist-release
+          for APK in "$A64" "$A32" "$UNI"; do
+            CERTS="$("$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK")"
+            grep -q "certificate SHA-256 digest: $RELEASE_CERT_SHA256" <<<"$CERTS"
+            B="$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK")"
+            grep -q "package: name='com.saman.tunnel' versionCode='150' versionName='1.5.0'" <<<"$B"
+          done
           unzip -l "$A64" | grep -q 'lib/arm64-v8a/libaether.so'
           unzip -l "$A64" | grep -q 'lib/arm64-v8a/libsamanbridge.so'
           unzip -l "$A32" | grep -q 'lib/armeabi-v7a/libaether.so'
           unzip -l "$A32" | grep -q 'lib/armeabi-v7a/libsamanbridge.so'
           unzip -l "$UNI" | grep -q 'lib/arm64-v8a/libaether.so'
           unzip -l "$UNI" | grep -q 'lib/armeabi-v7a/libaether.so'
-
-          unzip -p "$UNI" lib/arm64-v8a/libsamanbridge.so > /tmp/b64.so
-          unzip -p "$UNI" lib/armeabi-v7a/libsamanbridge.so > /tmp/b32.so
-          readelf -d /tmp/b64.so | grep -q 'Shared library: \[libaether.so\]'
-          readelf -d /tmp/b32.so | grep -q 'Shared library: \[libaether.so\]'
-
-          for APK in "$A64" "$A32" "$UNI"; do
-            "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$APK"
-            B="$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK")"
-            echo "$B" | grep -q "package: name='com.saman.tunnel'"
-            echo "$B" | grep -q "application-label:'Saman Tunnel'"
-          done
-
-          M="$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump xmltree "$UNI" AndroidManifest.xml)"
-          echo "$M" | grep -q 'SamanTunnelWidget'
-          echo "$M" | grep -q 'aether_core'
-          echo "$M" | grep -q 'TunnelStateReceiver'
-
-      - name: Prepare APK files
-        run: |
-          O="android-app/app/build/outputs/apk"
-          mkdir -p dist
-          cp "$(find "$O" -type f -name '*arm64-v8a*debug*.apk' | head -n1)" \
-             dist/Saman-Tunnel-v1.4.0-arm64-v8a-debug.apk
-          cp "$(find "$O" -type f -name '*armeabi-v7a*debug*.apk' | head -n1)" \
-             dist/Saman-Tunnel-v1.4.0-armeabi-v7a-debug.apk
-          cp "$(find "$O" -type f -name '*universal*debug*.apk' | head -n1)" \
-             dist/Saman-Tunnel-v1.4.0-universal-arm-debug.apk
-          ls -lh dist
-
-      - uses: actions/upload-artifact@v4
-        name: Upload Multi-ABI Debug APKs
+          cp "$A64" dist-release/Saman-Tunnel-v1.5.0-arm64-v8a.apk
+          cp "$A32" dist-release/Saman-Tunnel-v1.5.0-armeabi-v7a.apk
+          cp "$UNI" dist-release/Saman-Tunnel-v1.5.0-universal-arm.apk
+          (cd dist-release && sha256sum ./*.apk > SHA256SUMS)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: github.event_name == 'workflow_dispatch'
         with:
-          name: saman-tunnel-v1.4.0-aether180-debug
-          path: dist/*.apk
+          name: saman-tunnel-v1.5.0-release
+          path: dist-release/*
           if-no-files-found: error
           retention-days: 30
