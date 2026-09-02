@@ -96,8 +96,11 @@ HOME="$FAKE_HOME" bash "$ROOT/termux/aether-control" diagnostics safe
 [ "$(<"$FAKE_HOME/delegated")" = 'aether diagnostics safe' ] || fail "diagnostics delegation"
 pass "aether-control validation and delegation"
 
-# Installer version and release URLs are explicit and trusted.
+# Installer version, source pin, and release URLs are explicit and trusted.
 grep -q 'SAMAN_TERMUX_VERSION="1.5.0"' "$ROOT/install.sh" || fail "Termux integration version"
+grep -q 'SOURCE_REF="${SAMAN_SOURCE_REF:-termux-v1.5.0}"' "$ROOT/install.sh" || fail "version-pinned runtime source"
+grep -q 'TERMUX_RELEASE_FALLBACK="termux-v1.5.0"' "$ROOT/install.sh" || fail "Termux release fallback"
+if grep -q 'termux-v1.4.0' "$ROOT/install.sh"; then fail "active legacy Termux release reference"; fi
 grep -q 'https://github.com/\$REPO/releases/download/' "$ROOT/install.sh" || fail "trusted release URL check"
 grep -q 'SHA-256 mismatch; refusing to install' "$ROOT/install.sh" || fail "checksum fail-closed behavior"
 grep -q 'rollback' "$ROOT/install.sh" || fail "rollback support"

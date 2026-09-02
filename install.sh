@@ -5,9 +5,9 @@ SAMAN_TERMUX_VERSION="1.5.0"
 SAMAN_TUNNEL_VERSION="1.5.0"
 AETHER_BASE_VERSION="1.8.0"
 REPO="velnox4827/saman-aether"
-SOURCE_REF="${SAMAN_SOURCE_REF:-main}"
+SOURCE_REF="${SAMAN_SOURCE_REF:-termux-v1.5.0}"
 API_BASE="https://api.github.com/repos/$REPO"
-TERMUX_RELEASE_FALLBACK="termux-v1.4.0"
+TERMUX_RELEASE_FALLBACK="termux-v1.5.0"
 ACTION="${1:-install}"
 
 CORE_BIN="$PREFIX/bin/saman-aether-core"
@@ -41,7 +41,7 @@ Usage: install.sh [install|update|check|uninstall]
   uninstall   Back up and remove canonical Saman files
 
 Environment:
-  SAMAN_SOURCE_REF=<git-ref>  Source ref used for maintenance testing (default: main)
+  SAMAN_SOURCE_REF=<git-ref>  Source ref used for maintenance testing (default: termux-v1.5.0)
 EOF
 }
 
