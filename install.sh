@@ -7,7 +7,7 @@ AETHER_BASE_VERSION="1.8.0"
 REPO="velnox4827/saman-aether"
 SOURCE_REF="${SAMAN_SOURCE_REF:-termux-v1.5.0}"
 API_BASE="https://api.github.com/repos/$REPO"
-TERMUX_RELEASE_FALLBACK="termux-v1.5.0"
+TERMUX_CORE_TAG="termux-v1.5.0"
 ACTION="${1:-install}"
 
 CORE_BIN="$PREFIX/bin/saman-aether-core"
@@ -36,7 +36,7 @@ usage() {
 Usage: install.sh [install|update|check|uninstall]
 
   install     Clean install or idempotent repair (default)
-  update      Check releases, back up, and update
+  update      Back up and reinstall the pinned v1.5.0 release
   check       Report installed and latest stable versions
   uninstall   Back up and remove canonical Saman files
 
@@ -105,6 +105,12 @@ latest_termux_release_json() {
         jq -c '[.[] | select((.draft|not) and (.prerelease|not) and (.tag_name|test("^termux-v[0-9]+\\.[0-9]+\\.[0-9]+$")))] | first // empty'
 }
 
+pinned_termux_release_json() {
+    api_json "$API_BASE/releases/tags/$TERMUX_CORE_TAG" |
+        jq -c --arg tag "$TERMUX_CORE_TAG" \
+            'select((.draft|not) and (.prerelease|not) and .tag_name == $tag)'
+}
+
 installed_version() {
     if [ -s "$VERSION_FILE" ]; then
         tr -d '\r\n' < "$VERSION_FILE"
@@ -118,7 +124,7 @@ check_versions() {
     android_tag="$(latest_android_tag)" || die "could not query the latest Android release."
     termux_json="$(latest_termux_release_json)" || die "could not query the latest Termux release."
     termux_tag="$(jq -r '.tag_name // empty' <<<"$termux_json")"
-    [ -n "$termux_tag" ] || termux_tag="$TERMUX_RELEASE_FALLBACK"
+    [ -n "$termux_tag" ] || termux_tag="$TERMUX_CORE_TAG"
     printf 'Installed Saman Termux : %s\n' "$(installed_version)"
     printf 'Installer integration  : %s\n' "$SAMAN_TERMUX_VERSION"
     printf 'Latest Termux core      : %s\n' "$termux_tag"
@@ -264,15 +270,15 @@ download_source() {
 download_core() {
     local arch release_json tag archive url checksum_url expected actual
     arch="$(detect_arch)" || die "unsupported architecture: $(uname -m)"
-    release_json="$(latest_termux_release_json)" || die "could not query Termux releases."
+    release_json="$(pinned_termux_release_json)" || die "could not query pinned Termux release $TERMUX_CORE_TAG."
     tag="$(jq -r '.tag_name // empty' <<<"$release_json")"
-    [ -n "$tag" ] || die "no stable Termux core release was found."
+    [ "$tag" = "$TERMUX_CORE_TAG" ] || die "pinned Termux core release $TERMUX_CORE_TAG was not found."
     archive="saman-aether-termux-${arch}.tar.gz"
     url="$(jq -r --arg name "$archive" '.assets[] | select(.name == $name) | .browser_download_url' <<<"$release_json")"
     checksum_url="$(jq -r --arg name "$archive.sha256" '.assets[] | select(.name == $name) | .browser_download_url' <<<"$release_json")"
-    [[ "$url" == "https://github.com/$REPO/releases/download/$tag/$archive" ]] ||
+    [[ "$url" == "https://github.com/$REPO/releases/download/$TERMUX_CORE_TAG/$archive" ]] ||
         die "trusted core asset not found for $arch in $tag."
-    [[ "$checksum_url" == "https://github.com/$REPO/releases/download/$tag/$archive.sha256" ]] ||
+    [[ "$checksum_url" == "https://github.com/$REPO/releases/download/$TERMUX_CORE_TAG/$archive.sha256" ]] ||
         die "trusted checksum asset not found for $arch in $tag."
     log "[3/6] Downloading $tag core for $arch..."
     curl --proto '=https' --tlsv1.2 -fL --retry 3 --retry-delay 2 "$url" -o "$TMP/$archive"

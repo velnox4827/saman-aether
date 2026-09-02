@@ -96,10 +96,23 @@ HOME="$FAKE_HOME" bash "$ROOT/termux/aether-control" diagnostics safe
 [ "$(<"$FAKE_HOME/delegated")" = 'aether diagnostics safe' ] || fail "diagnostics delegation"
 pass "aether-control validation and delegation"
 
+# The v1.5 installer resolves its Core metadata from the exact v1.5 release,
+# never from the moving latest-release list.
+API_REQUEST_LOG="$TEST_TMP/requested-api-url"
+api_json() {
+    printf '%s\n' "$1" > "$API_REQUEST_LOG"
+    printf '%s\n' '{"tag_name":"termux-v1.5.0","assets":[]}'
+}
+pinned_release="$(pinned_termux_release_json)" || fail "pinned Termux release lookup"
+[ "$(<"$API_REQUEST_LOG")" = "$API_BASE/releases/tags/termux-v1.5.0" ] || fail "Core metadata lookup is not version-pinned"
+[ "$(jq -r '.tag_name' <<<"$pinned_release")" = termux-v1.5.0 ] || fail "unexpected pinned Core release"
+unset -f api_json
+pass "version-pinned Core release lookup"
+
 # Installer version, source pin, and release URLs are explicit and trusted.
 grep -q 'SAMAN_TERMUX_VERSION="1.5.0"' "$ROOT/install.sh" || fail "Termux integration version"
 grep -q 'SOURCE_REF="${SAMAN_SOURCE_REF:-termux-v1.5.0}"' "$ROOT/install.sh" || fail "version-pinned runtime source"
-grep -q 'TERMUX_RELEASE_FALLBACK="termux-v1.5.0"' "$ROOT/install.sh" || fail "Termux release fallback"
+grep -q 'TERMUX_CORE_TAG="termux-v1.5.0"' "$ROOT/install.sh" || fail "pinned Termux Core release"
 if grep -q 'termux-v1.4.0' "$ROOT/install.sh"; then fail "active legacy Termux release reference"; fi
 grep -q 'https://github.com/\$REPO/releases/download/' "$ROOT/install.sh" || fail "trusted release URL check"
 grep -q 'SHA-256 mismatch; refusing to install' "$ROOT/install.sh" || fail "checksum fail-closed behavior"
