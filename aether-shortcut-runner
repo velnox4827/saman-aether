@@ -7,39 +7,101 @@ SAMAN_TUNNEL_VERSION="1.5.0"
 AETHER_BASE_VERSION="1.8.0"
 MODE="${1:-}"
 
+# Validate the request before touching state, logs, wake locks, ports, or cores.
+case "$MODE" in
+    MASQUE|MASQUE_H3)
+        MODE_KEY="masque-h3"; MODE_LABEL="MASQUE H3" ;;
+    MASQUE_H2)
+        MODE_KEY="masque-h2"; MODE_LABEL="MASQUE H2" ;;
+    WG)
+        MODE_KEY="wg"; MODE_LABEL="WireGuard" ;;
+    GOOL)
+        MODE_KEY="gool"; MODE_LABEL="GOOL" ;;
+    *)
+        printf 'ERROR: unknown mode %s\n' "${MODE:-<empty>}" >&2
+        printf 'ACTION: use MASQUE, MASQUE_H3, MASQUE_H2, WG, or GOOL.\n' >&2
+        exit 2
+        ;;
+esac
+
 CORE_BIN="${SAMAN_AETHER_CORE:-$PREFIX/bin/saman-aether-core}"
 STATE_DIR="$HOME/.saman-aether"
 PID_FILE="$STATE_DIR/aether.pid"
-MAX_CURRENT_LOG_BYTES=$((5 * 1024 * 1024))
-MAX_PREVIOUS_LOG_BYTES=$((1024 * 1024))
+LOCK_DIR="$STATE_DIR/runner.lock"
+CONFIG_FILE="${S2_CONFIG_FILE:-$HOME/.config/saman-center-v2/settings.conf}"
+LOG="$HOME/aether-${MODE_KEY}.log"
+PREVIOUS_LOG="$HOME/aether-${MODE_KEY}.previous.log"
 
 SOCKS_PORT=1819
 HTTP_PORT=1820
+NETWORK_TIMEOUT=8
+READY_TIMEOUT_SECS=120
+PORT_HANDOFF_TIMEOUT_SECS=3
+MAX_CURRENT_LOG_BYTES=$((5 * 1024 * 1024))
+MAX_PREVIOUS_LOG_BYTES=$((1024 * 1024))
+LOG_GUARD_INTERVAL_SECS=60
+SMART_WG_MAX_RTT_MS=650
+SMART_MASQUE_H3_MAX_VERIFY_MS=1800
+SMART_MASQUE_H2_MAX_VERIFY_MS=2500
+SMART_SHORT_LIVED_SECS=20
+CONFIG_WARNINGS=()
 
-mkdir -p "$STATE_DIR"
+config_integer() {
+    local key="$1" value="$2" minimum="$3" maximum="$4" variable="$5"
+    if [[ "$value" =~ ^[0-9]+$ ]] && [ "$value" -ge "$minimum" ] && [ "$value" -le "$maximum" ]; then
+        printf -v "$variable" '%s' "$value"
+    else
+        CONFIG_WARNINGS+=("$key=$value ignored; expected $minimum..$maximum")
+    fi
+}
 
-clear
-echo "================================"
-echo "       SAMAN AETHER"
-echo "     Termux v$VERSION"
-echo "   Aether Core v$AETHER_BASE_VERSION"
-echo " Saman Tunnel v$SAMAN_TUNNEL_VERSION"
-echo "================================"
-echo "Mode: $MODE"
-echo
+load_center_config() {
+    local line key value
+    [ -r "$CONFIG_FILE" ] || return 0
+    while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in ''|'#'*) continue ;; esac
+        [[ "$line" == *=* ]] || { CONFIG_WARNINGS+=("malformed configuration line ignored"); continue; }
+        key="${line%%=*}"; value="${line#*=}"
+        case "$key" in
+            AETHER_SOCKS_PORT) config_integer "$key" "$value" 1024 65535 SOCKS_PORT ;;
+            AETHER_HTTP_PORT) config_integer "$key" "$value" 1024 65535 HTTP_PORT ;;
+            NETWORK_TIMEOUT) config_integer "$key" "$value" 1 60 NETWORK_TIMEOUT ;;
+            LOG_MAX_CURRENT_BYTES) config_integer "$key" "$value" 65536 1073741824 MAX_CURRENT_LOG_BYTES ;;
+            LOG_MAX_PREVIOUS_BYTES) config_integer "$key" "$value" 65536 1073741824 MAX_PREVIOUS_LOG_BYTES ;;
+            AETHER_READY_TIMEOUT_SECS|AETHER_READY_TIMEOUT)
+                config_integer "$key" "$value" 10 600 READY_TIMEOUT_SECS ;;
+            AETHER_PORT_HANDOFF_TIMEOUT_SECS)
+                config_integer "$key" "$value" 1 60 PORT_HANDOFF_TIMEOUT_SECS ;;
+            AETHER_LOG_GUARD_INTERVAL_SECS)
+                config_integer "$key" "$value" 10 600 LOG_GUARD_INTERVAL_SECS ;;
+            AETHER_SMART_WG_MAX_RTT_MS)
+                config_integer "$key" "$value" 100 10000 SMART_WG_MAX_RTT_MS ;;
+            AETHER_SMART_MASQUE_H3_MAX_VERIFY_MS)
+                config_integer "$key" "$value" 100 10000 SMART_MASQUE_H3_MAX_VERIFY_MS ;;
+            AETHER_SMART_MASQUE_H2_MAX_VERIFY_MS)
+                config_integer "$key" "$value" 100 10000 SMART_MASQUE_H2_MAX_VERIFY_MS ;;
+            AETHER_SMART_SHORT_LIVED_SECS)
+                config_integer "$key" "$value" 1 300 SMART_SHORT_LIVED_SECS ;;
+            *) : ;; # Center config is whitelist-parsed and is never sourced/evaluated.
+        esac
+    done < "$CONFIG_FILE"
+}
 
-if [ ! -x "$CORE_BIN" ]; then
-    echo "ERROR: patched Saman Aether Core is not installed."
-    echo
-    echo "Run:"
-    echo "curl -fsSL https://raw.githubusercontent.com/velnox4827/saman-aether/main/install.sh | bash"
+load_center_config
+umask 077
+if ! mkdir -p "$STATE_DIR"; then
+    printf 'ERROR: cannot create runner state directory: %s\n' "$STATE_DIR" >&2
     exit 1
 fi
 
-export AETHER_SMART_WG_MAX_RTT_MS=650
-export AETHER_SMART_MASQUE_H3_MAX_VERIFY_MS=1800
-export AETHER_SMART_MASQUE_H2_MAX_VERIFY_MS=2500
-export AETHER_SMART_SHORT_LIVED_SECS=20
+CORE_PID=""
+MONITOR_PID=""
+CORE_START_GENERATION=0
+CORE_START_MARKER=""
+OWN_LOCK=0
+LOCK_OWNER=""
+WAKE_LOCKED=0
+CLEANING_UP=0
 
 core_pid_valid() {
     local pid="${1:-}" expected actual
@@ -61,536 +123,423 @@ core_pids() {
     done
 }
 
-stop_pid() {
-    local pid="$1"
-    core_pid_valid "$pid" || return 0
-    kill -TERM "$pid" 2>/dev/null || true
-    for _ in $(seq 1 50); do core_pid_valid "$pid" || return 0; sleep 0.1; done
-    echo "Aether Core PID $pid did not stop in 5 seconds; forcing stop..."
-    core_pid_valid "$pid" && kill -KILL "$pid" 2>/dev/null || true
+process_start_identity() {
+    local pid="$1" stat rest fields
+    [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+    [ -r "/proc/$pid/stat" ] || return 1
+    IFS= read -r stat < "/proc/$pid/stat" || return 1
+    rest="${stat##*) }"
+    read -r -a fields <<< "$rest"
+    [ "${#fields[@]}" -ge 20 ] || return 1
+    [[ "${fields[19]}" =~ ^[0-9]+$ ]] || return 1
+    printf '%s\n' "${fields[19]}"
 }
 
-stop_core() {
-    local pid="${1:-}"
-    [ -n "$pid" ] || { [ -s "$PID_FILE" ] && pid="$(<"$PID_FILE")"; }
-    [ -n "$pid" ] && stop_pid "$pid"
-    if [ -s "$PID_FILE" ] && [ "$(<"$PID_FILE")" = "$pid" ]; then
-        rm -f "$PID_FILE"
+lock_owner_is_live() {
+    local owner="$1" pid start current
+    IFS=: read -r pid start _ <<< "$owner"
+    [[ "$pid" =~ ^[0-9]+$ && "$start" =~ ^[0-9]+$ ]] || return 1
+    kill -0 "$pid" 2>/dev/null || return 1
+    current="$(process_start_identity "$pid" 2>/dev/null || true)"
+    [ -n "$current" ] && [ "$current" = "$start" ]
+}
+
+acquire_runner_lock() {
+    local owner='' start
+    start="$(process_start_identity "$$")" || {
+        printf 'ERROR: cannot read runner process start identity.\n' >&2
+        return 1
+    }
+    LOCK_OWNER="$$:$start:$RANDOM$RANDOM"
+    # Publishing a symlink is one atomic filesystem operation, so contenders
+    # never observe an acquired lock without its complete owner identity.
+    if ln -s "$LOCK_OWNER" "$LOCK_DIR" 2>/dev/null; then
+        OWN_LOCK=1
+        return 0
     fi
-}
-
-stop_orphan_cores() {
-    local pid
-    while IFS= read -r pid; do
-        [ -n "$pid" ] || continue
-        echo "Stopping orphaned canonical Aether Core PID $pid..."
-        stop_pid "$pid"
-    done < <(core_pids)
-    rm -f "$PID_FILE"
-}
-
-port_listening() {
-    local port="$1"
-
-    ss -ltnH 2>/dev/null |
-        awk -v suffix=":$port" '
-            $4 ~ (suffix "$") { found=1 }
-            END { exit(found ? 0 : 1) }
-        '
-}
-
-wait_local_ports() {
-    local i
-    local socks_busy
-    local http_busy
-    local announced=0
-
-    for i in $(seq 0 8); do
-        socks_busy=0
-        http_busy=0
-
-        port_listening "$SOCKS_PORT" && socks_busy=1
-        port_listening "$HTTP_PORT" && http_busy=1
-
-        if [ "$socks_busy" -eq 0 ] &&
-           [ "$http_busy" -eq 0 ]; then
-            if [ "$announced" -eq 1 ]; then
-                echo "Local proxy ports are free."
-            fi
-            return 0
-        fi
-
-        if [ "$announced" -eq 0 ]; then
-            echo "Waiting for local proxy port hand-off..."
-            announced=1
-        fi
-
-        [ "$i" -eq 8 ] && break
-        sleep 0.25
-    done
-
-    echo
-    echo "Local proxy port is still busy:"
-    port_listening "$SOCKS_PORT" &&
-        echo "  SOCKS5 :1819 is listening"
-    port_listening "$HTTP_PORT" &&
-        echo "  HTTP   :1820 is listening"
-    echo
-    echo "Stop the other local proxy first."
+    if [ -L "$LOCK_DIR" ]; then
+        owner="$(readlink "$LOCK_DIR" 2>/dev/null || true)"
+    elif [ -s "$LOCK_DIR/owner" ]; then
+        # Recognize and safely retire locks from the earlier directory format.
+        owner="$(<"$LOCK_DIR/owner")"
+    fi
+    if lock_owner_is_live "$owner"; then
+        printf 'WARNING: Aether is already managed by runner PID %s; existing core was left running.\n' "${owner%%:*}" >&2
+        printf 'ACTION: stop it from Saman Center before changing modes.\n' >&2
+        return 1
+    fi
+    rm -rf -- "$LOCK_DIR"
+    if ln -s "$LOCK_OWNER" "$LOCK_DIR" 2>/dev/null; then
+        OWN_LOCK=1
+        return 0
+    fi
+    printf 'ERROR: cannot acquire Aether runner lock: %s\n' "$LOCK_DIR" >&2
     return 1
 }
 
-stop_orphan_cores
-wait_local_ports || exit 1
+atomic_pid_write() {
+    local pid="$1" tmp
+    tmp="$(mktemp "$STATE_DIR/aether.pid.tmp.XXXXXX")" || return 1
+    if printf '%s\n' "$pid" > "$tmp" && chmod 0600 "$tmp" && mv -f "$tmp" "$PID_FILE"; then
+        return 0
+    fi
+    rm -f -- "$tmp"
+    return 1
+}
 
-command -v termux-wake-lock >/dev/null 2>&1 &&
-    termux-wake-lock >/dev/null 2>&1 || true
+remove_owned_pid() {
+    [ -s "$PID_FILE" ] || return 0
+    [ "$(<"$PID_FILE")" = "${CORE_PID:-}" ] && rm -f -- "$PID_FILE"
+}
 
-COMMON_ARGS=(
-    --bind "127.0.0.1:$SOCKS_PORT"
-    --http-proxy "127.0.0.1:$HTTP_PORT"
-    --reconnect-secs 1
-)
+stop_owned_core() {
+    local count=0
+    core_pid_valid "${CORE_PID:-}" || return 0
+    kill -TERM "$CORE_PID" 2>/dev/null || true
+    while core_pid_valid "$CORE_PID" && [ "$count" -lt 50 ]; do
+        sleep 0.1
+        count=$((count + 1))
+    done
+    if core_pid_valid "$CORE_PID"; then
+        printf 'WARNING: core PID %s ignored TERM for 5 seconds; sending KILL.\n' "$CORE_PID" >&2
+        kill -KILL "$CORE_PID" 2>/dev/null || true
+    fi
+    wait "$CORE_PID" 2>/dev/null || true
+}
 
+cleanup() {
+    [ "$CLEANING_UP" -eq 0 ] || return
+    CLEANING_UP=1
+    trap - INT TERM EXIT
+    if [ -n "$MONITOR_PID" ]; then
+        kill -TERM "$MONITOR_PID" 2>/dev/null || true
+        wait "$MONITOR_PID" 2>/dev/null || true
+        MONITOR_PID=""
+    fi
+    stop_owned_core
+    remove_owned_pid
+    if [ "$OWN_LOCK" -eq 1 ] && [ -L "$LOCK_DIR" ] &&
+       [ "$(readlink "$LOCK_DIR" 2>/dev/null || true)" = "$LOCK_OWNER" ]; then
+        rm -f -- "$LOCK_DIR"
+    fi
+    OWN_LOCK=0
+    if [ "$WAKE_LOCKED" -eq 1 ] && command -v termux-wake-unlock >/dev/null 2>&1; then
+        termux-wake-unlock >/dev/null 2>&1 || true
+    fi
+}
+trap cleanup INT TERM EXIT
+
+if ! acquire_runner_lock; then exit 1; fi
+
+if [ ! -x "$CORE_BIN" ]; then
+    printf 'ERROR: patched Saman Aether Core is not executable: %s\n' "$CORE_BIN" >&2
+    printf 'ACTION: reinstall Saman Aether from the trusted installer.\n' >&2
+    exit 1
+fi
+
+if [ -s "$PID_FILE" ]; then
+    tracked_pid="$(<"$PID_FILE")"
+    if core_pid_valid "$tracked_pid"; then
+        printf 'WARNING: Aether is already running as managed core PID %s; it was not stopped.\n' "$tracked_pid" >&2
+        printf 'ACTION: stop it from Saman Center before changing modes.\n' >&2
+        exit 1
+    fi
+    rm -f -- "$PID_FILE"
+fi
+existing_core="$(core_pids)"
+if [ -n "$existing_core" ]; then
+    printf 'WARNING: an existing Aether core is running (PID(s): %s); it was not stopped.\n' "$(printf '%s' "$existing_core" | tr '\n' ' ')" >&2
+    printf 'ACTION: stop or adopt the existing core before launching another.\n' >&2
+    exit 1
+fi
+
+printf '================================\n'
+printf '       SAMAN AETHER\n'
+printf '     Termux v%s\n' "$VERSION"
+printf '   Aether Core v%s\n' "$AETHER_BASE_VERSION"
+printf ' Saman Tunnel v%s\n' "$SAMAN_TUNNEL_VERSION"
+printf '================================\n'
+printf 'Mode: %s\n\n' "$MODE_LABEL"
+for warning in "${CONFIG_WARNINGS[@]}"; do printf 'WARNING: %s (%s)\n' "$warning" "$CONFIG_FILE" >&2; done
+
+export AETHER_SMART_WG_MAX_RTT_MS="$SMART_WG_MAX_RTT_MS"
+export AETHER_SMART_MASQUE_H3_MAX_VERIFY_MS="$SMART_MASQUE_H3_MAX_VERIFY_MS"
+export AETHER_SMART_MASQUE_H2_MAX_VERIFY_MS="$SMART_MASQUE_H2_MAX_VERIFY_MS"
+export AETHER_SMART_SHORT_LIVED_SECS="$SMART_SHORT_LIVED_SECS"
+
+COMMON_ARGS=(--bind "127.0.0.1:$SOCKS_PORT" --http-proxy "127.0.0.1:$HTTP_PORT" --reconnect-secs 1)
 case "$MODE" in
     MASQUE|MASQUE_H3)
-        MODE_KEY="masque-h3"
-        MODE_LABEL="MASQUE H3"
-        ARGS=(
-            --masque
-            -4
-            "${COMMON_ARGS[@]}"
-            --scan balanced
-            --noize firewall
-            --quick-reconnect
-        )
-        ;;
-
+        ARGS=(--masque -4 "${COMMON_ARGS[@]}" --scan balanced --noize firewall --quick-reconnect) ;;
     MASQUE_H2)
-        MODE_KEY="masque-h2"
-        MODE_LABEL="MASQUE H2"
-        ARGS=(
-            --masque
-            --h2
-            -4
-            "${COMMON_ARGS[@]}"
-            --scan balanced
-            --noize firewall
-            --quick-reconnect
-        )
-        ;;
-
+        ARGS=(--masque --h2 -4 "${COMMON_ARGS[@]}" --scan balanced --noize firewall --quick-reconnect) ;;
     WG)
-        MODE_KEY="wg"
-        MODE_LABEL="WireGuard"
-        ARGS=(
-            --wg
-            -4
-            "${COMMON_ARGS[@]}"
-            --scan balanced
-            --noize balanced
-            --keepalive 5
-            --quick-reconnect
-        )
-        ;;
-
+        ARGS=(--wg -4 "${COMMON_ARGS[@]}" --scan balanced --noize balanced --keepalive 5 --quick-reconnect) ;;
     GOOL)
-        MODE_KEY="gool"
-        MODE_LABEL="GOOL"
-        ARGS=(
-            --gool
-            -4
-            "${COMMON_ARGS[@]}"
-            --scan balanced
-            --noize balanced
-            --keepalive 5
-            --quick-reconnect
-        )
-        ;;
-
-    *)
-        echo "Unknown mode: $MODE"
-        echo "Valid: MASQUE / MASQUE_H2 / WG / GOOL"
-        exit 1
-        ;;
+        ARGS=(--gool -4 "${COMMON_ARGS[@]}" --scan balanced --noize balanced --keepalive 5 --quick-reconnect) ;;
 esac
 
-LOG="$HOME/aether-${MODE_KEY}.log"
-PREVIOUS_LOG="$HOME/aether-${MODE_KEY}.previous.log"
+port_listening_in_snapshot() {
+    local port="$1" snapshot="$2"
+    awk -v suffix=":$port" '$4 ~ (suffix "$") { found=1 } END { exit(found ? 0 : 1) }' <<< "$snapshot"
+}
+
+tcp_port_accepting() {
+    local port="$1"
+    timeout 1 bash -c 'exec 3<>"/dev/tcp/127.0.0.1/$1"' _ "$port" >/dev/null 2>&1
+}
+
+socket_snapshot() {
+    local snapshot rc
+    snapshot="$(ss -ltnH 2>&1)"; rc=$?
+    if [ "$rc" -eq 0 ] && [[ "$snapshot" != *'Permission denied'* ]] &&
+       [[ "$snapshot" != *'Cannot open netlink socket'* ]]; then
+        printf '%s\n' "$snapshot"
+        return 0
+    fi
+    return 1
+}
+
+wait_local_ports() {
+    local deadline=$((SECONDS + PORT_HANDOFF_TIMEOUT_SECS)) snapshot socks_busy http_busy announced=0
+    while :; do
+        socks_busy=0; http_busy=0
+        if snapshot="$(socket_snapshot)"; then
+            port_listening_in_snapshot "$SOCKS_PORT" "$snapshot" && socks_busy=1
+            port_listening_in_snapshot "$HTTP_PORT" "$snapshot" && http_busy=1
+        else
+            tcp_port_accepting "$SOCKS_PORT" && socks_busy=1
+            tcp_port_accepting "$HTTP_PORT" && http_busy=1
+        fi
+        if [ "$socks_busy" -eq 0 ] && [ "$http_busy" -eq 0 ]; then
+            [ "$announced" -eq 0 ] || printf 'OK: local proxy ports are free.\n'
+            return 0
+        fi
+        if [ "$announced" -eq 0 ]; then
+            printf 'WARNING: waiting up to %ss for local proxy port hand-off.\n' "$PORT_HANDOFF_TIMEOUT_SECS"
+            announced=1
+        fi
+        [ "$SECONDS" -ge "$deadline" ] && break
+        sleep 0.25
+    done
+    printf 'ERROR: local proxy port remains busy (SOCKS %s, HTTP %s).\n' "$SOCKS_PORT" "$HTTP_PORT" >&2
+    printf 'ACTION: stop the process using 127.0.0.1:%s or :%s, then retry.\n' "$SOCKS_PORT" "$HTTP_PORT" >&2
+    return 1
+}
+
+trim_file_to() {
+    local file="$1" limit="$2" tmp
+    [ -f "$file" ] || return 0
+    tmp="$(mktemp "$STATE_DIR/log.XXXXXX")" || return 1
+    tail -c "$limit" "$file" > "$tmp" 2>/dev/null || true
+    mv -f "$tmp" "$file"
+}
 
 rotate_mode_logs() {
-    local tmp
     if [ -f "$LOG" ]; then
-        tmp="$(mktemp "$STATE_DIR/log.XXXXXX")"
-        tail -c "$MAX_PREVIOUS_LOG_BYTES" "$LOG" > "$tmp" 2>/dev/null || true
-        mv -f "$tmp" "$PREVIOUS_LOG"
+        trim_file_to "$LOG" "$MAX_PREVIOUS_LOG_BYTES"
+        mv -f "$LOG" "$PREVIOUS_LOG"
     fi
-    if [ -f "$PREVIOUS_LOG" ] && [ "$(wc -c < "$PREVIOUS_LOG" 2>/dev/null || echo 0)" -gt "$MAX_PREVIOUS_LOG_BYTES" ]; then
-        tmp="$(mktemp "$STATE_DIR/log.XXXXXX")"
-        tail -c "$MAX_PREVIOUS_LOG_BYTES" "$PREVIOUS_LOG" > "$tmp" 2>/dev/null || true
-        mv -f "$tmp" "$PREVIOUS_LOG"
-    fi
+    trim_file_to "$PREVIOUS_LOG" "$MAX_PREVIOUS_LOG_BYTES"
     : > "$LOG"
 }
 
-rotate_mode_logs
+bound_active_log() {
+    local size tmp
+    [ -f "$LOG" ] || return 0
+    size="$(stat -c %s "$LOG" 2>/dev/null || printf 0)"
+    [[ "$size" =~ ^[0-9]+$ ]] || return 0
+    [ "$size" -le "$MAX_CURRENT_LOG_BYTES" ] && return 0
+    tmp="$(mktemp "$STATE_DIR/log.XXXXXX")" || return 1
+    tail -c "$MAX_PREVIOUS_LOG_BYTES" "$LOG" > "$tmp" 2>/dev/null || true
+    mv -f "$tmp" "$PREVIOUS_LOG"
+    : > "$LOG"
+    printf '[Saman] Active log reached %s bytes and was bounded.\n' "$size" >> "$LOG"
+}
 
 country_name() {
     case "$1" in
-        IR) echo "Iran" ;;
-        DE) echo "Germany" ;;
-        NL) echo "Netherlands" ;;
-        FR) echo "France" ;;
-        GB) echo "United Kingdom" ;;
-        US) echo "United States" ;;
-        CA) echo "Canada" ;;
-        IT) echo "Italy" ;;
-        FI) echo "Finland" ;;
-        SE) echo "Sweden" ;;
-        NO) echo "Norway" ;;
-        CH) echo "Switzerland" ;;
-        AT) echo "Austria" ;;
-        ES) echo "Spain" ;;
-        BE) echo "Belgium" ;;
-        PL) echo "Poland" ;;
-        RO) echo "Romania" ;;
-        CZ) echo "Czechia" ;;
-        TR) echo "Turkey" ;;
-        AE) echo "UAE" ;;
-        SG) echo "Singapore" ;;
-        JP) echo "Japan" ;;
-        HK) echo "Hong Kong" ;;
-        IN) echo "India" ;;
-        RU) echo "Russia" ;;
-        "") echo "Unknown" ;;
-        *) echo "$1" ;;
+        IR) echo Iran;; DE) echo Germany;; NL) echo Netherlands;; FR) echo France;;
+        GB) echo 'United Kingdom';; US) echo 'United States';; CA) echo Canada;; IT) echo Italy;;
+        FI) echo Finland;; SE) echo Sweden;; NO) echo Norway;; CH) echo Switzerland;; AT) echo Austria;;
+        ES) echo Spain;; BE) echo Belgium;; PL) echo Poland;; RO) echo Romania;; CZ) echo Czechia;;
+        TR) echo Turkey;; AE) echo UAE;; SG) echo Singapore;; JP) echo Japan;; HK) echo 'Hong Kong';;
+        IN) echo India;; RU) echo Russia;; '') echo Unknown;; *) echo "$1";;
     esac
 }
 
 get_exit_info() {
-    local trace
-
-    trace="$(
-        curl -4 \
-            --silent \
-            --max-time 15 \
-            --socks5-hostname "127.0.0.1:$SOCKS_PORT" \
-            https://www.cloudflare.com/cdn-cgi/trace \
-            2>/dev/null || true
-    )"
-
-    CHECK_IP="$(
-        printf '%s\n' "$trace" |
-            sed -n 's/^ip=//p' |
-            head -n1
-    )"
-
-    CHECK_CC="$(
-        printf '%s\n' "$trace" |
-            sed -n 's/^loc=//p' |
-            head -n1
-    )"
+    local trace line
+    CHECK_IP=""; CHECK_CC=""
+    trace="$(curl -4 --silent --max-time "$NETWORK_TIMEOUT" --socks5-hostname "127.0.0.1:$SOCKS_PORT" https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null || true)"
+    while IFS= read -r line; do
+        case "$line" in ip=*) [ -n "$CHECK_IP" ] || CHECK_IP="${line#ip=}";; loc=*) [ -n "$CHECK_CC" ] || CHECK_CC="${line#loc=}";; esac
+    done <<< "$trace"
 }
 
-connection_phase() {
-    local t
-
-    t="$(tail -n 120 "$LOG" 2>/dev/null || true)"
-
-    if printf '%s\n' "$t" |
-        grep -Eqi 'smart reconnect WG.*RTT.*scanning fresh'; then
-        echo "WG cached endpoint too slow — fresh balanced scan"
-
-    elif printf '%s\n' "$t" |
-        grep -Eqi 'smart reconnect MASQUE.*slower than'; then
-        echo "MASQUE cached gateway too slow — fresh balanced scan"
-
-    elif printf '%s\n' "$t" |
-        grep -Eqi 'smart reconnect GOOL.*died after'; then
-        echo "GOOL pair was short-lived — fresh balanced scan"
-
-    elif printf '%s\n' "$t" |
-        grep -Eqi 'smart reconnect.*died after'; then
-        echo "Cached path was short-lived — fresh balanced scan"
-
-    elif printf '%s\n' "$t" |
-        grep -Eqi 'verifying cached'; then
-        echo "Checking cached endpoint"
-
-    elif printf '%s\n' "$t" |
-        grep -Eqi 'blacklisting and rescanning|scanning fresh'; then
-        echo "Fresh balanced scan"
-
-    elif printf '%s\n' "$t" |
-        grep -Eqi 'hunting for .*working|scan mode=balanced'; then
-        echo "Scanning balanced endpoints"
-
-    elif printf '%s\n' "$t" |
-        grep -Eqi 'establishing inner|inner endpoint'; then
-        echo "Establishing inner tunnel"
-
-    elif printf '%s\n' "$t" |
-        grep -Eqi 'establishing outer'; then
-        echo "Establishing outer tunnel"
-
-    elif printf '%s\n' "$t" |
-        grep -Eqi 'validating.*tunnel'; then
-        echo "Validating tunnel"
-
-    else
-        echo "Preparing $MODE_LABEL"
-    fi
-}
-
-CORE_PID=""
-WATCH_PID=""
-GUARD_PID=""
-
-guard_log_size() {
-    local tmp size
-    while core_pid_valid "$CORE_PID"; do
-        size="$(wc -c < "$LOG" 2>/dev/null || echo 0)"
-        if [[ "$size" =~ ^[0-9]+$ ]] && [ "$size" -gt "$MAX_CURRENT_LOG_BYTES" ]; then
-            tmp="$(mktemp "$STATE_DIR/log.XXXXXX")"
-            tail -c "$MAX_PREVIOUS_LOG_BYTES" "$LOG" > "$tmp" 2>/dev/null || true
-            mv -f "$tmp" "$PREVIOUS_LOG"
-            : > "$LOG"
-            printf '%s\n' "[Saman] Active log exceeded $MAX_CURRENT_LOG_BYTES bytes and was rotated." >> "$LOG"
-        fi
-        sleep 15
-    done
+phase_for_line() {
+    local line="${1,,}"
+    PHASE=''
+    case "$line" in
+        *"smart reconnect wg"*"scanning fresh"*) PHASE='WG cached endpoint too slow — fresh balanced scan';;
+        *"smart reconnect masque"*"slower than"*) PHASE='MASQUE cached gateway too slow — fresh balanced scan';;
+        *"smart reconnect gool"*"died after"*) PHASE='GOOL pair was short-lived — fresh balanced scan';;
+        *"smart reconnect"*"died after"*) PHASE='Cached path was short-lived — fresh balanced scan';;
+        *"verifying cached"*) PHASE='Checking cached endpoint';;
+        *"blacklisting and rescanning"*|*"scanning fresh"*) PHASE='Fresh balanced scan';;
+        *"hunting for "*"working"*|*"scan mode=balanced"*) PHASE='Scanning balanced endpoints';;
+        *"establishing inner"*|*"inner endpoint"*) PHASE='Establishing inner tunnel';;
+        *"establishing outer"*) PHASE='Establishing outer tunnel';;
+        *"validating"*"tunnel"*) PHASE='Validating tunnel';;
+        *) return 1;;
+    esac
 }
 
 start_core() {
-    "$CORE_BIN" "${ARGS[@]}" >>"$LOG" 2>&1 &
+    CORE_START_GENERATION=$((CORE_START_GENERATION + 1))
+    CORE_START_MARKER="[Saman runner start $$.$CORE_START_GENERATION]"
+    printf '%s\n' "$CORE_START_MARKER" >> "$LOG"
+    "$CORE_BIN" "${ARGS[@]}" >> "$LOG" 2>&1 &
     CORE_PID=$!
-    printf '%s\n' "$CORE_PID" > "$PID_FILE"
-    guard_log_size &
-    GUARD_PID=$!
+    if ! atomic_pid_write "$CORE_PID"; then
+        printf 'ERROR: could not publish core PID atomically: %s\n' "$PID_FILE" >&2
+        stop_owned_core
+        return 1
+    fi
 }
-
-cleanup() {
-    [ -n "$WATCH_PID" ] &&
-        kill "$WATCH_PID" 2>/dev/null || true
-    [ -n "$GUARD_PID" ] &&
-        kill "$GUARD_PID" 2>/dev/null || true
-
-    stop_core "${CORE_PID:-}"
-
-    command -v termux-wake-unlock >/dev/null 2>&1 &&
-        termux-wake-unlock >/dev/null 2>&1 || true
-}
-
-trap cleanup INT TERM EXIT
 
 wait_ready() {
-    local i
-    local phase=""
-    local previous_phase=""
-
-    echo
-    echo "Connecting..."
-
-    # Same 120-second maximum, checked every 250 ms.
-    for i in $(seq 1 480); do
+    local deadline=$((SECONDS + READY_TIMEOUT_SECS)) line phase previous_phase='' fd current_start=0
+    exec {fd}< "$LOG"
+    printf '\nConnecting...\n'
+    while [ "$SECONDS" -lt "$deadline" ]; do
         if ! kill -0 "$CORE_PID" 2>/dev/null; then
-            echo
-            echo "Aether Core stopped before SOCKS5 became ready."
-            echo "Log: $LOG"
+            exec {fd}<&-
+            printf '\nERROR: Aether Core stopped before SOCKS5 became ready.\n' >&2
+            printf 'ACTION: inspect %s for the final core error.\n' "$LOG" >&2
             return 1
         fi
-
-        # No TCP readiness connection is opened here, so this checker
-        # does not generate artificial SOCKS "early eof" entries.
-        if grep -Eqi \
-            'socks5 server listening|socks5.*listening|listening.*socks5' \
-            "$LOG" 2>/dev/null; then
-            return 0
-        fi
-
-        if [ $((i % 4)) -eq 0 ]; then
-            phase="$(connection_phase)"
-
-            if [ "$phase" != "$previous_phase" ]; then
-                echo "  $phase"
+        while IFS= read -r -u "$fd" line; do
+            if [ "$line" = "$CORE_START_MARKER" ]; then
+                current_start=1
+                continue
+            fi
+            [ "$current_start" -eq 1 ] || continue
+            case "${line,,}" in
+                *"socks5 server listening"*|*"socks5"*"listening"*|*"listening"*"socks5"*)
+                    exec {fd}<&-
+                    bound_active_log
+                    return 0
+                    ;;
+            esac
+            if phase_for_line "$line"; then
+                phase="$PHASE"
+            else
+                phase=''
+            fi
+            if [ -n "$phase" ] && [ "$phase" != "$previous_phase" ]; then
+                printf '  %s\n' "$phase"
                 previous_phase="$phase"
             fi
-        fi
-
+        done
         sleep 0.25
     done
-
-    echo
-    echo "SOCKS5 did not become ready within 120 seconds."
-    echo "Log: $LOG"
+    exec {fd}<&-
+    bound_active_log
+    printf '\nERROR: SOCKS5 did not become ready within %s seconds.\n' "$READY_TIMEOUT_SECS" >&2
+    printf 'ACTION: inspect %s, then retry or choose another mode.\n' "$LOG" >&2
     return 1
 }
 
-start_core
-
-if ! wait_ready; then
-    exit 1
-fi
-
-echo
-echo "================================"
-echo "       AETHER CONNECTED"
-echo " Mode : $MODE_LABEL"
-echo " SOCKS5       127.0.0.1:$SOCKS_PORT"
-echo " HTTP CONNECT 127.0.0.1:$HTTP_PORT"
-echo " Scan : balanced"
-echo " Smart Reconnect: ON"
-echo "================================"
-
-echo
-echo "Checking exit IP..."
-
-get_exit_info
-
-CURRENT_IP="$CHECK_IP"
-CURRENT_CC="$CHECK_CC"
-
-echo
-echo "================================"
-
-if [ -n "$CURRENT_IP" ]; then
-    CURRENT_COUNTRY="$(country_name "$CURRENT_CC")"
-    echo " Exit IP : $CURRENT_IP"
-    echo " Country : $CURRENT_COUNTRY ($CURRENT_CC)"
-else
-    echo " Exit IP : Unknown"
-    echo " Country : Unknown"
-fi
-
-echo "================================"
-
-watch_aether_events() {
-    local need_check=0
-    local new_ip
-    local new_cc
-    local old_country
-    local new_country
-
-    tail -n 0 -F "$LOG" 2>/dev/null |
-    while IFS= read -r line; do
-        case "$line" in
-            *"reconnecting"*|\
-            *"Restarting after network change"*|\
-            *"blacklisting and rescanning"*|\
-            *"scanning fresh"*|\
-            *"smart reconnect"*)
-                need_check=1
-                ;;
-        esac
-
-        [ "$need_check" -eq 1 ] || continue
-
-        SUCCESS=0
-
-        case "$MODE" in
-            GOOL)
-                case "$line" in
-                    *"[inner] wireguard tunnel validated"*|\
-                    *"socks5 server listening"*)
-                        SUCCESS=1
-                        ;;
-                esac
-                ;;
-
-            WG)
-                case "$line" in
-                    *"wireguard tunnel validated"*|\
-                    *"socks5 server listening"*)
-                        SUCCESS=1
-                        ;;
-                esac
-                ;;
-
-            MASQUE|MASQUE_H3|MASQUE_H2)
-                case "$line" in
-                    *"socks5 server listening"*)
-                        SUCCESS=1
-                        ;;
-                esac
-                ;;
-        esac
-
-        [ "$SUCCESS" -eq 1 ] || continue
-
-        sleep 0.5
-        get_exit_info
-
-        new_ip="$CHECK_IP"
-        new_cc="$CHECK_CC"
-
-        [ -n "$new_ip" ] || continue
-        need_check=0
-
-        if [ "$new_ip" != "$CURRENT_IP" ]; then
-            old_country="$(country_name "$CURRENT_CC")"
-            new_country="$(country_name "$new_cc")"
-
-            echo
-            echo "================================"
-            echo "       EXIT IP CHANGED"
-            echo "================================"
-            echo " Old IP  : $CURRENT_IP"
-            echo " New IP  : $new_ip"
-            echo " Country : $old_country ($CURRENT_CC)"
-            echo "        -> $new_country ($new_cc)"
-            echo " Time    : $(date '+%H:%M:%S')"
-            echo "================================"
-
-            CURRENT_IP="$new_ip"
-            CURRENT_CC="$new_cc"
-        fi
-    done
+line_requests_probe() {
+    case "$1" in
+        *reconnecting*|*"Restarting after network change"*|*"blacklisting and rescanning"*|*"scanning fresh"*|*"smart reconnect"*) return 0;;
+        *) return 1;;
+    esac
 }
 
-watch_aether_events &
-WATCH_PID=$!
+line_is_success() {
+    local line="$1"
+    case "$MODE" in
+        GOOL) [[ "$line" == *"[inner] wireguard tunnel validated"* || "$line" == *"socks5 server listening"* ]];;
+        WG) [[ "$line" == *"wireguard tunnel validated"* || "$line" == *"socks5 server listening"* ]];;
+        MASQUE|MASQUE_H3|MASQUE_H2) [[ "$line" == *"socks5 server listening"* ]];;
+    esac
+}
 
-echo
-echo "Aether is monitoring connection..."
-echo "Log: $LOG"
-echo
-echo "Returning to Home..."
+monitor_aether() {
+    local fd line need_check=0 next_guard=$((SECONDS + LOG_GUARD_INTERVAL_SECS)) new_ip new_cc old_country new_country
+    exec {fd}< "$LOG"
+    while IFS= read -r -u "$fd" line; do :; done
+    while core_pid_valid "$CORE_PID"; do
+        while IFS= read -r -u "$fd" line; do
+            line_requests_probe "$line" && need_check=1
+            if [ "$need_check" -eq 1 ] && line_is_success "$line"; then
+                sleep 0.5
+                get_exit_info
+                new_ip="$CHECK_IP"; new_cc="$CHECK_CC"
+                if [ -n "$new_ip" ]; then
+                    need_check=0
+                    if [ "$new_ip" != "$CURRENT_IP" ]; then
+                        old_country="$(country_name "$CURRENT_CC")"; new_country="$(country_name "$new_cc")"
+                        printf '\n================================\n       EXIT IP CHANGED\n================================\n'
+                        printf ' Old IP  : %s\n New IP  : %s\n Country : %s (%s)\n        -> %s (%s)\n Time    : %s\n' "$CURRENT_IP" "$new_ip" "$old_country" "$CURRENT_CC" "$new_country" "$new_cc" "$(date '+%H:%M:%S')"
+                        printf '================================\n'
+                        CURRENT_IP="$new_ip"; CURRENT_CC="$new_cc"
+                    fi
+                fi
+            fi
+        done
+        if [ "$SECONDS" -ge "$next_guard" ]; then
+            exec {fd}<&-
+            bound_active_log
+            exec {fd}< "$LOG"
+            while IFS= read -r -u "$fd" line; do :; done
+            next_guard=$((SECONDS + LOG_GUARD_INTERVAL_SECS))
+        fi
+        sleep 1
+    done
+    exec {fd}<&-
+}
 
-am start \
-    -a android.intent.action.MAIN \
-    -c android.intent.category.HOME \
-    >/dev/null 2>&1 || true
+wait_local_ports || exit 1
+rotate_mode_logs
+if command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock >/dev/null 2>&1; then WAKE_LOCKED=1; fi
+start_core || exit 1
+wait_ready || exit 1
 
-while true; do
+printf '\nOK: Aether connected (%s).\n' "$MODE_LABEL"
+printf '  SOCKS5       127.0.0.1:%s\n  HTTP CONNECT 127.0.0.1:%s\n  Scan          balanced\n  Smart reconnect ON\n' "$SOCKS_PORT" "$HTTP_PORT"
+printf '\nChecking exit IP...\n'
+get_exit_info
+CURRENT_IP="$CHECK_IP"; CURRENT_CC="$CHECK_CC"
+if [ -n "$CURRENT_IP" ]; then
+    printf 'OK: exit IP %s — %s (%s)\n' "$CURRENT_IP" "$(country_name "$CURRENT_CC")" "$CURRENT_CC"
+else
+    printf 'WARNING: exit IP check timed out; tunnel remains connected.\n'
+    printf 'ACTION: retry diagnostics from Saman Center if browsing fails.\n'
+fi
+
+monitor_aether &
+MONITOR_PID=$!
+printf '\nOK: monitoring connection events. Log: %s\n' "$LOG"
+printf 'Returning to Home...\n'
+am start -a android.intent.action.MAIN -c android.intent.category.HOME >/dev/null 2>&1 || true
+
+while :; do
     wait "$CORE_PID"
     RC=$?
-
-    if [ -s "$PID_FILE" ] && [ "$(<"$PID_FILE")" = "$CORE_PID" ]; then
-        rm -f "$PID_FILE"
-    fi
-
-    if [ "$RC" -ne 101 ]; then
-        exit "$RC"
-    fi
-
-    {
-        echo
-        echo "Aether exited with code 101."
-        echo "Restarting after network change..."
-        date
-    } >>"$LOG"
-
-    echo
-    echo "Network change detected — restarting Aether..."
-
+    if [ -n "$MONITOR_PID" ]; then kill -TERM "$MONITOR_PID" 2>/dev/null || true; wait "$MONITOR_PID" 2>/dev/null || true; MONITOR_PID=""; fi
+    remove_owned_pid
+    bound_active_log
+    if [ "$RC" -ne 101 ]; then exit "$RC"; fi
+    printf '\nAether exited with code 101.\nRestarting after network change...\n%s\n' "$(date)" >> "$LOG"
+    printf '\nWARNING: network changed; restarting Aether.\n'
     wait_local_ports || exit 1
     sleep 0.25
-
-    start_core
-
-    if ! wait_ready; then
-        exit 1
-    fi
-
-    echo "Aether reconnected."
+    start_core || exit 1
+    wait_ready || exit 1
+    printf 'OK: Aether reconnected.\n'
+    monitor_aether &
+    MONITOR_PID=$!
 done

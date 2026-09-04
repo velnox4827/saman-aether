@@ -2,6 +2,11 @@
 
 ## Post-v1.5.0 maintenance
 
+- Modernized Saman Center to v2.1.0 with lazy command loading, read-only metadata commands, whitelist-parsed configuration, bounded logs, conservative repair, and a TTL-gated dashboard cache.
+- Hardened Aether runner ownership, locking, PID publication, readiness detection, restart handling, configurable ports/timeouts, and fail-closed listener checks without stopping unrelated processes.
+- Made installer publication and rollback failure-aware, added bounded network operations, and strengthened private verified script backups.
+- Hardened Saman Share authentication, traversal and filename validation, upload limits, free-space reservation, collision handling, partial-file cleanup, direction modes, response headers, and connection deadlines.
+- Added atomic non-destructive media output, validated download/SSH inputs, terminal-output sanitization, parallel bounded network probes, Android permission-denied socket-table fallbacks, and expanded shell/Python CI coverage.
 - Replaced the outdated README with complete, equivalent English and Persian documentation for Saman Tunnel v1.5.0 and the canonical Saman/Termux architecture.
 - Added the current Saman Center v2 implementation to the repository; `saman` is the canonical command and `saman2` remains a compatibility entry point.
 - Kept `aether-control` as a validation and delegation wrapper instead of duplicating process control.

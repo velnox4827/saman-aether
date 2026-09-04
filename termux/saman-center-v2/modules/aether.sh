@@ -77,15 +77,49 @@ s2_aether_mode() {
     esac
 }
 
-s2_port_listening() {
+s2_tcp_port_accepting() {
     local port="$1"
-    if s2_have ss && ss -ltnH >/dev/null 2>&1; then
-        ss -ltnH 2>/dev/null | awk -v p=":$port" '$4 ~ (p "$"){f=1} END{exit(f?0:1)}'
-        return $?
+    timeout 1 bash -c 'exec 3<>"/dev/tcp/127.0.0.1/$1"' _ "$port" >/dev/null 2>&1
+}
+
+s2_socket_listeners() {
+    local snapshot='' rc=1 port
+    if s2_have ss; then
+        snapshot="$(ss -ltnH 2>&1)"; rc=$?
+        if [ "$rc" -eq 0 ] && [[ "$snapshot" != *'Permission denied'* ]] &&
+           [[ "$snapshot" != *'Cannot open netlink socket'* ]]; then
+            printf '%s\n' "$snapshot"
+            return 0
+        fi
     fi
-    local hex
-    hex="$(printf '%04X' "$port")"
-    awk -v p=":$hex" 'NR>1 && $2 ~ (p "$") && $4=="0A"{f=1} END{exit(f?0:1)}' /proc/net/tcp /proc/net/tcp6 2>/dev/null
+    if snapshot="$(awk 'NR>1 && $4=="0A" {print $2}' /proc/net/tcp /proc/net/tcp6 2>/dev/null)"; then
+        printf '%s\n' "$snapshot"
+        return 0
+    fi
+    # Android 13+ can deny both netlink and /proc socket tables. A bounded
+    # loopback connect still distinguishes an accepting configured listener.
+    for port in "${AETHER_SOCKS_PORT:-1819}" "${AETHER_HTTP_PORT:-1820}"; do
+        if s2_tcp_port_accepting "$port"; then
+            printf 'LISTEN 0 0 127.0.0.1:%s 0.0.0.0:*\n' "$port"
+        fi
+    done
+    return 0
+}
+
+s2_snapshot_port_listening() {
+    local port="$1" snapshot="$2" hex
+    if ! grep -Eq '^[[:xdigit:]]{8,32}:[[:xdigit:]]{4}([[:space:]]|$)' <<< "$snapshot"; then
+        awk -v p=":$port" '$4 ~ (p "$"){f=1} END{exit(f?0:1)}' <<< "$snapshot"
+    else
+        hex="$(printf '%04X' "$port")"
+        awk -v p=":$hex" '$0 ~ p {f=1} END{exit(f?0:1)}' <<< "$snapshot"
+    fi
+}
+
+s2_port_listening() {
+    local port="$1" snapshot
+    snapshot="$(s2_socket_listeners)" || return 1
+    s2_snapshot_port_listening "$port" "$snapshot"
 }
 
 s2_aether_core_version() {
@@ -133,8 +167,8 @@ s2_aether_uptime() {
 s2_aether_health() {
     local pid socks=0 http=0
     pid="$(s2_aether_pid)"
-    s2_port_listening 1819 && socks=1
-    s2_port_listening 1820 && http=1
+    s2_port_listening "$AETHER_SOCKS_PORT" && socks=1
+    s2_port_listening "$AETHER_HTTP_PORT" && http=1
     if s2_aether_pid_running "$pid"; then
         if [ "$socks" -eq 1 ] && [ "$http" -eq 1 ]; then printf 'READY\n'
         elif [ "$socks" -eq 1 ] || [ "$http" -eq 1 ]; then printf 'PARTIAL\n'
@@ -153,7 +187,7 @@ s2_aether_last_event() {
     [ -f "$log" ] || return 1
     line="$(tail -n 160 "$log" 2>/dev/null | grep -Ei 'connected|reconnect|scanning|scan mode|cached|gateway|endpoint|tunnel|listening|error|failed|timeout' | tail -n1 || true)"
     [ -n "$line" ] || return 1
-    line="$(printf '%s' "$line" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+/ /g')"
+    line="$(s2_terminal_field "$line")"
     [ "${#line}" -gt 88 ] && line="${line:0:85}..."
     printf '%s\n' "$line"
 }
@@ -162,18 +196,19 @@ s2_aether_probe_file() { printf '%s/aether-probe.tsv\n' "$SAMAN2_CACHE"; }
 
 s2_aether_probe_collect() {
     local trace ip cc curlout code total ms now f tmp
-    f="$(s2_aether_probe_file)"; tmp="$f.tmp"
-    s2_port_listening 1819 || return 1
-    trace="$(curl -4 --silent --max-time 10 --socks5-hostname 127.0.0.1:1819 https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null || true)"
+    f="$(s2_aether_probe_file)"
+    mkdir -p "$SAMAN2_CACHE" 2>/dev/null || return 1
+    tmp="$(mktemp "$f.tmp.XXXXXX")" || return 1
+    s2_port_listening "$AETHER_SOCKS_PORT" || { rm -f -- "$tmp"; return 1; }
+    trace="$(curl -4 --silent --max-time "$NETWORK_TIMEOUT" --socks5-hostname "127.0.0.1:$AETHER_SOCKS_PORT" https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null || true)"
     ip="$(printf '%s\n' "$trace" | sed -n 's/^ip=//p' | head -n1)"
     cc="$(printf '%s\n' "$trace" | sed -n 's/^loc=//p' | head -n1)"
-    curlout="$(curl -4 -o /dev/null -sS --max-time 10 --socks5-hostname 127.0.0.1:1819 -w '%{http_code} %{time_total}' https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null || true)"
+    curlout="$(curl -4 -o /dev/null -sS --max-time "$NETWORK_TIMEOUT" --socks5-hostname "127.0.0.1:$AETHER_SOCKS_PORT" -w '%{http_code} %{time_total}' https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null || true)"
     code="${curlout%% *}"; total="${curlout#* }"; ms=''
     if [ -n "$total" ] && [ "$total" != "$curlout" ]; then ms="$(awk -v t="$total" 'BEGIN{printf "%.0f", t*1000}')"; fi
     now="$(date +%s)"
-    mkdir -p "$SAMAN2_CACHE" 2>/dev/null || true
     printf '%s\t%s\t%s\t%s\t%s\n' "$now" "${ip:-}" "${cc:-}" "${ms:-}" "${code:-}" > "$tmp"
-    mv -f "$tmp" "$f"
+    chmod 0600 "$tmp" && mv -f "$tmp" "$f" || { rm -f -- "$tmp"; return 1; }
     [ -n "$ip" ]
 }
 
@@ -203,9 +238,32 @@ s2_aether_probe_cached_line() {
 }
 
 s2_aether_status() {
-    local pid mode='-' health uptime core core_count=0 candidate version_file="$PREFIX/etc/saman-aether-termux.version"
-    pid="$(s2_aether_pid)"; core="$(s2_aether_core_label)"; health="$(s2_aether_health)"
-    while IFS= read -r candidate; do [ -n "$candidate" ] && core_count=$((core_count + 1)); done < <(s2_aether_core_pids)
+    local tracked='' pid='' mode='-' health uptime core candidate version_file="$PREFIX/etc/saman-aether-termux.version"
+    local listeners='' socks=0 http=0
+    local -a core_pids=()
+
+    [ -s "$HOME/.saman-aether/aether.pid" ] && tracked="$(<"$HOME/.saman-aether/aether.pid")"
+    while IFS= read -r candidate; do [ -n "$candidate" ] && core_pids+=("$candidate"); done < <(s2_aether_core_pids)
+    if s2_aether_pid_is_core "$tracked"; then
+        pid="$tracked"
+    elif [ "${#core_pids[@]}" -eq 1 ]; then
+        pid="${core_pids[0]}"
+    fi
+
+    listeners="$(s2_socket_listeners 2>/dev/null || true)"
+    s2_snapshot_port_listening "$AETHER_SOCKS_PORT" "$listeners" && socks=1
+    s2_snapshot_port_listening "$AETHER_HTTP_PORT" "$listeners" && http=1
+    if s2_aether_pid_running "$pid"; then
+        if [ "$socks" -eq 1 ] && [ "$http" -eq 1 ]; then health=READY
+        elif [ "$socks" -eq 1 ] || [ "$http" -eq 1 ]; then health=PARTIAL
+        else health=CONNECTING; fi
+    elif [ "$socks" -eq 1 ] || [ "$http" -eq 1 ]; then
+        health='PORT BUSY'
+    else
+        health=OFF
+    fi
+
+    core="$(s2_aether_core_label)"
     echo "Saman Center : $SAMAN2_VERSION"
     echo "Saman Termux : ${SAMAN_TERMUX_VERSION:-unknown} (installed: $([ -s "$version_file" ] && tr -d '\r\n' < "$version_file" || echo unknown))"
     echo "Saman Tunnel : ${SAMAN_TUNNEL_VERSION:-unknown}"
@@ -217,17 +275,17 @@ s2_aether_status() {
         echo "Service      : RUNNING (PID $pid)"
         echo "Mode         : $mode"
         echo "Uptime       : $uptime"
-        [ "$core_count" -gt 1 ] && echo "Processes    : WARNING ($core_count Aether Core processes)"
+        [ "${#core_pids[@]}" -gt 1 ] && echo "Processes    : WARNING (${#core_pids[@]} Aether Core processes)"
     else
         echo "Service      : STOPPED"
         echo "Mode         : -"
-        [ "$core_count" -gt 0 ] && echo "Processes    : WARNING ($core_count untracked Aether Core processes)"
+        [ "${#core_pids[@]}" -gt 0 ] && echo "Processes    : WARNING (${#core_pids[@]} untracked Aether Core processes)"
     fi
     echo "Health       : $health"
-    if s2_port_listening 1819; then echo "SOCKS5       : LISTENING 127.0.0.1:1819"; else echo "SOCKS5       : DOWN 127.0.0.1:1819"; fi
-    if s2_port_listening 1820; then echo "HTTP CONNECT : LISTENING 127.0.0.1:1820"; else echo "HTTP CONNECT : DOWN 127.0.0.1:1820"; fi
-    if ! s2_aether_pid_running "$pid" && { s2_port_listening 1819 || s2_port_listening 1820; }; then
-        echo "Port conflict: local proxy port is owned by another process"
+    if [ "$socks" -eq 1 ]; then echo "SOCKS5       : LISTENING 127.0.0.1:$AETHER_SOCKS_PORT"; else echo "SOCKS5       : DOWN 127.0.0.1:$AETHER_SOCKS_PORT"; fi
+    if [ "$http" -eq 1 ]; then echo "HTTP CONNECT : LISTENING 127.0.0.1:$AETHER_HTTP_PORT"; else echo "HTTP CONNECT : DOWN 127.0.0.1:$AETHER_HTTP_PORT"; fi
+    if ! s2_aether_pid_running "$pid" && { [ "$socks" -eq 1 ] || [ "$http" -eq 1 ]; }; then
+        echo "WARNING      : local proxy port is owned by another process"
     fi
 }
 
@@ -243,8 +301,8 @@ s2_aether_overview() {
     else
         echo "Service      : STOPPED"
     fi
-    if s2_port_listening 1819; then echo "SOCKS5       : READY :1819"; else echo "SOCKS5       : DOWN  :1819"; fi
-    if s2_port_listening 1820; then echo "HTTP CONNECT : READY :1820"; else echo "HTTP CONNECT : DOWN  :1820"; fi
+    if s2_port_listening "$AETHER_SOCKS_PORT"; then echo "SOCKS5       : READY :$AETHER_SOCKS_PORT"; else echo "SOCKS5       : DOWN  :$AETHER_SOCKS_PORT"; fi
+    if s2_port_listening "$AETHER_HTTP_PORT"; then echo "HTTP CONNECT : READY :$AETHER_HTTP_PORT"; else echo "HTTP CONNECT : DOWN  :$AETHER_HTTP_PORT"; fi
     echo "Phone IP     : $phone_ip | $phone_cc"
     if cached="$(s2_aether_probe_cached_line 2>/dev/null)"; then
         echo "Aether exit  : $cached"
@@ -260,7 +318,7 @@ s2_aether_overview() {
 
 s2_aether_probe() {
     local style="${1:-full}" f ts ip cc ms code event
-    if ! s2_port_listening 1819; then
+    if ! s2_port_listening "$AETHER_SOCKS_PORT"; then
         [ "$style" = compact ] && echo "SOCKS5 : DOWN" || s2_warn "Aether SOCKS5 is not listening."
         return 1
     fi
@@ -339,9 +397,14 @@ s2_aether_stop() {
 }
 
 s2_aether_restart() {
-    local mode="${1:-}"
+    local mode="${1:-}" lock="$HOME/.saman-aether/runner.lock"
     [ -n "$mode" ] || { s2_err "Restart requires a mode: wg, gool, h3, h2"; return 2; }
     s2_aether_stop || return
+    for _ in $(seq 1 50); do [ ! -e "$lock" ] && [ ! -L "$lock" ] && break; sleep 0.1; done
+    if [ -e "$lock" ] || [ -L "$lock" ]; then
+        s2_err "Previous Aether runner did not release its lifecycle lock."
+        return 1
+    fi
     s2_aether_start "$mode"
 }
 

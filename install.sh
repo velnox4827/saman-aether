@@ -6,7 +6,7 @@ SAMAN_TUNNEL_VERSION="1.5.0"
 AETHER_BASE_VERSION="1.8.0"
 REPO="velnox4827/saman-aether"
 PINNED_TERMUX_TAG="termux-v$SAMAN_TERMUX_VERSION"
-SOURCE_REF="${SAMAN_SOURCE_REF:-termux-v1.5.0}"
+SOURCE_REF="${SAMAN_SOURCE_REF:-main}"
 API_BASE="https://api.github.com/repos/$REPO"
 TERMUX_RELEASE_FALLBACK="termux-v1.5.0"
 ACTION="${1:-install}"
@@ -27,6 +27,8 @@ TMP=""
 BACKUP_DIR=""
 INSTALL_STARTED=0
 ROLLBACK_DONE=0
+NETWORK_CONNECT_TIMEOUT=10
+NETWORK_MAX_TIME=120
 
 log() { printf '%s\n' "$*"; }
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
@@ -42,7 +44,7 @@ Usage: install.sh [install|update|check|uninstall]
   uninstall   Back up and remove canonical Saman files
 
 Environment:
-  SAMAN_SOURCE_REF=<git-ref>  Optional source ref; must match the resolved Termux release tag
+  SAMAN_SOURCE_REF=<git-ref>  Optional trusted maintenance source ref (resolved to a commit)
 EOF
 }
 
@@ -90,7 +92,7 @@ api_json() {
         gh api -H 'Accept: application/vnd.github+json' \
             -H 'X-GitHub-Api-Version: 2022-11-28' "$endpoint"
     else
-        curl --proto '=https' --tlsv1.2 -fsSL --retry 3 --retry-delay 2 \
+        curl --proto '=https' --tlsv1.2 -fsSL --connect-timeout "$NETWORK_CONNECT_TIMEOUT" --max-time "$NETWORK_MAX_TIME" --retry 3 --retry-delay 2 \
             -H 'Accept: application/vnd.github+json' \
             -H 'X-GitHub-Api-Version: 2022-11-28' "$url"
     fi
@@ -138,7 +140,9 @@ make_tmp() {
 cleanup() {
     local rc=$?
     if [ "$rc" -ne 0 ] && [ "$INSTALL_STARTED" -eq 1 ] && [ "$ROLLBACK_DONE" -eq 0 ]; then
-        rollback || true
+        if ! rollback; then
+            printf 'CRITICAL: automatic rollback failed; use backup: %s\n' "$BACKUP_DIR" >&2
+        fi
     fi
     [ -n "$TMP" ] && rm -rf "$TMP"
     exit "$rc"
@@ -156,15 +160,16 @@ create_backup() {
     local target relative stamp
     umask 077
     stamp="$(date +%Y%m%d-%H%M%S)"
-    BACKUP_DIR="$BACKUP_ROOT/$stamp"
-    mkdir -p "$BACKUP_DIR/root"
+    mkdir -p "$BACKUP_ROOT"
+    BACKUP_DIR="$(mktemp -d "$BACKUP_ROOT/$stamp.XXXXXX")" || return 1
+    mkdir -p "$BACKUP_DIR/root" || return 1
     : > "$BACKUP_DIR/existing.list"
     : > "$BACKUP_DIR/absent.list"
     while IFS= read -r target; do
         relative="${target#/}"
         if [ -e "$target" ] || [ -L "$target" ]; then
             mkdir -p "$BACKUP_DIR/root/$(dirname "$relative")"
-            cp -a "$target" "$BACKUP_DIR/root/$relative"
+            cp -a "$target" "$BACKUP_DIR/root/$relative" || return 1
             printf '%s\n' "$target" >> "$BACKUP_DIR/existing.list"
         else
             printf '%s\n' "$target" >> "$BACKUP_DIR/absent.list"
@@ -180,16 +185,16 @@ rollback() {
     log "Installation failed; restoring backup..." >&2
     if [ -f "$BACKUP_DIR/absent.list" ]; then
         while IFS= read -r target; do
-            [ -n "$target" ] && rm -rf "$target"
+            [ -n "$target" ] && rm -rf "$target" || return 1
         done < "$BACKUP_DIR/absent.list"
     fi
     if [ -f "$BACKUP_DIR/existing.list" ]; then
         while IFS= read -r target; do
             [ -n "$target" ] || continue
             relative="${target#/}"
-            rm -rf "$target"
-            mkdir -p "$(dirname "$target")"
-            cp -a "$BACKUP_DIR/root/$relative" "$target"
+            rm -rf "$target" || return 1
+            mkdir -p "$(dirname "$target")" || return 1
+            cp -a "$BACKUP_DIR/root/$relative" "$target" || return 1
         done < "$BACKUP_DIR/existing.list"
     fi
     ROLLBACK_DONE=1
@@ -239,10 +244,20 @@ stop_canonical_core() {
     rm -f "$STATE_DIR/aether.pid"
 }
 
+installer_tcp_port_accepting() {
+    local port="$1"
+    timeout 1 bash -c 'exec 3<>"/dev/tcp/127.0.0.1/$1"' _ "$port" >/dev/null 2>&1
+}
+
 local_proxy_ports_free() {
-    local listeners
-    listeners="$(ss -ltnH 2>/dev/null)" || return 1
-    ! awk '$4 ~ /:(1819|1820)$/ {found=1} END{exit(found?0:1)}' <<<"$listeners"
+    local listeners rc
+    listeners="$(ss -ltnH 2>&1)"; rc=$?
+    if [ "$rc" -eq 0 ] && [[ "$listeners" != *'Permission denied'* ]] &&
+       [[ "$listeners" != *'Cannot open netlink socket'* ]]; then
+        ! awk '$4 ~ /:(1819|1820)$/ {found=1} END{exit(found?0:1)}' <<<"$listeners"
+        return $?
+    fi
+    ! installer_tcp_port_accepting 1819 && ! installer_tcp_port_accepting 1820
 }
 
 download_source() {
@@ -253,7 +268,7 @@ download_source() {
         die "could not resolve GitHub source ref: $SOURCE_REF"
     [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || die "GitHub returned an invalid source commit."
     archive="$TMP/source.tar.gz"
-    curl --proto '=https' --tlsv1.2 -fL --retry 3 --retry-delay 2 \
+    curl --proto '=https' --tlsv1.2 -fL --connect-timeout "$NETWORK_CONNECT_TIMEOUT" --max-time "$NETWORK_MAX_TIME" --retry 3 --retry-delay 2 \
         "https://github.com/$REPO/archive/$commit.tar.gz" -o "$archive"
     tar -tzf "$archive" >/dev/null || die "source archive integrity check failed."
     mkdir -p "$TMP/source"
@@ -262,6 +277,10 @@ download_source() {
     [ -f "$root/install.sh" ] || die "source archive does not contain install.sh."
     [ -x "$root/aether-shortcut-runner" ] || die "source archive does not contain the runner."
     [ -x "$root/termux/saman-center-v2/saman2" ] || die "source archive does not contain Saman Center."
+    [ -x "$root/saman-aether-diagnostics" ] || die "source archive does not contain diagnostics."
+    [ -x "$root/termux/aether-control" ] || die "source archive does not contain aether-control."
+    compgen -G "$root/termux/saman-center-v2/lib/*.sh" >/dev/null || die "source archive has no Center libraries."
+    compgen -G "$root/termux/saman-center-v2/modules/*.sh" >/dev/null || die "source archive has no Center modules."
     printf '%s\n' "$root" > "$TMP/source-root"
     printf '%s\n' "$commit" > "$TMP/source-commit"
 }
@@ -286,11 +305,8 @@ resolve_termux_release() {
         [ "$tag" = "$PINNED_TERMUX_TAG" ] || die "pinned Termux release tag mismatch."
     else
         [[ "$tag" =~ ^termux-v[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "invalid Termux release tag."
+        [ "$tag" = "$PINNED_TERMUX_TAG" ] || die "a newer Termux release exists ($tag); download its matching installer before updating."
     fi
-    if [ -n "${SAMAN_SOURCE_REF:-}" ] && [ "$SOURCE_REF" != "$tag" ]; then
-        die "source ref $SOURCE_REF does not match resolved Termux release $tag."
-    fi
-    SOURCE_REF="$tag"
     printf '%s\n' "$release_json" > "$TMP/termux-release.json"
     printf '%s\n' "$tag" > "$TMP/termux-tag"
 }
@@ -309,8 +325,8 @@ download_core() {
     [[ "$checksum_url" == "https://github.com/$REPO/releases/download/$tag/$archive.sha256" ]] ||
         die "trusted checksum asset not found for $arch in $tag."
     log "[3/6] Downloading $tag core for $arch..."
-    curl --proto '=https' --tlsv1.2 -fL --retry 3 --retry-delay 2 "$url" -o "$TMP/$archive"
-    expected="$(curl --proto '=https' --tlsv1.2 -fsSL --retry 3 "$checksum_url" | awk 'NR==1 {print $1}')"
+    curl --proto '=https' --tlsv1.2 -fL --connect-timeout "$NETWORK_CONNECT_TIMEOUT" --max-time "$NETWORK_MAX_TIME" --retry 3 --retry-delay 2 "$url" -o "$TMP/$archive"
+    expected="$(curl --proto '=https' --tlsv1.2 -fsSL --connect-timeout "$NETWORK_CONNECT_TIMEOUT" --max-time "$NETWORK_MAX_TIME" --retry 3 "$checksum_url" | awk 'NR==1 {print $1}')"
     actual="$(sha256sum "$TMP/$archive" | awk '{print $1}')"
     [[ "$expected" =~ ^[0-9a-fA-F]{64}$ ]] || die "release checksum is invalid."
     [ "${expected,,}" = "$actual" ] || die "SHA-256 mismatch; refusing to install."
@@ -321,10 +337,38 @@ download_core() {
 }
 
 write_wrapper() {
-    local destination target
+    local destination target tmp
     destination="$1"; target="$2"
-    printf '#!/data/data/com.termux/files/usr/bin/bash\nexec "%s" "$@"\n' "$target" > "$destination"
-    chmod 0755 "$destination"
+    tmp="${destination}.install.$$"
+    printf '#!/data/data/com.termux/files/usr/bin/bash\nexec "%s" "$@"\n' "$target" > "$tmp"
+    chmod 0755 "$tmp"
+    mv -f -- "$tmp" "$destination"
+}
+
+install_file_atomic() {
+    local source="$1" destination="$2" mode="$3" tmp
+    tmp="${destination}.install.$$"
+    rm -f -- "$tmp"
+    install -m "$mode" "$source" "$tmp"
+    mv -f -- "$tmp" "$destination"
+}
+
+install_tree_atomic() {
+    local source="$1" destination="$2" stage old
+    stage="${destination}.install.$$"
+    old="${destination}.previous.$$"
+    rm -rf -- "$stage" "$old"
+    cp -a "$source" "$stage"
+    chmod 0755 "$stage/saman2" "$stage/lib/"*.sh "$stage/modules/"*.sh
+    bash -n "$stage/saman2" "$stage/lib/"*.sh "$stage/modules/"*.sh
+    if [ -e "$destination" ] || [ -L "$destination" ]; then
+        mv -- "$destination" "$old"
+    fi
+    if ! mv -- "$stage" "$destination"; then
+        [ -e "$old" ] && mv -- "$old" "$destination"
+        return 1
+    fi
+    rm -rf -- "$old"
 }
 
 install_files() {
@@ -335,18 +379,16 @@ install_files() {
     INSTALL_STARTED=1
     stop_canonical_core
     mkdir -p "$PREFIX/bin" "$PREFIX/etc" "$HOME/bin" "$HOME/.shortcuts" "$STATE_DIR" "$(dirname "$CENTER_ROOT")"
-    rm -rf "$CENTER_ROOT"
-    cp -a "$source_root/termux/saman-center-v2" "$CENTER_ROOT"
-    install -m 0755 "$TMP/saman-aether-core" "$CORE_BIN"
-    install -m 0755 "$source_root/saman-aether-diagnostics" "$DIAGNOSTICS_BIN"
-    install -m 0755 "$source_root/termux/aether-control" "$CONTROL_BIN"
-    install -m 0755 "$source_root/aether-shortcut-runner" "$RUNNER"
+    install_tree_atomic "$source_root/termux/saman-center-v2" "$CENTER_ROOT"
+    install_file_atomic "$TMP/saman-aether-core" "$CORE_BIN" 0755
+    install_file_atomic "$source_root/saman-aether-diagnostics" "$DIAGNOSTICS_BIN" 0755
+    install_file_atomic "$source_root/termux/aether-control" "$CONTROL_BIN" 0755
+    install_file_atomic "$source_root/aether-shortcut-runner" "$RUNNER" 0755
     write_wrapper "$SAMAN_BIN" "$CENTER_ROOT/saman2"
     write_wrapper "$SAMAN2_BIN" "$CENTER_ROOT/saman2"
     write_wrapper "$SHORTCUT" "$SAMAN_BIN"
     write_wrapper "$SHORTCUT_V2" "$SAMAN_BIN"
-    printf '%s\n' "$SAMAN_TERMUX_VERSION" > "$VERSION_FILE"
-    chmod 0755 "$CENTER_ROOT/saman2" "$CENTER_ROOT/lib/"*.sh "$CENTER_ROOT/modules/"*.sh
+    printf '%s\n' "$SAMAN_TERMUX_VERSION" | install_file_atomic /dev/stdin "$VERSION_FILE" 0644
 }
 
 verify_install() {
@@ -356,7 +398,7 @@ verify_install() {
         [ -x "$command_path" ] || die "installed command is not executable: $command_path"
     done
     bash -n "$RUNNER" "$DIAGNOSTICS_BIN" "$CONTROL_BIN" "$SAMAN_BIN" "$SAMAN2_BIN" "$CENTER_ROOT/saman2" "$CENTER_ROOT/lib/"*.sh "$CENTER_ROOT/modules/"*.sh
-    [ "$("$SAMAN_BIN" version)" = "2.0.0-alpha5" ] || die "Saman Center version check failed."
+    [ "$("$SAMAN_BIN" version)" = "2.1.0" ] || die "Saman Center version check failed."
     "$CORE_BIN" --version 2>/dev/null | grep -q '1\.8\.0' || die "Aether Core version check failed."
     [ "$(<"$VERSION_FILE")" = "$SAMAN_TERMUX_VERSION" ] || die "version file verification failed."
     [ -z "$(installed_core_pids)" ] || die "an old canonical Aether Core process survived the update."
@@ -368,8 +410,10 @@ verify_install() {
 uninstall() {
     require_termux
     create_backup
+    INSTALL_STARTED=1
     stop_canonical_core
     while IFS= read -r target; do rm -rf "$target"; done < <(targets)
+    INSTALL_STARTED=0
     log "Canonical Saman Termux files removed."
     log "User configuration, logs, backups, upstream aether, and legacy compatibility shortcuts were retained."
 }
