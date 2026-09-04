@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 env:
-  AETHER_COMMIT: "a916ff6fbbb4ebafe8314c53cf3718eb51dcae53"
+  AETHER_COMMIT: "311b573352bb67e494895ff67d20b002d075116a"
   CARGO_NDK_VERSION: "4.1.2"
   RELEASE_CERT_SHA256: "03233edadf89ed27c7cf80452916a7bd25e8c74abe0f12d2eefcb8b290b48805"
 
@@ -61,7 +61,7 @@ jobs:
           git -C "$RUNNER_TEMP/Aether" remote add origin https://github.com/CluvexStudio/Aether.git
           git -C "$RUNNER_TEMP/Aether" fetch --depth 1 origin "$AETHER_COMMIT"
           git -C "$RUNNER_TEMP/Aether" checkout --detach FETCH_HEAD
-          grep -q '^version = "1.8.0"$' "$RUNNER_TEMP/Aether/aether/Cargo.toml"
+          grep -q '^version = "1.9.0"$' "$RUNNER_TEMP/Aether/aether/Cargo.toml"
 
       - name: Apply Saman Smart Reconnect patch
         run: |

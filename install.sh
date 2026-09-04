@@ -1,14 +1,14 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -Eeuo pipefail
 
-SAMAN_TERMUX_VERSION="1.5.0"
-SAMAN_TUNNEL_VERSION="1.5.0"
-AETHER_BASE_VERSION="1.8.0"
+SAMAN_TERMUX_VERSION="1.6.0"
+SAMAN_TUNNEL_VERSION="1.6.0"
+AETHER_BASE_VERSION="1.9.0"
 REPO="velnox4827/saman-aether"
 PINNED_TERMUX_TAG="termux-v$SAMAN_TERMUX_VERSION"
 SOURCE_REF="${SAMAN_SOURCE_REF:-main}"
 API_BASE="https://api.github.com/repos/$REPO"
-TERMUX_RELEASE_FALLBACK="termux-v1.5.0"
+TERMUX_RELEASE_FALLBACK="termux-v1.6.0"
 ACTION="${1:-install}"
 
 CORE_BIN="$PREFIX/bin/saman-aether-core"
