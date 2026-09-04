@@ -239,44 +239,60 @@ s2_vpn_state() {
 
 s2_vpn_quick() { s2_vpn_state; }
 
+s2_dashboard_refresh_due() {
+    local marker="$SAMAN2_CACHE/.last-refresh" now mtime
+    [ -f "$marker" ] || return 0
+    now="$(printf '%(%s)T' -1)"
+    mtime="$(stat -c %Y "$marker" 2>/dev/null || printf 0)"
+    [[ "$mtime" =~ ^[0-9]+$ ]] || return 0
+    [ $((now-mtime)) -ge "$DASHBOARD_CACHE_TTL" ]
+}
+
 s2_refresh_dashboard() {
+    local force="${1:-}"
+    s2_init_runtime >/dev/null 2>&1 || return 1
+    [ "$force" = force ] || s2_dashboard_refresh_due || return 0
+    mkdir "$SAMAN2_CACHE/.refresh-lock" 2>/dev/null || return 0
     (
-        local j
-        j="$(timeout 5 termux-battery-status 2>/dev/null || true)"
-        if [ -n "$j" ] && s2_have jq && printf '%s' "$j" | jq -e . >/dev/null 2>&1; then
-            printf '%s%%\n' "$(printf '%s' "$j" | jq -r '.percentage // "?"')" > "$SAMAN2_CACHE/battery.tmp"
-            printf '%s°C\n' "$(printf '%s' "$j" | jq -r '.temperature // "?"')" > "$SAMAN2_CACHE/temp.tmp"
-            mv -f "$SAMAN2_CACHE/battery.tmp" "$SAMAN2_CACHE/battery"
-            mv -f "$SAMAN2_CACHE/temp.tmp" "$SAMAN2_CACHE/temp"
-        fi
+        trap 'rmdir "$SAMAN2_CACHE/.refresh-lock" 2>/dev/null || true' EXIT
+        (
+            local j tmp
+            tmp="$SAMAN2_CACHE/battery.$BASHPID.tmp"
+            j="$(timeout "$TERMUX_API_TIMEOUT" termux-battery-status 2>/dev/null || true)"
+            if [ -n "$j" ] && s2_have jq && printf '%s' "$j" | jq -e . >/dev/null 2>&1; then
+                printf '%s%%\n' "$(printf '%s' "$j" | jq -r '.percentage // "?"')" > "$tmp"
+                mv -f "$tmp" "$SAMAN2_CACHE/battery"
+                tmp="$SAMAN2_CACHE/temp.$BASHPID.tmp"
+                printf '%s°C\n' "$(printf '%s' "$j" | jq -r '.temperature // "?"')" > "$tmp"
+                mv -f "$tmp" "$SAMAN2_CACHE/temp"
+            fi
+        ) &
+        (
+            local j ssid iface label tmp
+            iface="$(s2_default_iface)"
+            j="$(timeout "$TERMUX_API_TIMEOUT" termux-wifi-connectioninfo 2>/dev/null || true)"
+            ssid=''
+            if [ -n "$j" ] && s2_have jq && printf '%s' "$j" | jq -e . >/dev/null 2>&1; then ssid="$(printf '%s' "$j" | jq -r '.ssid // empty')"; fi
+            label="$(s2_network_label "$ssid" "$iface")"
+            tmp="$SAMAN2_CACHE/network.$BASHPID.tmp"; printf '%s\n' "$label" > "$tmp"; mv -f "$tmp" "$SAMAN2_CACHE/network"
+        ) &
+        (
+            local tmp
+            tmp="$SAMAN2_CACHE/vpn.$BASHPID.tmp"; printf '%s\n' "$(s2_vpn_state)" > "$tmp"; mv -f "$tmp" "$SAMAN2_CACHE/vpn"
+        ) &
+        (
+            local trace ip cc tmp
+            trace="$(curl -4 -sS --max-time "$NETWORK_TIMEOUT" https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null || true)"
+            ip="$(sed -n 's/^ip=//p' <<< "$trace" | head -n1)"; cc="$(sed -n 's/^loc=//p' <<< "$trace" | head -n1)"
+            if [ -n "$ip" ]; then tmp="$SAMAN2_CACHE/ip.$BASHPID.tmp"; printf '%s\n' "$ip" > "$tmp"; mv -f "$tmp" "$SAMAN2_CACHE/ip"; fi
+            if [ -n "$cc" ]; then tmp="$SAMAN2_CACHE/country.$BASHPID.tmp"; printf '%s\n' "$cc" > "$tmp"; mv -f "$tmp" "$SAMAN2_CACHE/country"; fi
+        ) &
+        wait
+        : > "$SAMAN2_CACHE/.last-refresh"
     ) >/dev/null 2>&1 &
-
-    (
-        local j ssid iface label
-        iface="$(s2_default_iface)"
-        j="$(timeout 5 termux-wifi-connectioninfo 2>/dev/null || true)"
-        ssid=''
-        if [ -n "$j" ] && s2_have jq && printf '%s' "$j" | jq -e . >/dev/null 2>&1; then
-            ssid="$(printf '%s' "$j" | jq -r '.ssid // empty')"
-        fi
-        label="$(s2_network_label "$ssid" "$iface")"
-        printf '%s\n' "$label" > "$SAMAN2_CACHE/network.tmp"
-        mv -f "$SAMAN2_CACHE/network.tmp" "$SAMAN2_CACHE/network"
-    ) >/dev/null 2>&1 &
-
-    (
-        printf '%s\n' "$(s2_vpn_state)" > "$SAMAN2_CACHE/vpn.tmp"
-        mv -f "$SAMAN2_CACHE/vpn.tmp" "$SAMAN2_CACHE/vpn"
-    ) >/dev/null 2>&1 &
-
-    (
-        local trace ip cc
-        trace="$(curl -4 -sS --max-time 5 https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null || true)"
-        ip="$(printf '%s\n' "$trace" | sed -n 's/^ip=//p' | head -n1)"
-        cc="$(printf '%s\n' "$trace" | sed -n 's/^loc=//p' | head -n1)"
-        [ -n "$ip" ] && printf '%s\n' "$ip" > "$SAMAN2_CACHE/ip.tmp" && mv -f "$SAMAN2_CACHE/ip.tmp" "$SAMAN2_CACHE/ip"
-        [ -n "$cc" ] && printf '%s\n' "$cc" > "$SAMAN2_CACHE/country.tmp" && mv -f "$SAMAN2_CACHE/country.tmp" "$SAMAN2_CACHE/country"
-    ) >/dev/null 2>&1 &
+    # Consumed by saman2 after this module is sourced dynamically.
+    # shellcheck disable=SC2034
+    S2_REFRESH_PID=$!
 }
 
 s2_dashboard_warmup() {

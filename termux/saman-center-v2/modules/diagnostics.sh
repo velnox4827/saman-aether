@@ -21,65 +21,85 @@ s2_check_cmd() {
 }
 
 s2_doctor() {
-    local verbose=no bad=0 c
-    case "${1:-}" in --verbose|-v|verbose) verbose=yes ;; esac
+    local verbose=no bad=0 warn=0 c path vpn_state iface_visibility pid_file="$HOME/.saman-aether/aether.pid" pid=''
+    case "${1:-}" in '' ) ;; --verbose|-v|verbose) verbose=yes ;; *) printf 'ERROR: usage: saman doctor [--verbose]\n' >&2; return 2 ;; esac
 
     echo "Saman Phone Center Doctor"
     echo "Version : $SAMAN2_VERSION"
-    echo "Columns : $(s2_terminal_cols)"
     echo
 
-    echo "Core dependencies:"
-    for c in bash curl jq python ffmpeg ffprobe aria2c yt-dlp ip ss awk sed tar; do
+    echo "Required runtime:"
+    for c in bash awk sed grep curl ip ss timeout readlink; do
         s2_check_cmd "$c" yes "$verbose" || bad=$((bad+1))
     done
+
+    echo
+    echo "Optional feature dependencies:"
+    for c in jq python ffmpeg ffprobe aria2c yt-dlp tar qrencode; do
+        s2_check_cmd "$c" no "$verbose" || true
+    done
+
+    echo
+    echo "Installation integrity:"
+    for path in "$HOME/bin/saman" "$SAMAN2_ROOT/saman2" "$SAMAN2_ROOT/lib/common.sh" \
+        "$SAMAN2_ROOT/lib/config.sh" "$SAMAN2_ROOT/modules/aether.sh" \
+        "$PREFIX/bin/saman-aether-core" "$HOME/.aether-shortcut-runner"; do
+        if [ -x "$path" ] || { [[ "$path" == *.sh ]] && [ -r "$path" ]; }; then
+            [ "$verbose" = yes ] && printf '  OK      %s\n' "$path" || printf '  OK      %s\n' "${path##*/}"
+        else
+            printf '  ERROR   missing/not usable: %s\n' "$path"; bad=$((bad+1))
+        fi
+    done
+    if [ "${#S2_CONFIG_ERRORS[@]}" -gt 0 ]; then
+        printf '  ERROR   invalid configuration: %s\n' "$S2_CONFIG_FILE"; bad=$((bad+1))
+    else
+        printf '  OK      configuration valid\n'
+    fi
+
+    if [ -e "$pid_file" ]; then
+        [ -s "$pid_file" ] && pid="$(<"$pid_file")"
+        if s2_aether_pid_is_core "$pid"; then printf '  OK      tracked Aether PID %s\n' "$pid"
+        else printf '  WARNING stale PID file (run: saman repair)\n'; warn=$((warn+1)); fi
+    else
+        printf '  OK      no stale PID file\n'
+    fi
 
     echo
     echo "Termux / Android integration:"
     for c in termux-battery-status termux-wifi-connectioninfo termux-clipboard-get termux-notification termux-open; do
         s2_check_cmd "$c" no "$verbose" || true
     done
-    if [ -d "$HOME/storage/shared" ]; then
-        printf '  ✓ shared storage\n'
-    else
-        printf '  ! shared storage (run termux-setup-storage)\n'
-    fi
+    if [ -d "$HOME/storage/shared" ]; then printf '  OK      shared storage available\n'
+    else printf '  WARNING shared storage unavailable (run termux-setup-storage)\n'; warn=$((warn+1)); fi
 
     echo
-    echo "Saman legacy tools:"
-    for c in sdm media netcheck saman-share saman-filebox saman-imagebox; do
-        if p="$(s2_legacy "$c" 2>/dev/null)"; then
-            if [ "$verbose" = yes ]; then printf '  ✓ %-22s %s\n' "$c" "$p"; else printf '  ✓ %s\n' "$c"; fi
-        else
-            printf '  ! %s (missing)\n' "$c"
-        fi
-    done
+    echo "Network visibility:"
+    vpn_state="$(s2_vpn_state)"; iface_visibility="$(s2_net_iface_visibility)"
+    printf '  INFO    network: %s\n' "$(s2_network_label '' "$(s2_default_iface)")"
+    printf '  INFO    VPN: %s | interfaces: %s\n' "$vpn_state" "$iface_visibility"
+    [ "$vpn_state" = '?' ] && { printf '  WARNING Android hides VPN state from Termux\n'; warn=$((warn+1)); }
 
     echo
-    echo "Network detection:"
-    printf '  • network : %s\n' "$(s2_network_label '' "$(s2_default_iface)")"
-    printf '  • VPN     : %s\n' "$(s2_vpn_state)"
-    printf '  • iface visibility: %s\n' "$(s2_net_iface_visibility)"
-    if v="$(s2_vpn_iface 2>/dev/null)" && [ -n "$v" ]; then
-        printf '  • VPN iface: %s\n' "$v"
-    elif [ "$(s2_vpn_state)" = '?' ]; then
-        printf '  • note    : Android hides VPN state from Termux\n'
-    fi
-
-    echo
-    echo "Aether:"
+    echo "Aether integration:"
     if [ -x "$PREFIX/bin/saman-aether-core" ]; then
-        printf '  ✓ patched core : %s\n' "$("$PREFIX/bin/saman-aether-core" --version 2>/dev/null | head -n1)"
+        printf '  OK      patched core: %s\n' "$(timeout 3 "$PREFIX/bin/saman-aether-core" --version 2>/dev/null | head -n1)"
     else
-        printf '  ! patched core : missing\n'
+        printf '  ERROR   patched core missing\n'; bad=$((bad+1))
     fi
-    [ -x "$HOME/.aether-shortcut-runner" ] && printf '  ✓ runner       : found\n' || printf '  ! runner       : missing\n'
+    [ -x "$HOME/.aether-shortcut-runner" ] && printf '  OK      runner executable\n' || { printf '  ERROR   runner missing/not executable\n'; bad=$((bad+1)); }
 
     echo
-    if [ "$bad" -eq 0 ]; then s2_ok "No missing core dependency detected."; else s2_err "$bad core dependencies are missing."; fi
-    if s2_have termux-battery-status; then
-        if s2_termux_api_ok; then s2_ok "Termux:API responds."; else s2_warn "Termux:API command exists but did not respond. Check companion app/permissions."; fi
+    if [ "$bad" -gt 0 ]; then
+        printf 'ERROR: %s required check(s) failed; %s warning(s).\n' "$bad" "$warn"
+        printf 'ACTION REQUIRED: run saman repair, then saman doctor --verbose.\n'
+        return 1
     fi
+    if [ "$warn" -gt 0 ]; then
+        printf 'WARNING: required checks passed with %s warning(s).\n' "$warn"
+    else
+        printf 'OK: all required checks passed.\n'
+    fi
+    return 0
 }
 
 s2_safe_report() {

@@ -11,17 +11,22 @@ s2_download_open() {
 }
 
 s2_download_url() {
-    local url="${1:-}"
+    local url="${1:-}" lower
     [ -n "$url" ] || { read -r -p "URL: " url; }
     [ -n "$url" ] || return 1
     case "$url" in
-        *youtube.com/*|*youtu.be/*|*youtube-nocookie.com/*)
+        http://*|https://*) ;;
+        *) s2_err "Only http:// and https:// download URLs are allowed."; return 2 ;;
+    esac
+    lower="${url,,}"
+    case "$lower" in
+        http://youtube.com/*|https://youtube.com/*|http://www.youtube.com/*|https://www.youtube.com/*|http://youtu.be/*|https://youtu.be/*|http://youtube-nocookie.com/*|https://youtube-nocookie.com/*|http://www.youtube-nocookie.com/*|https://www.youtube-nocookie.com/*)
             if p="$(s2_legacy sdm 2>/dev/null)"; then "$p" --youtube-share "$url"; else return 1; fi
             ;;
         *)
             if p="$(s2_legacy dl 2>/dev/null)"; then "$p" "$url"; else
                 mkdir -p "$SAMAN2_DOWNLOADS"
-                aria2c --dir="$SAMAN2_DOWNLOADS" --continue=true --max-connection-per-server=8 --split=8 --file-allocation=none "$url"
+                aria2c --dir="$SAMAN2_DOWNLOADS" --continue=true --max-connection-per-server=8 --split=8 --file-allocation=none -- "$url"
             fi
             ;;
     esac

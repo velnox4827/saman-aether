@@ -24,12 +24,21 @@ permissions:
 jobs:
   shell-tests:
     runs-on: ubuntu-24.04
+    env:
+      PREFIX: ${{ runner.temp }}/termux-prefix
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
       - name: Install shellcheck
         run: sudo apt-get update && sudo apt-get install -y shellcheck
       - name: Run Termux maintenance tests
-        run: bash termux/tests/test-termux.sh
+        run: |
+          bash termux/tests/test-termux.sh
+          bash termux/tests/test-center.sh
+          bash termux/tests/test-safety.sh
+          bash termux/tests/test-backup.sh
+          bash termux/tests/test-diagnostics.sh
+          bash termux/tests/test-runner.sh
+          python termux/saman-center-v2/share/test_server.py
       - name: ShellCheck canonical scripts
         run: |
           shellcheck --severity=warning \

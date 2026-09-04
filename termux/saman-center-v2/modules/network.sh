@@ -18,9 +18,17 @@ s2_network_route() {
     printf '%s\n' "$route"
 }
 
+s2_network_valid_ipv4() {
+    awk -F. 'NF==4 {for(i=1;i<=4;i++) if($i !~ /^[0-9]+$/ || $i<0 || $i>255) exit 1; exit 0} {exit 1}' <<< "${1:-}"
+}
+
+s2_network_valid_ipv6() {
+    [[ "${1:-}" == *:* && "${1:-}" =~ ^[0-9A-Fa-f:.]+$ ]]
+}
+
 s2_network_latency_direct() {
     local out code total ms
-    out="$(curl -4 -o /dev/null -sS --max-time 8 -w '%{http_code} %{time_total}' https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null || true)"
+    out="$(curl -4 -o /dev/null -sS --connect-timeout "${NETWORK_TIMEOUT:-8}" --max-time "${NETWORK_TIMEOUT:-8}" -w '%{http_code} %{time_total}' https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null || true)"
     code="${out%% *}"; total="${out#* }"
     [ -n "$total" ] && [ "$total" != "$out" ] || return 1
     ms="$(awk -v t="$total" 'BEGIN{printf "%.0f", t*1000}')"
@@ -29,14 +37,26 @@ s2_network_latency_direct() {
 
 s2_network_quick() {
     local ip4 ip6 data country city isp asn vpn_state vpn_if route dns iface netlabel latency
-    ip4="$(curl -4 -sS --max-time 7 https://api.ipify.org 2>/dev/null || true)"
-    ip6="$(curl -6 -sS --max-time 5 https://api64.ipify.org 2>/dev/null || true)"
-    data="$(curl -sS --max-time 8 https://ipwho.is/ 2>/dev/null || true)"
+    local probe_dir p4 p6 pg pl
+    probe_dir="$(mktemp -d)" || return 1
+    curl -4 -fsS --connect-timeout "$NETWORK_TIMEOUT" --max-time "$NETWORK_TIMEOUT" https://api.ipify.org >"$probe_dir/ip4" 2>/dev/null & p4=$!
+    curl -6 -fsS --connect-timeout "$NETWORK_TIMEOUT" --max-time "$NETWORK_TIMEOUT" https://api64.ipify.org >"$probe_dir/ip6" 2>/dev/null & p6=$!
+    curl -fsS --connect-timeout "$NETWORK_TIMEOUT" --max-time "$NETWORK_TIMEOUT" https://ipwho.is/ >"$probe_dir/geo" 2>/dev/null & pg=$!
+    s2_network_latency_direct >"$probe_dir/latency" 2>/dev/null & pl=$!
+    wait "$p4" 2>/dev/null || true; wait "$p6" 2>/dev/null || true
+    wait "$pg" 2>/dev/null || true; wait "$pl" 2>/dev/null || true
+    ip4="$(s2_terminal_field < "$probe_dir/ip4")"
+    ip6="$(s2_terminal_field < "$probe_dir/ip6")"
+    s2_network_valid_ipv4 "$ip4" || ip4=''
+    s2_network_valid_ipv6 "$ip6" || ip6=''
+    data="$(<"$probe_dir/geo")"
+    latency="$(s2_terminal_field < "$probe_dir/latency")"
+    rm -rf -- "$probe_dir"
     if s2_have jq && printf '%s' "$data" | jq -e '.success == true' >/dev/null 2>&1; then
-        country="$(printf '%s' "$data" | jq -r '.country // "Unknown"')"
-        city="$(printf '%s' "$data" | jq -r '.city // "Unknown"')"
-        isp="$(printf '%s' "$data" | jq -r '.connection.isp // "Unknown"')"
-        asn="$(printf '%s' "$data" | jq -r '.connection.asn // "Unknown"')"
+        country="$(printf '%s' "$data" | jq -r '.country // "Unknown"' | s2_terminal_field)"
+        city="$(printf '%s' "$data" | jq -r '.city // "Unknown"' | s2_terminal_field)"
+        isp="$(printf '%s' "$data" | jq -r '.connection.isp // "Unknown"' | s2_terminal_field)"
+        asn="$(printf '%s' "$data" | jq -r '.connection.asn // "Unknown"' | s2_terminal_field)"
     else
         country='Unknown'; city='Unknown'; isp='Unknown'; asn='Unknown'
     fi
@@ -47,7 +67,6 @@ s2_network_quick() {
     vpn_if="$(s2_vpn_iface 2>/dev/null || true)"
     route="$(s2_network_route)"
     dns="$(s2_network_dns)"
-    latency="$(s2_network_latency_direct 2>/dev/null || true)"
 
     echo "Network     : $netlabel"
     echo "Interface   : ${iface:-not visible}"
@@ -66,7 +85,7 @@ s2_network_quick() {
     else
         s2_err "Internet reachability check failed"
     fi
-    if s2_port_listening 1819; then
+    if s2_port_listening "$AETHER_SOCKS_PORT"; then
         echo
         echo "Aether proxy:"
         s2_aether_probe compact || true

@@ -152,6 +152,14 @@ After installation, refresh Termux:Widget. On Android 15, set Termux battery use
 ```bash
 saman status
 saman doctor --verbose
+saman repair --dry-run
+saman logs aether --lines 80
+saman config show
+saman config validate
+saman config set NETWORK_TIMEOUT 8
+saman refresh
+saman backup
+saman share
 saman aether status
 saman aether start h3
 saman aether start h2
@@ -163,6 +171,21 @@ saman aether test
 saman aether diagnostics safe
 saman aether diagnostics full
 ```
+
+Saman Center 2.1 loads only the module required by the selected command, so
+`version` and `help` remain read-only and fast. `status` takes one process and
+socket snapshot; `doctor` distinguishes required failures from optional-tool
+warnings; `repair --dry-run` previews only conservative runtime cleanup; and
+`logs` is noninteractive and line-bounded.
+
+Numeric settings live in `~/.config/saman-center-v2/settings.conf`. The file is
+whitelist-parsed and is never sourced as shell code. Use `saman config show` to
+see effective values, `saman config validate` to report invalid values or port
+collisions, and `saman config set KEY VALUE` for an atomic update. Supported
+keys cover the Aether/Share ports, Share size/free-space/connection limits,
+network and Termux API deadlines, dashboard cache TTL, bounded log sizes,
+Aether readiness/port hand-off/log-guard timing, and Smart Reconnect thresholds.
+Unknown custom lines are preserved but never evaluated.
 
 Compatibility commands remain valid:
 
@@ -431,6 +454,14 @@ bash "$TMPDIR/saman-install.sh" update
 ```bash
 saman status
 saman doctor --verbose
+saman repair --dry-run
+saman logs aether --lines 80
+saman config show
+saman config validate
+saman config set NETWORK_TIMEOUT 8
+saman refresh
+saman backup
+saman share
 saman aether status
 saman aether start h3
 saman aether start h2
@@ -442,6 +473,21 @@ saman aether test
 saman aether diagnostics safe
 saman aether diagnostics full
 ```
+
+Saman Center 2.1 فقط ماژول لازم برای فرمان انتخاب‌شده را بارگذاری می‌کند؛ بنابراین
+`version` و `help` سریع و بدون تغییر وضعیت هستند. فرمان `status` فقط یک snapshot
+از پردازش‌ها و socketها می‌گیرد، `doctor` شکست dependencyهای ضروری را از هشدار
+ابزارهای اختیاری جدا می‌کند، `repair --dry-run` فقط پاک‌سازی محافظه‌کارانهٔ runtime
+را پیش‌نمایش می‌کند و خروجی `logs` غیرتعاملی و محدود به تعداد خط است.
+
+تنظیمات عددی در `~/.config/saman-center-v2/settings.conf` قرار دارند. این فایل فقط
+با whitelist خوانده می‌شود و هرگز به‌عنوان کد shell اجرا نمی‌شود. برای دیدن مقدارهای
+موثر از `saman config show`، برای تشخیص مقدار نامعتبر یا تداخل پورت از
+`saman config validate` و برای به‌روزرسانی اتمیک از `saman config set KEY VALUE`
+استفاده کنید. کلیدهای پشتیبانی‌شده پورت‌های Aether/Share، محدودیت حجم/فضای آزاد/
+اتصال Share، deadline شبکه و Termux API، TTL کش dashboard، اندازهٔ محدود لاگ،
+زمان‌بندی readiness/تحویل پورت/محافظ لاگ Aether و آستانه‌های Smart Reconnect را
+پوشش می‌دهند. خط‌های سفارشی ناشناخته حفظ می‌شوند، اما هرگز ارزیابی نمی‌شوند.
 
 فرمان‌های سازگاری نیز معتبرند:
 

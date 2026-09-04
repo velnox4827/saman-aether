@@ -3,80 +3,132 @@ set -u
 set -o pipefail
 
 SAMAN2_ROOT="${SAMAN2_ROOT:-$HOME/.local/share/saman-center-v2}"
-if [ ! -f "$SAMAN2_ROOT/lib/common.sh" ]; then
-    echo "Saman Center v2 installation not found: $SAMAN2_ROOT" >&2
+if [ ! -r "$SAMAN2_ROOT/lib/common.sh" ]; then
+    printf 'ERROR: Saman Center installation not found: %s\n' "$SAMAN2_ROOT" >&2
     exit 1
 fi
-
+# shellcheck source=lib/common.sh
 source "$SAMAN2_ROOT/lib/common.sh"
-source "$SAMAN2_ROOT/lib/ui.sh"
-source "$SAMAN2_ROOT/modules/aether.sh"
-source "$SAMAN2_ROOT/modules/network.sh"
-source "$SAMAN2_ROOT/modules/download.sh"
-source "$SAMAN2_ROOT/modules/media.sh"
-source "$SAMAN2_ROOT/modules/toolboxes.sh"
-source "$SAMAN2_ROOT/modules/phone.sh"
-source "$SAMAN2_ROOT/modules/maintenance.sh"
-source "$SAMAN2_ROOT/modules/diagnostics.sh"
-source "$SAMAN2_ROOT/modules/backup.sh"
-source "$SAMAN2_ROOT/modules/share.sh"
-
-s2_status() {
-    echo "Saman Phone Center $SAMAN2_VERSION"
-    echo
-    s2_aether_status
-    echo
-    echo "Storage free : $(df -h "$HOME" 2>/dev/null | awk 'NR==2{print $4}')"
-}
 
 s2_help() {
     cat <<HELP
 Saman Phone Center $SAMAN2_VERSION
 
 Usage:
-  saman2                     Open interactive center
-  saman2 status              Quick status
-  saman2 doctor              Compact dependency check
-  saman2 doctor --verbose    Dependency paths/details
-  saman2 refresh             Refresh dashboard cache
-  saman2 backup              Create safe script backup
-  saman2 network             Network summary
-  saman2 network debug       Network/VPN detection debug
-  saman2 download [URL]      Open SDM or download URL
-  saman2 media               Open Media Center
-  saman2 share               Start Saman Share 2
-  saman2 aether status
-  saman2 aether start wg|gool|h3|h2
-  saman2 aether restart wg|gool|h3|h2
-  saman2 aether stop
-  saman2 aether test
-  saman2 aether diagnostics [safe|full]
-  saman2 aether exit
-  saman2 version
+  saman                         Open interactive center
+  saman status                  Fast local status
+  saman doctor [--verbose]      Validate dependencies and integration
+  saman repair [--dry-run]      Apply conservative local repairs
+  saman logs AREA [--lines N]   Read bounded logs (center/aether/wg/gool/h3/h2)
+  saman config show|validate    Show safe settings or validate configuration
+  saman config set KEY VALUE    Update one whitelisted numeric setting
+  saman refresh                 Refresh dashboard cache
+  saman backup                  Create a safe script backup
+  saman network [debug]         Network/VPN summary or detection details
+  saman download [URL]          Open SDM or download a URL
+  saman media                   Open Media Center
+  saman share                   Start token-protected Saman Share
+  saman aether status
+  saman aether start MODE       MODE: wg, gool, h3, h2
+  saman aether restart MODE
+  saman aether stop|test|exit
+  saman aether diagnostics [safe|full]
+  saman about                   Versions and canonical paths
+  saman version                 Print Saman Center version
 HELP
 }
 
+s2_load_base() {
+    [ "${S2_BASE_LOADED:-0}" -eq 1 ] && return 0
+    # shellcheck source=lib/config.sh
+    source "$SAMAN2_ROOT/lib/config.sh"
+    s2_config_load
+    # shellcheck source=lib/ui.sh
+    source "$SAMAN2_ROOT/lib/ui.sh"
+    S2_BASE_LOADED=1
+}
+
+s2_load_aether() {
+    s2_load_base
+    [ "${S2_AETHER_LOADED:-0}" -eq 1 ] && return 0
+    # shellcheck source=modules/aether.sh
+    source "$SAMAN2_ROOT/modules/aether.sh"
+    S2_AETHER_LOADED=1
+}
+
+s2_load_system() {
+    s2_load_aether
+    [ "${S2_SYSTEM_LOADED:-0}" -eq 1 ] && return 0
+    # shellcheck source=modules/system.sh
+    source "$SAMAN2_ROOT/modules/system.sh"
+    S2_SYSTEM_LOADED=1
+}
+
+s2_status() {
+    echo "Saman Phone Center $SAMAN2_VERSION"
+    echo
+    s2_aether_status
+    echo
+    printf 'Storage free : '
+    df -h "$HOME" 2>/dev/null | awk 'NR==2{print $4}'
+}
+
+s2_about() {
+    printf '%s\n' \
+        "Saman Center : $SAMAN2_VERSION" \
+        "Saman Termux : $SAMAN_TERMUX_VERSION" \
+        "Saman Tunnel : $SAMAN_TUNNEL_VERSION" \
+        "Center root  : $SAMAN2_ROOT" \
+        "Command      : $HOME/bin/saman" \
+        "Config       : $SAMAN2_CONFIG/settings.conf" \
+        "State        : $SAMAN2_STATE" \
+        "Cache        : $SAMAN2_CACHE"
+}
+
 s2_main_menu() {
+    s2_init_runtime || return 1
+    # shellcheck source=modules/network.sh
+    source "$SAMAN2_ROOT/modules/network.sh"
+    # shellcheck source=modules/download.sh
+    source "$SAMAN2_ROOT/modules/download.sh"
+    # shellcheck source=modules/media.sh
+    source "$SAMAN2_ROOT/modules/media.sh"
+    # shellcheck source=modules/toolboxes.sh
+    source "$SAMAN2_ROOT/modules/toolboxes.sh"
+    # shellcheck source=modules/phone.sh
+    source "$SAMAN2_ROOT/modules/phone.sh"
+    # shellcheck source=modules/maintenance.sh
+    source "$SAMAN2_ROOT/modules/maintenance.sh"
+    # shellcheck source=modules/diagnostics.sh
+    source "$SAMAN2_ROOT/modules/diagnostics.sh"
+    # shellcheck source=modules/backup.sh
+    source "$SAMAN2_ROOT/modules/backup.sh"
+    # shellcheck source=modules/share.sh
+    source "$SAMAN2_ROOT/modules/share.sh"
+    s2_load_system
+
     while true; do
         s2_clear; s2_dashboard
-        s2_section "NETWORK"
-        printf "%b1%b  Aether & Proxy\n" "$S2_CYAN" "$S2_RESET"
-        printf "%b8%b  Network Analyzer\n" "$S2_CYAN" "$S2_RESET"
+        s2_section "CONNECTION"
+        printf "%b1%b  Aether / Connect / Stop\n" "$S2_CYAN" "$S2_RESET"
+        printf "%b8%b  Network & VPN status\n" "$S2_CYAN" "$S2_RESET"
         echo
         s2_section "TOOLS"
         printf "%b2%b  Download Center\n" "$S2_CYAN" "$S2_RESET"
         printf "%b3%b  Media Center\n" "$S2_CYAN" "$S2_RESET"
         printf "%b4%b  File Center\n" "$S2_CYAN" "$S2_RESET"
         printf "%b5%b  Image Center\n" "$S2_CYAN" "$S2_RESET"
-        printf "%b6%b  Saman Share 2\n" "$S2_CYAN" "$S2_RESET"
+        printf "%b6%b  Saman Share\n" "$S2_CYAN" "$S2_RESET"
         printf "%b7%b  Phone Tools\n" "$S2_CYAN" "$S2_RESET"
         echo
         s2_section "SYSTEM"
-        printf "%b9%b  Diagnostics\n" "$S2_CYAN" "$S2_RESET"
+        printf "%b9%b  Diagnostics / Doctor\n" "$S2_CYAN" "$S2_RESET"
+        printf "%bR%b  Repair\n" "$S2_CYAN" "$S2_RESET"
+        printf "%bL%b  Logs\n" "$S2_CYAN" "$S2_RESET"
         printf "%bM%b  Maintenance\n" "$S2_CYAN" "$S2_RESET"
         printf "%bB%b  Backup\n" "$S2_CYAN" "$S2_RESET"
         echo "0  Exit"; echo
-        x="$(s2_read_choice)"
+        x="$(s2_read_choice)" || return 0
         case "$x" in
             1) s2_aether_menu ;;
             2) s2_download_menu ;;
@@ -87,26 +139,40 @@ s2_main_menu() {
             7) s2_phone_menu ;;
             8) s2_network_menu ;;
             9) s2_diagnostics_menu ;;
+            r|R) s2_repair --dry-run; s2_pause ;;
+            l|L) s2_logs aether --lines 80; s2_pause ;;
             m|M) s2_maintenance_menu ;;
             b|B) s2_backup_menu ;;
-            0) s2_clear; echo "Saman Center v2 closed."; return 0 ;;
+            0) s2_clear; echo "Saman Center closed."; return 0 ;;
         esac
     done
 }
 
 case "${1:-}" in
-    '') s2_main_menu ;;
-    status) s2_status ;;
-    doctor) s2_doctor "${2:-}" ;;
-    refresh) rm -rf "${SAMAN2_CACHE:?}"/* 2>/dev/null || true; mkdir -p "$SAMAN2_CACHE"; s2_refresh_dashboard; sleep 1; s2_status ;;
-    backup) s2_backup ;;
-    network) if [ "${2:-}" = debug ]; then s2_network_debug; else s2_network_quick; fi ;;
-    download) shift; if [ "$#" -gt 0 ]; then s2_download_url "$1"; else s2_download_open; fi ;;
-    media) s2_media_menu ;;
-    share) s2_share_menu ;;
-    version|--version|-v) echo "$SAMAN2_VERSION" ;;
+    version|--version|-v) printf '%s\n' "$SAMAN2_VERSION" ;;
     help|--help|-h) s2_help ;;
+    about) s2_load_base; s2_about ;;
+    status) s2_load_aether; s2_status ;;
+    doctor) s2_load_aether; source "$SAMAN2_ROOT/modules/network.sh"; source "$SAMAN2_ROOT/modules/diagnostics.sh"; s2_doctor "${2:-}" ;;
+    repair) s2_load_system; s2_repair "${2:-}" ;;
+    logs) s2_load_system; shift; s2_logs "$@" ;;
+    config)
+        source "$SAMAN2_ROOT/lib/config.sh"; s2_config_load
+        case "${2:-show}" in
+            show) s2_config_show ;;
+            validate) s2_config_validate ;;
+            set) s2_config_set "${3:-}" "${4:-}" ;;
+            *) printf 'ERROR: usage: saman config show|validate|set KEY VALUE\n' >&2; exit 2 ;;
+        esac
+        ;;
+    refresh) s2_load_base; s2_init_runtime; rm -f -- "$SAMAN2_CACHE/.last-refresh"; rmdir "$SAMAN2_CACHE/.refresh-lock" 2>/dev/null || true; s2_refresh_dashboard force; [ -n "${S2_REFRESH_PID:-}" ] && wait "$S2_REFRESH_PID"; s2_load_aether; s2_status ;;
+    backup) s2_load_base; s2_init_runtime; source "$SAMAN2_ROOT/modules/backup.sh"; s2_backup ;;
+    network) s2_load_aether; source "$SAMAN2_ROOT/modules/network.sh"; if [ "${2:-}" = debug ]; then s2_network_debug; else s2_network_quick; fi ;;
+    download) s2_load_base; source "$SAMAN2_ROOT/modules/download.sh"; shift; if [ "$#" -gt 0 ]; then s2_download_url "$1"; else s2_download_open; fi ;;
+    media) s2_load_base; s2_init_runtime; source "$SAMAN2_ROOT/modules/media.sh"; s2_media_menu ;;
+    share) s2_load_base; source "$SAMAN2_ROOT/modules/share.sh"; s2_share_menu ;;
     aether)
+        s2_load_aether
         case "${2:-status}" in
             status) s2_aether_status ;;
             start) s2_aether_start "${3:-}" ;;
@@ -115,9 +181,10 @@ case "${1:-}" in
             test|probe) s2_aether_probe ;;
             diagnostics) s2_aether_diagnostics "${3:-safe}" ;;
             exit) s2_aether_exit ;;
-            logs) s2_aether_logs_menu ;;
+            logs) s2_load_system; s2_logs aether --lines "${3:-80}" ;;
             *) s2_help; exit 2 ;;
         esac
         ;;
-    *) s2_help; exit 2 ;;
+    '') s2_load_aether; s2_main_menu ;;
+    *) s2_help >&2; exit 2 ;;
 esac

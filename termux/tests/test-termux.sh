@@ -21,6 +21,12 @@ bash -n "${shell_files[@]}"
 for file in "${shell_files[@]}"; do [ -x "$file" ] || fail "not executable: $file"; done
 pass "shell syntax and executable permissions"
 
+# The same warning-level ShellCheck gate used by CI must stay green locally.
+if command -v shellcheck >/dev/null 2>&1; then
+    shellcheck --severity=warning "${shell_files[@]}"
+    pass "warning-level ShellCheck gate"
+fi
+
 # Installer architecture mapping is deterministic and rejects unsupported CPUs.
 PREFIX="${PREFIX:-$TEST_TMP/prefix}"
 # shellcheck source=../../install.sh
@@ -69,6 +75,11 @@ ss() { printf 'LISTEN 0 128 127.0.0.1:1819 0.0.0.0:*\n'; }
 if local_proxy_ports_free; then fail "busy canonical port was treated as free"; fi
 ss() { return 0; }
 local_proxy_ports_free || fail "empty listener set was treated as busy"
+ss() { printf 'Cannot open netlink socket: Permission denied\n' >&2; return 0; }
+installer_tcp_port_accepting() { [ "$1" = 1819 ]; }
+if local_proxy_ports_free; then fail "permission-denied ss hid an occupied loopback port"; fi
+installer_tcp_port_accepting() { return 1; }
+local_proxy_ports_free || fail "TCP fallback treated refused loopback ports as busy"
 unset -f ss
 pass "fail-closed port verification"
 
@@ -98,12 +109,15 @@ pass "aether-control validation and delegation"
 
 # Installer version, source pin, and release URLs are explicit and trusted.
 grep -q 'SAMAN_TERMUX_VERSION="1.5.0"' "$ROOT/install.sh" || fail "Termux integration version"
-grep -q 'SOURCE_REF="${SAMAN_SOURCE_REF:-termux-v1.5.0}"' "$ROOT/install.sh" || fail "version-pinned runtime source"
+grep -q 'SOURCE_REF="${SAMAN_SOURCE_REF:-main}"' "$ROOT/install.sh" || fail "maintenance source ref is separated from the core release tag"
 grep -q 'TERMUX_RELEASE_FALLBACK="termux-v1.5.0"' "$ROOT/install.sh" || fail "Termux release fallback"
 if grep -q 'termux-v1.4.0' "$ROOT/install.sh"; then fail "active legacy Termux release reference"; fi
 grep -q 'https://github.com/\$REPO/releases/download/' "$ROOT/install.sh" || fail "trusted release URL check"
 grep -q 'SHA-256 mismatch; refusing to install' "$ROOT/install.sh" || fail "checksum fail-closed behavior"
 grep -q 'rollback' "$ROOT/install.sh" || fail "rollback support"
+grep -q '\[ "$("\$SAMAN_BIN" version)" = "2.1.0" \]' "$ROOT/install.sh" || fail "installer verifies current Center version"
+if grep -q 'rm -rf "\$CENTER_ROOT"' "$ROOT/install.sh"; then fail "installer destructively removes live Center before publication"; fi
+grep -q 'install_tree_atomic' "$ROOT/install.sh" || fail "installer lacks atomic Center publication"
 pass "installer update safety policy"
 
 # A v1.5.0 install must ignore a hypothetical newer stable Termux release and
@@ -161,36 +175,29 @@ for TEST_ARCH in arm64 armv7 x86_64; do
     grep -qx "https://github.com/$REPO/releases/download/termux-v1.5.0/saman-aether-termux-$TEST_ARCH.tar.gz.sha256" "$TEST_TMP/core-urls" ||
         fail "pinned checksum URL missing for $TEST_ARCH"
 done
-mkdir -p "$TEST_TMP/mismatched-install" "$TEST_TMP/mismatched-update"
-if (
-    ACTION=install
-    SAMAN_SOURCE_REF=termux-v9.9.9
-    SOURCE_REF=termux-v9.9.9
-    TMP="$TEST_TMP/mismatched-install"
-    : "$ACTION" "$SAMAN_SOURCE_REF" "$SOURCE_REF"
-    resolve_termux_release
-) 2>/dev/null; then
-    fail "install accepted a source ref that diverges from its pinned core"
-fi
-if (
-    ACTION=update
-    SAMAN_SOURCE_REF=termux-v9.9.9
-    SOURCE_REF=termux-v9.9.9
-    TMP="$TEST_TMP/mismatched-update"
-    : "$ACTION" "$SAMAN_SOURCE_REF" "$SOURCE_REF"
-    resolve_termux_release
-) 2>/dev/null; then
-    fail "update accepted a source ref that diverges from its selected core"
-fi
+mkdir -p "$TEST_TMP/separate-source"
+ACTION=install
+SOURCE_REF=main
+TMP="$TEST_TMP/separate-source"
+resolve_termux_release
+[ "$SOURCE_REF" = main ] || fail "core resolution overwrote the independently pinned maintenance source"
 ACTION=update
 : "$ACTION" # Consumed by the functions sourced from install.sh.
 TEST_ARCH=arm64
 TMP="$TEST_TMP/update-core"
 mkdir -p "$TMP"
-download_core >/dev/null
-[ "$(<"$TMP/termux-tag")" = 'termux-v1.6.0' ] || fail "update did not select the latest stable core"
-[ "$SOURCE_REF" = 'termux-v1.6.0' ] || fail "update source and core tags diverged"
+if (download_core >/dev/null 2>&1); then
+    fail "old installer accepted a newer incompatible Termux release"
+fi
 unset -f api_json detect_arch curl sha256sum tar release_object
 pass "version-pinned Termux core selection"
+
+# CI must execute every maintained Termux test suite, not only the legacy aggregate.
+workflow="$ROOT/.github/workflows/termux-maintenance.yml"
+for suite in test-termux.sh test-center.sh test-safety.sh test-backup.sh test-diagnostics.sh test-runner.sh; do
+    grep -q "bash termux/tests/$suite" "$workflow" || fail "CI omits $suite"
+done
+grep -q "python.*test_server.py" "$workflow" || fail "CI omits Saman Share server tests"
+pass "CI covers all maintained Termux suites"
 
 printf 'All Termux maintenance tests passed.\n'

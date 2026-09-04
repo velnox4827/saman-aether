@@ -18,6 +18,34 @@ s2_ffmpeg_progress() {
     return "$status"
 }
 
+s2_media_transcode_atomic() {
+    local destination="${1:?destination required}"; shift
+    local directory name stem suffix partial rc
+    [ ! -e "$destination" ] || {
+        s2_err "Destination already exists; refusing to overwrite: $destination"
+        return 2
+    }
+    directory="${destination%/*}"; name="${destination##*/}"
+    [ "$directory" != "$destination" ] || directory='.'
+    if [[ "$name" == *.* ]]; then
+        stem="${name%.*}"; suffix=".${name##*.}"
+    else
+        stem="$name"; suffix=''
+    fi
+    partial="$(mktemp --tmpdir="$directory" --suffix="$suffix" ".${stem}.part.XXXXXX")" || return 1
+    if "$@" "$partial"; then
+        chmod 0600 "$partial" 2>/dev/null || true
+        if mv -n -- "$partial" "$destination" && [ ! -e "$partial" ]; then
+            return 0
+        fi
+        rc=1
+    else
+        rc=$?
+    fi
+    rm -f -- "$partial"
+    return "$rc"
+}
+
 s2_media_resize_mp() {
     s2_clear; s2_title "VIDEO RESIZE BY MEGAPIXELS"
     local input target_mp w h pixels nw nh duration base out
@@ -49,10 +77,10 @@ s2_media_resize_mp() {
     echo
     read -r -p "Start? [Y/n]: " go
     case "$go" in n|N) return 0;; esac
-    if s2_ffmpeg_progress "Resizing video" "$duration" -y -i "$input" -map 0:v:0 -map '0:a:0?' -vf "scale=${nw}:${nh}" -c:v libx264 -crf 23 -preset medium -pix_fmt yuv420p -c:a aac -b:a 128k -movflags +faststart "$out"; then
+    if s2_media_transcode_atomic "$out" s2_ffmpeg_progress "Resizing video" "$duration" -y -i "$input" -map 0:v:0 -map '0:a:0?' -vf "scale=${nw}:${nh}" -c:v libx264 -crf 23 -preset medium -pix_fmt yuv420p -c:a aac -b:a 128k -movflags +faststart; then
         echo; s2_ok "Saved: $out"; s2_notify "Saman Media" "Video resize completed"
     else
-        rm -f "$out"; echo; s2_err "ffmpeg failed"; tail -n 12 "$SAMAN2_LOG/ffmpeg-last.log" 2>/dev/null || true
+        echo; s2_err "ffmpeg failed; no destination file was replaced"; tail -n 12 "$SAMAN2_LOG/ffmpeg-last.log" 2>/dev/null || true
     fi
     s2_pause
 }
