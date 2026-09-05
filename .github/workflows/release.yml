@@ -47,7 +47,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         name: Rust ARM targets
         with:
-          toolchain: "1.89.0"
+          toolchain: "1.91.0"
           targets: aarch64-linux-android,armv7-linux-androideabi
 
       - name: cargo-ndk
