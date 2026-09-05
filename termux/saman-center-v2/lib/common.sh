@@ -5,7 +5,7 @@
 # shellcheck disable=SC2034 # constants are consumed by dynamically loaded modules
 SAMAN2_VERSION="2.1.0"
 SAMAN_TUNNEL_VERSION="1.6.0"
-SAMAN_TERMUX_VERSION="1.6.0"
+SAMAN_TERMUX_VERSION="1.7.0"
 SAMAN2_ROOT="${SAMAN2_ROOT:-$HOME/.local/share/saman-center-v2}"
 SAMAN2_STATE="${SAMAN2_STATE:-$HOME/.local/state/saman-center-v2}"
 SAMAN2_CACHE="${SAMAN2_CACHE:-$HOME/.cache/saman-center-v2}"
