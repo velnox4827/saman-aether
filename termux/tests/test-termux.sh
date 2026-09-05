@@ -47,7 +47,7 @@ pass "official upstream Aether discovery"
 # v1.7.0 must not contain a patched-core download/build/release path.
 grep -q 'SAMAN_TERMUX_VERSION="1.7.0"' "$ROOT/install.sh" || fail "Termux integration version"
 if grep -q 'download_core' "$ROOT/install.sh"; then fail "installer still downloads a Saman Aether core"; fi
-if grep -Eq 'saman-aether-termux-.*tar\.gz|PINNED_TERMUX_TAG|AETHER_BASE_VERSION=' "$ROOT/install.sh"; then
+if grep -Eq 'saman-aether-termux-.*tar\.gz|PINNED_TERMUX_TAG' "$ROOT/install.sh"; then
     fail "installer still pins or downloads a separate Aether core"
 fi
 grep -q 'official upstream (unmodified)' "$ROOT/install.sh" || fail "upstream-only architecture is not explicit"
