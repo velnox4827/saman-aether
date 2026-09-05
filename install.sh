@@ -252,12 +252,23 @@ installer_tcp_port_accepting() {
 local_proxy_ports_free() {
     local listeners rc
     listeners="$(ss -ltnH 2>&1)"; rc=$?
-    if [ "$rc" -eq 0 ] && [[ "$listeners" != *'Permission denied'* ]] &&
+
+    if [ "$rc" -eq 0 ] &&
+       [[ "$listeners" != *'Permission denied'* ]] &&
        [[ "$listeners" != *'Cannot open netlink socket'* ]]; then
         ! awk '$4 ~ /:(1819|1820)$/ {found=1} END{exit(found?0:1)}' <<<"$listeners"
         return $?
     fi
-    ! installer_tcp_port_accepting 1819 && ! installer_tcp_port_accepting 1820
+
+    # Fail closed on an ordinary ss failure. Only Android/netlink permission
+    # restrictions are allowed to fall back to active loopback probing.
+    if [[ "$listeners" != *'Permission denied'* ]] &&
+       [[ "$listeners" != *'Cannot open netlink socket'* ]]; then
+        return 1
+    fi
+
+    ! installer_tcp_port_accepting 1819 &&
+        ! installer_tcp_port_accepting 1820
 }
 
 download_source() {
