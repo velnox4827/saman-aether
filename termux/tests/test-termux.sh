@@ -108,9 +108,9 @@ HOME="$FAKE_HOME" bash "$ROOT/termux/aether-control" diagnostics safe
 pass "aether-control validation and delegation"
 
 # Installer version, source pin, and release URLs are explicit and trusted.
-grep -q 'SAMAN_TERMUX_VERSION="1.5.0"' "$ROOT/install.sh" || fail "Termux integration version"
+grep -q 'SAMAN_TERMUX_VERSION="1.6.0"' "$ROOT/install.sh" || fail "Termux integration version"
 grep -q 'SOURCE_REF="${SAMAN_SOURCE_REF:-main}"' "$ROOT/install.sh" || fail "maintenance source ref is separated from the core release tag"
-grep -q 'TERMUX_RELEASE_FALLBACK="termux-v1.5.0"' "$ROOT/install.sh" || fail "Termux release fallback"
+grep -q 'TERMUX_RELEASE_FALLBACK="termux-v1.6.0"' "$ROOT/install.sh" || fail "Termux release fallback"
 if grep -q 'termux-v1.4.0' "$ROOT/install.sh"; then fail "active legacy Termux release reference"; fi
 grep -q 'https://github.com/\$REPO/releases/download/' "$ROOT/install.sh" || fail "trusted release URL check"
 grep -q 'SHA-256 mismatch; refusing to install' "$ROOT/install.sh" || fail "checksum fail-closed behavior"
@@ -120,8 +120,8 @@ if grep -q 'rm -rf "\$CENTER_ROOT"' "$ROOT/install.sh"; then fail "installer des
 grep -q 'install_tree_atomic' "$ROOT/install.sh" || fail "installer lacks atomic Center publication"
 pass "installer update safety policy"
 
-# A v1.5.0 install must ignore a hypothetical newer stable Termux release and
-# select the pinned v1.5.0 core asset plus checksum for every supported arch.
+# A v1.6.0 install must ignore a hypothetical newer stable Termux release and
+# select the pinned v1.6.0 core asset plus checksum for every supported arch.
 release_object() {
     local tag="$1" arch assets=''
     for arch in arm64 armv7 x86_64; do
@@ -132,9 +132,10 @@ release_object() {
 }
 api_json() {
     case "$1" in
-        "$API_BASE/releases/tags/termux-v1.5.0") release_object termux-v1.5.0 ;;
+        "$API_BASE/releases/tags/termux-v1.6.0") release_object termux-v1.6.0 ;;
         "$API_BASE/releases?per_page=30")
-            printf '[%s,%s]\n' "$(release_object termux-v1.6.0)" "$(release_object termux-v1.5.0)"
+            printf '[%s,%s]
+' "$(release_object termux-v1.7.0)" "$(release_object termux-v1.6.0)"
             ;;
         *) fail "unexpected release API URL: $1" ;;
     esac
@@ -164,15 +165,15 @@ for TEST_ARCH in arm64 armv7 x86_64; do
     TMP="$TEST_TMP/core-$TEST_ARCH"
     mkdir -p "$TMP"
     download_core >/dev/null
-    [ "$(<"$TMP/termux-tag")" = 'termux-v1.5.0' ] || fail "install selected an unpinned core for $TEST_ARCH"
+    [ "$(<"$TMP/termux-tag")" = 'termux-v1.6.0' ] || fail "install selected an unpinned core for $TEST_ARCH"
 done
-if grep -q '/releases/download/termux-v1.6.0/' "$TEST_TMP/core-urls"; then
-    fail "v1.5.0 install selected a hypothetical newer core"
+if grep -q '/releases/download/termux-v1.7.0/' "$TEST_TMP/core-urls"; then
+    fail "v1.6.0 install selected a hypothetical newer core"
 fi
 for TEST_ARCH in arm64 armv7 x86_64; do
-    grep -qx "https://github.com/$REPO/releases/download/termux-v1.5.0/saman-aether-termux-$TEST_ARCH.tar.gz" "$TEST_TMP/core-urls" ||
+    grep -qx "https://github.com/$REPO/releases/download/termux-v1.6.0/saman-aether-termux-$TEST_ARCH.tar.gz" "$TEST_TMP/core-urls" ||
         fail "pinned core archive URL missing for $TEST_ARCH"
-    grep -qx "https://github.com/$REPO/releases/download/termux-v1.5.0/saman-aether-termux-$TEST_ARCH.tar.gz.sha256" "$TEST_TMP/core-urls" ||
+    grep -qx "https://github.com/$REPO/releases/download/termux-v1.6.0/saman-aether-termux-$TEST_ARCH.tar.gz.sha256" "$TEST_TMP/core-urls" ||
         fail "pinned checksum URL missing for $TEST_ARCH"
 done
 mkdir -p "$TEST_TMP/separate-source"

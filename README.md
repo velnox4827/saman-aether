@@ -8,7 +8,7 @@
 
 **Language:** [English](#english) | [فارسی](#فارسی)
 
-**Current stable Android release:** [Saman Tunnel v1.5.0](https://github.com/velnox4827/saman-aether/releases/tag/v1.5.0) · **Aether Core:** v1.8.0 at `a916ff6fbbb4ebafe8314c53cf3718eb51dcae53` · **License:** [GNU AGPL-3.0](LICENSE)
+**Current stable Android release:** [Saman Tunnel v1.6.0](https://github.com/velnox4827/saman-aether/releases/tag/v1.5.0) · **Aether Core:** v1.8.0 at `311b573352bb67e494895ff67d20b002d075116a` · **License:** [GNU AGPL-3.0](LICENSE)
 
 > Saman Tunnel is an independent derivative project, not the official Aether application. It provides local proxies; it is not an Android `VpnService` and does not create a device-wide VPN by itself.
 
@@ -52,7 +52,7 @@ Main use cases:
 
 #### Aether Core and supported modes
 
-Aether Core v1.8.0 is pinned to commit `a916ff6fbbb4ebafe8314c53cf3718eb51dcae53`. The build applies the reviewed Smart Reconnect and reusable-local-listener patches before compilation.
+Aether Core v1.9.0 is pinned to commit `311b573352bb67e494895ff67d20b002d075116a`. The build applies the reviewed Smart Reconnect and reusable-local-listener patches before compilation.
 
 | Mode | Current invocation behavior |
 |---|---|
@@ -239,7 +239,7 @@ A checksum proves file integrity; the certificate fingerprint proves continuity 
 
 The verified v1.5.0 build stack is:
 
-- Aether Core v1.8.0 commit `a916ff6fbbb4ebafe8314c53cf3718eb51dcae53`;
+- Aether Core v1.9.0 commit `311b573352bb67e494895ff67d20b002d075116a`;
 - Rust `1.89.0` and cargo-ndk `4.1.2`;
 - Android NDK `26.3.11579264`, CMake `3.22.1`, platform 36, Build Tools `35.0.0`;
 - Java/Temurin 17, Gradle `8.13`, Android Gradle Plugin `8.13.2`, Kotlin `2.3.21`.
@@ -306,7 +306,7 @@ CHANGELOG.md                       Release and maintenance history
 
 ### Releases and changelog
 
-- [Saman Tunnel v1.5.0](https://github.com/velnox4827/saman-aether/releases/tag/v1.5.0)
+- [Saman Tunnel v1.6.0](https://github.com/velnox4827/saman-aether/releases/tag/v1.5.0)
 - [CHANGELOG.md](CHANGELOG.md)
 - [All GitHub Releases](https://github.com/velnox4827/saman-aether/releases)
 - [Upstream Aether](https://github.com/CluvexStudio/Aether)
@@ -354,7 +354,7 @@ Saman Tunnel یک نسخهٔ پچ‌شده و ثابت از Aether Core را د�
 
 #### Aether Core و حالت‌های پشتیبانی‌شده
 
-Aether Core v1.8.0 روی commit زیر ثابت شده است: `a916ff6fbbb4ebafe8314c53cf3718eb51dcae53`. فرایند build پیش از کامپایل، پچ‌های بازبینی‌شدهٔ Smart Reconnect و listener محلی قابل‌استفادهٔ مجدد را اعمال می‌کند.
+Aether Core v1.9.0 روی commit زیر ثابت شده است: `311b573352bb67e494895ff67d20b002d075116a`. فرایند build پیش از کامپایل، پچ‌های بازبینی‌شدهٔ Smart Reconnect و listener محلی قابل‌استفادهٔ مجدد را اعمال می‌کند.
 
 | حالت | رفتار فعلی هنگام اجرا |
 |---|---|
@@ -541,7 +541,7 @@ Checksum سلامت فایل را ثابت می‌کند و fingerprint گواه
 
 ابزارهای تأییدشده برای build نسخهٔ v1.5.0:
 
-- Aether Core v1.8.0 روی commit `a916ff6fbbb4ebafe8314c53cf3718eb51dcae53`؛
+- Aether Core v1.9.0 روی commit `311b573352bb67e494895ff67d20b002d075116a`؛
 - Rust `1.89.0` و cargo-ndk `4.1.2`؛
 - Android NDK `26.3.11579264`، CMake `3.22.1`، platform 36 و Build Tools `35.0.0`؛
 - Java/Temurin 17، Gradle `8.13`، Android Gradle Plugin `8.13.2` و Kotlin `2.3.21`.
@@ -608,10 +608,30 @@ CHANGELOG.md                       تاریخچهٔ انتشار و maintenance
 
 ### نسخه‌ها و تغییرات
 
-- [Saman Tunnel v1.5.0](https://github.com/velnox4827/saman-aether/releases/tag/v1.5.0)
+- [Saman Tunnel v1.6.0](https://github.com/velnox4827/saman-aether/releases/tag/v1.5.0)
 - [CHANGELOG.md](CHANGELOG.md)
 - [همهٔ نسخه‌ها در GitHub Releases](https://github.com/velnox4827/saman-aether/releases)
 - [Aether اصلی](https://github.com/CluvexStudio/Aether)
 - [Issues](https://github.com/velnox4827/saman-aether/issues)
 
 </div>
+
+
+### Aether v1.9.0 integration
+
+- Adaptive MASQUE H2 flow-control and improved H2 throughput.
+- Larger/adaptive netstack TCP buffers.
+- Optional `AETHER_NETSTACK_TCP_RX`, `AETHER_NETSTACK_TCP_TX`, and `AETHER_MASQUE_MTU` overrides; Saman leaves them automatic by default.
+- `aether help` support.
+- Optional manual GOOL peers with `--wiw-outer IP:PORT`, `--wiw-inner IP:PORT`, and `--wiw-peers OUTER_IP:PORT,INNER_IP:PORT`.
+- Automatic GOOL scanning remains the default; when one manual hop is supplied, Aether scans the other.
+
+
+### یکپارچه‌سازی Aether v1.9.0
+
+- بهبود سرعت MASQUE H2 با flow-control تطبیقی.
+- بافرهای TCP نت‌استک بزرگ‌تر و تطبیقی.
+- متغیرهای اختیاری `AETHER_NETSTACK_TCP_RX`، `AETHER_NETSTACK_TCP_TX` و `AETHER_MASQUE_MTU`؛ در Saman به‌صورت پیش‌فرض خودکار می‌مانند.
+- پشتیبانی از `aether help`.
+- peer دستی GOOL با `--wiw-outer IP:PORT`، `--wiw-inner IP:PORT` و `--wiw-peers OUTER_IP:PORT,INNER_IP:PORT`.
+- اسکن خودکار GOOL همچنان پیش‌فرض است؛ اگر فقط یک hop دستی بدهید، hop دیگر اسکن می‌شود.

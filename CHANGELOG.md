@@ -1,5 +1,20 @@
 # Changelog
 
+## v1.6.0
+
+Saman Tunnel / Saman Termux update to official Aether Core v1.9.0.
+
+- Android versionCode `160`; versionName `1.6.0`
+- Aether Core v1.9.0 pinned at `311b573352bb67e494895ff67d20b002d075116a`
+- Smart Reconnect rebased for WireGuard, MASQUE H3/H2, and GOOL
+- Aether v1.9.0 manual GOOL peers preserved; automatic scanning remains the default
+- Adaptive MASQUE H2 flow-control / throughput improvements
+- Larger/adaptive netstack TCP RX/TX buffering
+- `AETHER_NETSTACK_TCP_RX`, `AETHER_NETSTACK_TCP_TX`, and `AETHER_MASQUE_MTU` stay automatic unless explicitly overridden
+- `aether help` support
+- Reusable local SOCKS5/HTTP listeners retained
+- Android, Termux, GitHub workflows, English README, and Persian README updated
+
 ## Post-v1.5.0 maintenance
 
 - Modernized Saman Center to v2.1.0 with lazy command loading, read-only metadata commands, whitelist-parsed configuration, bounded logs, conservative repair, and a TTL-gated dashboard cache.

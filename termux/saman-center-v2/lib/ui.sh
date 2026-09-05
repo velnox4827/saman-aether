@@ -248,6 +248,8 @@ s2_dashboard_refresh_due() {
     [ $((now-mtime)) -ge "$DASHBOARD_CACHE_TTL" ]
 }
 
+
+# shellcheck disable=SC2120 # optional force argument is intentionally supported
 s2_refresh_dashboard() {
     local force="${1:-}"
     s2_init_runtime >/dev/null 2>&1 || return 1

@@ -1,14 +1,14 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -Eeuo pipefail
 
-SAMAN_TERMUX_VERSION="1.5.0"
-SAMAN_TUNNEL_VERSION="1.5.0"
-AETHER_BASE_VERSION="1.8.0"
+SAMAN_TERMUX_VERSION="1.6.0"
+SAMAN_TUNNEL_VERSION="1.6.0"
+AETHER_BASE_VERSION="1.9.0"
 REPO="velnox4827/saman-aether"
 PINNED_TERMUX_TAG="termux-v$SAMAN_TERMUX_VERSION"
 SOURCE_REF="${SAMAN_SOURCE_REF:-main}"
 API_BASE="https://api.github.com/repos/$REPO"
-TERMUX_RELEASE_FALLBACK="termux-v1.5.0"
+TERMUX_RELEASE_FALLBACK="termux-v1.6.0"
 ACTION="${1:-install}"
 
 CORE_BIN="$PREFIX/bin/saman-aether-core"
@@ -252,12 +252,23 @@ installer_tcp_port_accepting() {
 local_proxy_ports_free() {
     local listeners rc
     listeners="$(ss -ltnH 2>&1)"; rc=$?
-    if [ "$rc" -eq 0 ] && [[ "$listeners" != *'Permission denied'* ]] &&
+
+    if [ "$rc" -eq 0 ] &&
+       [[ "$listeners" != *'Permission denied'* ]] &&
        [[ "$listeners" != *'Cannot open netlink socket'* ]]; then
         ! awk '$4 ~ /:(1819|1820)$/ {found=1} END{exit(found?0:1)}' <<<"$listeners"
         return $?
     fi
-    ! installer_tcp_port_accepting 1819 && ! installer_tcp_port_accepting 1820
+
+    # Fail closed on an ordinary ss failure. Only Android/netlink permission
+    # restrictions are allowed to fall back to active loopback probing.
+    if [[ "$listeners" != *'Permission denied'* ]] &&
+       [[ "$listeners" != *'Cannot open netlink socket'* ]]; then
+        return 1
+    fi
+
+    ! installer_tcp_port_accepting 1819 &&
+        ! installer_tcp_port_accepting 1820
 }
 
 download_source() {

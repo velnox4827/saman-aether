@@ -10,7 +10,7 @@ permissions:
   contents: write
 
 env:
-  AETHER_COMMIT: "a916ff6fbbb4ebafe8314c53cf3718eb51dcae53"
+  AETHER_COMMIT: "311b573352bb67e494895ff67d20b002d075116a"
   CARGO_NDK_VERSION: "4.1.2"
 
 jobs:
@@ -38,7 +38,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: "1.89.0"
+          toolchain: "1.91.0"
           targets: ${{ matrix.target }}
 
       - name: Install Go
@@ -66,7 +66,7 @@ jobs:
           git -C "$RUNNER_TEMP/Aether" remote add origin https://github.com/CluvexStudio/Aether.git
           git -C "$RUNNER_TEMP/Aether" fetch --depth 1 origin "$AETHER_COMMIT"
           git -C "$RUNNER_TEMP/Aether" checkout --detach FETCH_HEAD
-          grep -q '^version = "1.8.0"$' "$RUNNER_TEMP/Aether/aether/Cargo.toml"
+          grep -q '^version = "1.9.0"$' "$RUNNER_TEMP/Aether/aether/Cargo.toml"
 
       - name: Apply Smart Reconnect patch
         run: |
@@ -157,12 +157,12 @@ jobs:
           cat > /tmp/termux-notes.md <<'NOTES'
           # Saman Aether Termux Core
 
-          Patched Aether Core for **Termux + Termux:Widget**, based on Aether Core v1.8.0 source.
+          Patched Aether Core for **Termux + Termux:Widget**, based on Aether Core v1.9.0 source.
 
           ## Patched core build
 
-          - Aether v1.8.0 base
-          - GOOL stability fixes from Aether v1.8.0
+          - Aether v1.9.0 base
+          - GOOL stability fixes from Aether v1.9.0
           - Improved WireGuard task/panic resilience from upstream v1.8.0
           - Upstream authentication fix and optimized HTTP proxy handling
           - Reconnect zero-value guard from upstream v1.8.0
