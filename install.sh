@@ -410,7 +410,7 @@ verify_install() {
     done
     bash -n "$RUNNER" "$DIAGNOSTICS_BIN" "$CONTROL_BIN" "$SAMAN_BIN" "$SAMAN2_BIN" "$CENTER_ROOT/saman2" "$CENTER_ROOT/lib/"*.sh "$CENTER_ROOT/modules/"*.sh
     [ "$("$SAMAN_BIN" version)" = "2.1.0" ] || die "Saman Center version check failed."
-    "$CORE_BIN" --version 2>/dev/null | grep -q '1\.8\.0' || die "Aether Core version check failed."
+    "$CORE_BIN" --version 2>/dev/null | grep -Fq "$AETHER_BASE_VERSION" || die "Aether Core version check failed."
     [ "$(<"$VERSION_FILE")" = "$SAMAN_TERMUX_VERSION" ] || die "version file verification failed."
     [ -z "$(installed_core_pids)" ] || die "an old canonical Aether Core process survived the update."
     local_proxy_ports_free || die "local proxy port 1819 or 1820 is already in use; rolling back."
