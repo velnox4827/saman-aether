@@ -83,26 +83,43 @@ s2_tcp_port_accepting() {
 }
 
 s2_socket_listeners() {
-    local snapshot='' rc=1 port
+    local snapshot='' rc=1 port ss_unusable=0
+
     if s2_have ss; then
         snapshot="$(ss -ltnH 2>&1)"; rc=$?
-        if [ "$rc" -eq 0 ] && [[ "$snapshot" != *'Permission denied'* ]] &&
+
+        if [ "$rc" -eq 0 ] &&
+           [[ "$snapshot" != *'Permission denied'* ]] &&
            [[ "$snapshot" != *'Cannot open netlink socket'* ]]; then
             printf '%s\n' "$snapshot"
             return 0
         fi
+
+        if [[ "$snapshot" == *'Permission denied'* ]] ||
+           [[ "$snapshot" == *'Cannot open netlink socket'* ]]; then
+            ss_unusable=1
+        fi
     fi
-    if snapshot="$(awk 'NR>1 && $4=="0A" {print $2}' /proc/net/tcp /proc/net/tcp6 2>/dev/null)"; then
-        printf '%s\n' "$snapshot"
-        return 0
+
+    # When ss is unavailable for an ordinary reason, /proc is still useful.
+    # But an Android/netlink permission failure must not be mistaken for a
+    # trustworthy empty socket snapshot.
+    if [ "$ss_unusable" -eq 0 ]; then
+        snapshot="$(awk 'NR>1 && $4=="0A" {print $2}' /proc/net/tcp /proc/net/tcp6 2>/dev/null || true)"
+        if [ -n "$snapshot" ]; then
+            printf '%s\n' "$snapshot"
+            return 0
+        fi
     fi
-    # Android 13+ can deny both netlink and /proc socket tables. A bounded
-    # loopback connect still distinguishes an accepting configured listener.
+
+    # Android may hide both netlink and socket tables. Probe only the two
+    # configured loopback ports, with the existing one-second bound.
     for port in "${AETHER_SOCKS_PORT:-1819}" "${AETHER_HTTP_PORT:-1820}"; do
         if s2_tcp_port_accepting "$port"; then
             printf 'LISTEN 0 0 127.0.0.1:%s 0.0.0.0:*\n' "$port"
         fi
     done
+
     return 0
 }
 
