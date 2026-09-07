@@ -64,20 +64,17 @@ jobs:
       - name: Checkout pinned Aether Core
         run: |
           set -euxo pipefail
-
           mkdir -p "$RUNNER_TEMP/Aether"
           git -C "$RUNNER_TEMP/Aether" init
           git -C "$RUNNER_TEMP/Aether" remote add origin https://github.com/CluvexStudio/Aether.git
           git -C "$RUNNER_TEMP/Aether" fetch --depth 1 origin "$AETHER_COMMIT"
           git -C "$RUNNER_TEMP/Aether" checkout --detach FETCH_HEAD
-
           test "$(git -C "$RUNNER_TEMP/Aether" rev-parse HEAD)" = "$AETHER_COMMIT"
           grep -q '^version = "1.9.0"$' "$RUNNER_TEMP/Aether/aether/Cargo.toml"
 
       - name: Apply verified Saman patches
         run: |
           set -euxo pipefail
-
           for PATCH in \
             android-app/aether-patches/smart-reconnect-all-modes.patch \
             android-app/aether-patches/local-proxy-reuseaddr.patch \
@@ -87,7 +84,6 @@ jobs:
             git -C "$RUNNER_TEMP/Aether" apply --check "$GITHUB_WORKSPACE/$PATCH"
             git -C "$RUNNER_TEMP/Aether" apply "$GITHUB_WORKSPACE/$PATCH"
           done
-
           grep -q 'smart reconnect WG' "$RUNNER_TEMP/Aether/aether/src/lib.rs"
           grep -q 'smart reconnect MASQUE' "$RUNNER_TEMP/Aether/aether/src/lib.rs"
           grep -q 'smart reconnect GOOL' "$RUNNER_TEMP/Aether/aether/src/lib.rs"
@@ -100,9 +96,7 @@ jobs:
           ANDROID_NDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}/ndk/26.3.11579264
         run: |
           set -euxo pipefail
-
           cd "$RUNNER_TEMP/Aether/aether"
-
           cargo ndk \
             -t arm64-v8a \
             -t armeabi-v7a \
