@@ -80,7 +80,7 @@ jobs:
           HEV="$GITHUB_WORKSPACE/android-app/third_party/hev-socks5-tunnel"
           OUT="$GITHUB_WORKSPACE/android-app/app/src/main/jniLibs"
           OBJ="$RUNNER_TEMP/hev-obj"
-          test "$(git -C "$HEV" describe --tags --exact-match)" = "2.17.0"
+          test "$(git -C "$HEV" rev-parse HEAD)" = "d1178b52fccd8659201e1e3f83030f298c998865"
           "$ANDROID_NDK_HOME/ndk-build" \
             -C "$HEV" \
             NDK_PROJECT_PATH="$HEV" \
