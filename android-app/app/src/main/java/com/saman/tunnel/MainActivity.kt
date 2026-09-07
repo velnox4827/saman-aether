@@ -14,6 +14,7 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
+import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
@@ -45,6 +46,7 @@ class MainActivity : Activity() {
 
     companion object {
         private const val REQUEST_SAVE_DIAGNOSTICS = 2002
+        private const val REQUEST_VPN_PERMISSION = 2003
         private const val RELEASES_API =
             "https://api.github.com/repos/velnox4827/saman-aether/releases?per_page=10"
     }
@@ -56,6 +58,9 @@ class MainActivity : Activity() {
     private lateinit var versionView: TextView
     private lateinit var batteryView: TextView
     private lateinit var updateView: TextView
+    private lateinit var vpnModeView: TextView
+    private lateinit var routingView: TextView
+    private var pendingVpnMode: String? = null
 
     private val handler = Handler(Looper.getMainLooper())
     private var lastStartTap = 0L
@@ -309,6 +314,61 @@ class MainActivity : Activity() {
         })
         root.addView(modeRow)
 
+        // VPN_MODE_UI_V1
+        val vpnControlRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(50)
+            ).apply { bottomMargin = dp(7) }
+        }
+
+        vpnModeView = actionTile(
+            "Connection: Proxy",
+            blue,
+            card
+        ) {
+            chooseConnectionMode()
+        }
+
+        vpnControlRow.addView(
+            vpnModeView,
+            LinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                1f
+            ).apply {
+                marginEnd = dp(5)
+            }
+        )
+
+        routingView = actionTile(
+            "Apps: All",
+            purple,
+            card
+        ) {
+            startActivity(
+                Intent(
+                    this,
+                    AppRoutingActivity::class.java
+                )
+            )
+        }
+
+        vpnControlRow.addView(
+            routingView,
+            LinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                1f
+            ).apply {
+                marginStart = dp(5)
+            }
+        )
+
+        root.addView(vpnControlRow)
+
         // Stop / Copy
         val actionRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -463,7 +523,7 @@ class MainActivity : Activity() {
             text = if (packageName.endsWith(".beta")) {
                 "β  Beta — do not run Stable and Beta at the same time."
             } else {
-                "♢  Bypass only Saman Tunnel in your VPN app."
+                "♢  Built-in VPN: Android TUN → HEV → Aether SOCKS5 :1819"
             }
             textSize = 10.8f
             setTextColor(muted)
@@ -760,14 +820,214 @@ class MainActivity : Activity() {
         } else {
             startService(intent)
         }
+
+        if (isVpnMode()) {
+            requestVpnPermissionAndStart(mode)
+        }
     }
 
     private fun stop(cancelPendingSwitch: Boolean = true) {
         if (cancelPendingSwitch) cancelPendingModeSwitch()
         LogStore.append(this, "UI", "Stop requested")
+        stopVpnService()
         startService(Intent(this, AetherService::class.java).apply {
             action = AetherService.ACTION_STOP
         })
+    }
+
+    private fun isVpnMode(): Boolean =
+        getSharedPreferences(
+            SamanVpnService.PREFS,
+            MODE_PRIVATE
+        ).getString(
+            SamanVpnService.KEY_CONNECTION_MODE,
+            SamanVpnService.CONNECTION_PROXY
+        ) == SamanVpnService.CONNECTION_VPN
+
+    private fun chooseConnectionMode() {
+        val currentVpn = isVpnMode()
+
+        AlertDialog.Builder(this)
+            .setTitle("Connection mode")
+            .setSingleChoiceItems(
+                arrayOf(
+                    "Proxy — expose SOCKS5/HTTP only",
+                    "VPN — route Android apps through HEV"
+                ),
+                if (currentVpn) 1 else 0
+            ) { dialog, which ->
+                dialog.dismiss()
+
+                val prefs = getSharedPreferences(
+                    SamanVpnService.PREFS,
+                    MODE_PRIVATE
+                )
+
+                if (which == 1) {
+                    prefs.edit()
+                        .putString(
+                            SamanVpnService.KEY_CONNECTION_MODE,
+                            SamanVpnService.CONNECTION_VPN
+                        )
+                        .apply()
+
+                    val aetherPrefs =
+                        getSharedPreferences(
+                            AetherService.PREFS,
+                            MODE_PRIVATE
+                        )
+
+                    val status =
+                        aetherPrefs.getString(
+                            AetherService.KEY_STATUS,
+                            "Stopped"
+                        ).orEmpty()
+
+                    val runningMode =
+                        aetherPrefs.getString(
+                            AetherService.KEY_MODE,
+                            ""
+                        ).orEmpty()
+
+                    if (
+                        status.startsWith("Connected", true) &&
+                        runningMode.isNotBlank()
+                    ) {
+                        requestVpnPermissionAndStart(runningMode)
+                    } else {
+                        Toast.makeText(
+                            this,
+                            "VPN selected — choose WG, MASQUE or GOOL to connect",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                } else {
+                    prefs.edit()
+                        .putString(
+                            SamanVpnService.KEY_CONNECTION_MODE,
+                            SamanVpnService.CONNECTION_PROXY
+                        )
+                        .apply()
+
+                    stopVpnService()
+
+                    Toast.makeText(
+                        this,
+                        "Proxy mode selected",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+
+                refreshVpnControls()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun requestVpnPermissionAndStart(mode: String) {
+        val prepareIntent = VpnService.prepare(this)
+
+        if (prepareIntent == null) {
+            startVpnService(mode)
+            return
+        }
+
+        pendingVpnMode = mode
+        LogStore.append(this, "VPN_PERMISSION", "Requesting Android VPN permission")
+        startActivityForResult(
+            prepareIntent,
+            REQUEST_VPN_PERMISSION
+        )
+    }
+
+    private fun startVpnService(mode: String) {
+        pendingVpnMode = null
+
+        LogStore.append(
+            this,
+            "VPN_START",
+            "Built-in VPN requested for ${prettyMode(mode)}"
+        )
+
+        val intent = Intent(
+            this,
+            SamanVpnService::class.java
+        ).apply {
+            action = SamanVpnService.ACTION_START
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(intent)
+        } else {
+            startService(intent)
+        }
+    }
+
+    private fun stopVpnService() {
+        runCatching {
+            startService(
+                Intent(
+                    this,
+                    SamanVpnService::class.java
+                ).apply {
+                    action = SamanVpnService.ACTION_STOP
+                }
+            )
+        }
+    }
+
+    private fun refreshVpnControls() {
+        if (
+            !::vpnModeView.isInitialized ||
+            !::routingView.isInitialized
+        ) return
+
+        val prefs = getSharedPreferences(
+            SamanVpnService.PREFS,
+            MODE_PRIVATE
+        )
+
+        val vpnSelected =
+            prefs.getString(
+                SamanVpnService.KEY_CONNECTION_MODE,
+                SamanVpnService.CONNECTION_PROXY
+            ) == SamanVpnService.CONNECTION_VPN
+
+        val vpnRunning =
+            prefs.getBoolean(
+                SamanVpnService.KEY_RUNNING,
+                false
+            )
+
+        vpnModeView.text =
+            when {
+                vpnSelected && vpnRunning -> "Connection: VPN ✓"
+                vpnSelected -> "Connection: VPN"
+                else -> "Connection: Proxy"
+            }
+
+        val routingMode =
+            prefs.getString(
+                SamanVpnService.KEY_ROUTING_MODE,
+                SamanVpnService.ROUTING_ALL
+            ) ?: SamanVpnService.ROUTING_ALL
+
+        val selectedCount =
+            prefs.getStringSet(
+                SamanVpnService.KEY_SELECTED_APPS,
+                emptySet()
+            )?.size ?: 0
+
+        routingView.text =
+            when (routingMode) {
+                SamanVpnService.ROUTING_ONLY ->
+                    "Apps: Only $selectedCount"
+
+                SamanVpnService.ROUTING_BYPASS ->
+                    "Apps: Bypass $selectedCount"
+
+                else -> "Apps: All"
+            }
     }
 
     private fun copySocks() {
@@ -1074,6 +1334,45 @@ class MainActivity : Activity() {
             data
         )
 
+        if (requestCode == REQUEST_VPN_PERMISSION) {
+            if (resultCode == RESULT_OK) {
+                val mode =
+                    pendingVpnMode
+                        ?: getSharedPreferences(
+                            AetherService.PREFS,
+                            MODE_PRIVATE
+                        ).getString(
+                            AetherService.KEY_LAST_MODE,
+                            "WG"
+                        )
+                        ?: "WG"
+
+                LogStore.append(
+                    this,
+                    "VPN_PERMISSION",
+                    "Android VPN permission granted"
+                )
+
+                startVpnService(mode)
+            } else {
+                pendingVpnMode = null
+
+                LogStore.append(
+                    this,
+                    "VPN_PERMISSION",
+                    "Android VPN permission denied"
+                )
+
+                Toast.makeText(
+                    this,
+                    "VPN permission was not granted",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+
+            return
+        }
+
         if (
             requestCode != REQUEST_SAVE_DIAGNOSTICS ||
             resultCode != RESULT_OK
@@ -1341,6 +1640,8 @@ class MainActivity : Activity() {
     }
 
     private fun refreshState() {
+        refreshVpnControls()
+
         val prefs = getSharedPreferences(AetherService.PREFS, MODE_PRIVATE)
         val mode = prefs.getString(AetherService.KEY_MODE, "") ?: ""
         val rawStatus = prefs.getString(AetherService.KEY_STATUS, "Stopped") ?: "Stopped"
@@ -1362,11 +1663,24 @@ class MainActivity : Activity() {
         when {
             connected -> {
                 statusView.text = "Status: Connected"
-                detail = if (status.contains("HTTP", true)) {
-                    "SOCKS5 :1819 + HTTP :1820"
-                } else {
-                    "SOCKS5 :1819"
-                }
+
+                val builtInVpnRunning =
+                    getSharedPreferences(
+                        SamanVpnService.PREFS,
+                        MODE_PRIVATE
+                    ).getBoolean(
+                        SamanVpnService.KEY_RUNNING,
+                        false
+                    )
+
+                detail =
+                    if (builtInVpnRunning) {
+                        "VPN active • HEV → SOCKS5 :1819"
+                    } else if (status.contains("HTTP", true)) {
+                        "SOCKS5 :1819 + HTTP :1820"
+                    } else {
+                        "SOCKS5 :1819"
+                    }
             }
 
             unstable -> {
