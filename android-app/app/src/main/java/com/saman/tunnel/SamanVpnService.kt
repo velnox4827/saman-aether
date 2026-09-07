@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
 import android.net.VpnService
 import android.os.Build
 import android.os.IBinder
@@ -91,7 +92,7 @@ class SamanVpnService : VpnService() {
     }
 
     override fun onDestroy() {
-        runCatching { HevTunnel.stop() }
+        runCatching { HevBridge.stop() }
         runCatching { tunInterface?.close() }
         tunInterface = null
         vpnRunning = false
@@ -133,6 +134,7 @@ class SamanVpnService : VpnService() {
 
         val builder = Builder()
             .setSession("Saman Tunnel")
+            .setBlocking(false)
             .setMtu(TUN_MTU)
             .addAddress(TUN_IPV4, TUN_PREFIX)
             .addRoute("0.0.0.0", 0)
@@ -171,36 +173,58 @@ class SamanVpnService : VpnService() {
             "ipv4=$TUN_IPV4/$TUN_PREFIX mtu=$TUN_MTU"
         )
 
-        val config = File(filesDir, "hev-saman-vpn.yml")
+        val config = File(cacheDir, "hev-saman-vpn.yml")
         config.writeText(
             """
+            misc:
+              task-stack-size: 24576
+              tcp-read-write-timeout: 300000
+              udp-read-write-timeout: 60000
+              log-level: warn
             tunnel:
               mtu: $TUN_MTU
-              ipv4: $TUN_IPV4
+              icmp: 'reply'
             socks5:
               port: $SOCKS_PORT
               address: '$SOCKS_HOST'
               udp: 'udp'
-            misc:
-              tcp-read-write-timeout: 300000
-              udp-read-write-timeout: 60000
-              log-level: warn
             """.trimIndent()
         )
+
+        if (!HevBridge.isLoaded()) {
+            val nativeError = HevBridge.getLoadError().ifBlank { "unknown JNI load error" }
+            LogStore.append(this, "ERROR", "HEV JNI unavailable: $nativeError")
+            runCatching { established.close() }
+            tunInterface = null
+            fail("HEV JNI unavailable")
+            return
+        }
 
         LogStore.append(this, "HEV_START", "Starting HEV on Android TUN")
 
         val started = runCatching {
-            HevTunnel.start(config.absolutePath, established.fd)
+            HevBridge.start(config.absolutePath, established.fd)
         }.getOrElse {
             LogStore.append(this, "ERROR", "HEV start exception: ${it.javaClass.simpleName}")
             false
         }
 
         if (!started) {
+            val nativeError = HevBridge.getLoadError().ifBlank { "native start returned false" }
+            LogStore.append(this, "ERROR", "HEV start failed: $nativeError")
             runCatching { established.close() }
             tunInterface = null
             fail("HEV could not start")
+            return
+        }
+
+        Thread.sleep(300)
+
+        if (!HevBridge.isRunning()) {
+            LogStore.append(this, "ERROR", "HEV worker exited immediately")
+            runCatching { established.close() }
+            tunInterface = null
+            fail("HEV worker exited")
             return
         }
 
@@ -253,8 +277,8 @@ class SamanVpnService : VpnService() {
     private fun stopTunnel(status: String) {
         LogStore.append(this, "VPN_STOP", "Stopping HEV and TUN")
 
-        if (HevTunnel.isRunning()) {
-            runCatching { HevTunnel.stop() }
+        if (HevBridge.isRunning()) {
+            runCatching { HevBridge.stop() }
             LogStore.append(this, "HEV_STOP", "HEV stopped")
         }
 
@@ -272,7 +296,7 @@ class SamanVpnService : VpnService() {
         saveState(false, "Error: $message")
         updateNotification("VPN error — open Saman Tunnel")
 
-        runCatching { HevTunnel.stop() }
+        runCatching { HevBridge.stop() }
         runCatching { tunInterface?.close() }
         tunInterface = null
         vpnRunning = false
@@ -292,7 +316,20 @@ class SamanVpnService : VpnService() {
 
     private fun ensureForeground(text: String) {
         createNotificationChannel()
-        startForeground(NOTIFICATION_ID, buildNotification(text))
+        val notification = buildNotification(text)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startForeground(
+                NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+            )
+        } else {
+            startForeground(
+                NOTIFICATION_ID,
+                notification
+            )
+        }
     }
 
     private fun updateNotification(text: String) {

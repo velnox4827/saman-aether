@@ -1,4 +1,4 @@
-name: Build Saman Tunnel v1.7.0 APKs
+name: Build Saman Tunnel v1.7.1 APKs
 
 on:
   workflow_dispatch:
@@ -91,7 +91,7 @@ jobs:
             NDK_OUT="$OBJ" \
             APP_ABI="arm64-v8a armeabi-v7a" \
             APP_PLATFORM="android-24" \
-            APP_CFLAGS="-O3 -DANDROID -DPKGNAME=com/saman/tunnel -DCLSNAME=HevTunnel"
+            APP_CFLAGS="-O3 -DANDROID -DPKGNAME=com/saman/tunnel -DCLSNAME=HevBridge"
           test -s "$HEV_OUT/arm64-v8a/libhev-socks5-tunnel.so"
           test -s "$HEV_OUT/armeabi-v7a/libhev-socks5-tunnel.so"
 
@@ -139,16 +139,16 @@ jobs:
           for APK in "$A64" "$A32" "$UNI"; do
             "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$APK"
             B="$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK")"
-            grep -q "package: name='com.saman.tunnel' versionCode='170' versionName='1.7.0'" <<<"$B"
+            grep -q "package: name='com.saman.tunnel' versionCode='171' versionName='1.7.1'" <<<"$B"
           done
           mkdir -p dist
-          cp "$A64" dist/Saman-Tunnel-v1.7.0-arm64-v8a-debug.apk
-          cp "$A32" dist/Saman-Tunnel-v1.7.0-armeabi-v7a-debug.apk
-          cp "$UNI" dist/Saman-Tunnel-v1.7.0-universal-arm-debug.apk
+          cp "$A64" dist/Saman-Tunnel-v1.7.1-arm64-v8a-debug.apk
+          cp "$A32" dist/Saman-Tunnel-v1.7.1-armeabi-v7a-debug.apk
+          cp "$UNI" dist/Saman-Tunnel-v1.7.1-universal-arm-debug.apk
           (cd dist && sha256sum ./*.apk > SHA256SUMS)
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: saman-tunnel-v1.7.0-debug
+          name: saman-tunnel-v1.7.1-debug
           path: dist/*
           if-no-files-found: error
           retention-days: 30
@@ -184,7 +184,7 @@ jobs:
             CERTS="$("$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK")"
             grep -q "certificate SHA-256 digest: $RELEASE_CERT_SHA256" <<<"$CERTS"
             B="$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK")"
-            grep -q "package: name='com.saman.tunnel' versionCode='170' versionName='1.7.0'" <<<"$B"
+            grep -q "package: name='com.saman.tunnel' versionCode='171' versionName='1.7.1'" <<<"$B"
           done
           unzip -l "$A64" | grep -q 'lib/arm64-v8a/libaether.so'
           unzip -l "$A64" | grep -q 'lib/arm64-v8a/libsamanbridge.so'
@@ -192,14 +192,14 @@ jobs:
           unzip -l "$A32" | grep -q 'lib/armeabi-v7a/libsamanbridge.so'
           unzip -l "$UNI" | grep -q 'lib/arm64-v8a/libaether.so'
           unzip -l "$UNI" | grep -q 'lib/armeabi-v7a/libaether.so'
-          cp "$A64" dist-release/Saman-Tunnel-v1.7.0-arm64-v8a.apk
-          cp "$A32" dist-release/Saman-Tunnel-v1.7.0-armeabi-v7a.apk
-          cp "$UNI" dist-release/Saman-Tunnel-v1.7.0-universal-arm.apk
+          cp "$A64" dist-release/Saman-Tunnel-v1.7.1-arm64-v8a.apk
+          cp "$A32" dist-release/Saman-Tunnel-v1.7.1-armeabi-v7a.apk
+          cp "$UNI" dist-release/Saman-Tunnel-v1.7.1-universal-arm.apk
           (cd dist-release && sha256sum ./*.apk > SHA256SUMS)
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: github.event_name == 'workflow_dispatch'
         with:
-          name: saman-tunnel-v1.7.0-release
+          name: saman-tunnel-v1.7.1-release
           path: dist-release/*
           if-no-files-found: error
           retention-days: 30
