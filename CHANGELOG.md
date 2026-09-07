@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.7.6 Debug — 2026-09-07
+
+- Keep Android TUN and HEV alive while Aether reconnects and temporarily closes
+  its SOCKS5 listener. Three missed probes now show reconnection instead of
+  cancelling the running core.
+- Observe the core service through a Binder connection so real process loss
+  still closes the VPN. Explicit Stop and HEV failure retain cleanup behavior.
+- Show reconnection in the VPN notification, app and widget without claiming
+  that a retained TUN means the network is connected.
+- Show checked apps first in both Only selected and Bypass lists; reorder after
+  checkbox changes while retaining the current search.
+- Log activity pauses to help distinguish UI/background transitions from native
+  endpoint reconnection in subsequent device reports.
+
 ## 1.7.5 Debug — 2026-09-07
 
 - Fix v1.7.4 Kotlin compilation in Xiaomi battery parsing.

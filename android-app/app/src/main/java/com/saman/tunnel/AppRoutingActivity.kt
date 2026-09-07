@@ -128,6 +128,7 @@ class AppRoutingActivity : Activity() {
         root.addView(TextView(this).apply {
             text =
                 "Choose which apps use Saman Tunnel. " +
+                "Checked apps appear first. " +
                 "Saman Tunnel itself is automatically protected from VPN loops."
             textSize = 12.5f
             setPadding(0, dp(5), 0, dp(10))
@@ -281,7 +282,11 @@ class AppRoutingActivity : Activity() {
             q.isBlank() ||
                 it.label.lowercase().contains(q) ||
                 it.packageName.lowercase().contains(q)
-        }
+        }.sortedWith(
+            compareByDescending<AppEntry> { it.packageName in selected }
+                .thenBy { it.label.lowercase() }
+                .thenBy { it.packageName }
+        )
 
         visible.forEach { entry ->
             val row = LinearLayout(this).apply {
@@ -344,6 +349,8 @@ class AppRoutingActivity : Activity() {
                     } else {
                         selected -= entry.packageName
                     }
+                    // Reorder after this click finishes, keeping the search text.
+                    listContainer.post { renderApps(searchBox.text.toString()) }
                 }
             }
 

@@ -35,4 +35,12 @@ class ConnectionStatusTest {
         assertEquals("MASQUE H3", ConnectionStatus.modeLabel("MASQUE_H3"))
         assertEquals("GOOL", ConnectionStatus.modeLabel("GOOL"))
     }
+
+    @Test fun retainedTunDuringReconnectDoesNotClaimConnectivity() {
+        val reconnecting = "Connecting — WG VPN reconnecting"
+        assertEquals(reconnecting, ConnectionStatus.display(proxy, true, true, reconnecting))
+        val coreReconnect = "Connecting — WG reconnecting"
+        assertEquals(coreReconnect, ConnectionStatus.display(coreReconnect, true, true, "WG VPN connected"))
+        assertEquals("Connected — VPN", ConnectionStatus.display(proxy, true, true, "WG VPN connected"))
+    }
 }

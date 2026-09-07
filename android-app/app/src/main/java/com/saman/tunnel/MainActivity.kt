@@ -149,6 +149,7 @@ class MainActivity : Activity() {
     }
 
     override fun onPause() {
+        LogStore.append(this, "APP", "MainActivity paused")
         handler.removeCallbacks(refresh)
         super.onPause()
     }

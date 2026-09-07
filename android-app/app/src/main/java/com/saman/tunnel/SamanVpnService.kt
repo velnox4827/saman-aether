@@ -5,12 +5,16 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
+import android.content.ComponentName
+import android.content.Context
+import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.net.VpnService
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.IBinder
 import android.os.ParcelFileDescriptor
 import java.io.File
 import java.util.concurrent.Executors
@@ -56,6 +60,26 @@ class SamanVpnService : VpnService() {
     @Volatile private var vpnRunning = false
     @Volatile private var lastStatus = "Stopped"
     @Volatile private var currentMode = ""
+    @Volatile private var coreBinder: IBinder? = null
+    private var coreBindingRequested = false
+
+    private val coreConnection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName, service: IBinder) {
+            if (!ending.get()) {
+                coreBinder = service
+                LogStore.append(this@SamanVpnService, "VPN_CORE", "Core process connected")
+            }
+        }
+
+        override fun onServiceDisconnected(name: ComponentName) = coreDisconnected()
+
+        override fun onBindingDied(name: ComponentName) = coreDisconnected()
+
+        override fun onNullBinding(name: ComponentName) {
+            coreBinder = null
+            if (!ending.get()) requestStop("Error: Aether core is not running")
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -89,6 +113,10 @@ class SamanVpnService : VpnService() {
                 currentMode = request.mode
                 saveState(false, "Preparing VPN")
                 ensureForeground("${ConnectionStatus.modeLabel(currentMode)} VPN preparing…")
+                if (!bindToCore()) {
+                    requestStop("Error: Aether core is unavailable")
+                    return START_NOT_STICKY
+                }
                 executor.execute {
                     try {
                         cleanupNative()
@@ -110,6 +138,33 @@ class SamanVpnService : VpnService() {
 
     private fun isCurrent(ticket: Long) = !ending.get() && ticket == generation.get()
 
+    private fun bindToCore(): Boolean {
+        if (coreBindingRequested) return true
+        coreBindingRequested = true
+        return runCatching {
+            // Observe the already-started core without recreating it after Stop.
+            bindService(Intent(this, AetherService::class.java), coreConnection, Context.BIND_IMPORTANT)
+        }.onFailure {
+            LogStore.append(this, "VPN_CORE", "Binding failed: ${it.javaClass.simpleName}")
+        }.getOrDefault(false)
+    }
+
+    private fun coreDisconnected() {
+        coreBinder = null
+        LogStore.append(this, "VPN_CORE", "Core process disconnected; closing VPN")
+        // Explicit core Stop and process death can race with ACTION_STOP.
+        // Preserve a normal Stop; the core's own error, if any, stays in its state.
+        if (!ending.get()) requestStop("Stopped")
+    }
+
+    private fun unbindCore() {
+        if (coreBindingRequested) {
+            coreBindingRequested = false
+            runCatching { unbindService(coreConnection) }
+        }
+        coreBinder = null
+    }
+
     override fun onRevoke() {
         LogStore.append(this, "VPN_STOP", "Android revoked VPN permission")
         requestStop("Permission revoked", stopCore = true)
@@ -120,6 +175,7 @@ class SamanVpnService : VpnService() {
         if (!ending.get()) requestStop(lastStatus.takeIf {
             it.startsWith("Error") || it.startsWith("Permission")
         } ?: "Stopped")
+        unbindCore()
         super.onDestroy()
     }
 
@@ -133,7 +189,8 @@ class SamanVpnService : VpnService() {
         val deadline = android.os.SystemClock.elapsedRealtime() + 30_000L
         var ready = false
         while (isCurrent(ticket) && android.os.SystemClock.elapsedRealtime() < deadline) {
-            if (ProxyHealth.probeSocks5("127.0.0.1", SOCKS_PORT, 600)) {
+            if (coreBinder?.isBinderAlive == true &&
+                ProxyHealth.probeSocks5("127.0.0.1", SOCKS_PORT, 600)) {
                 ready = true
                 break
             }
@@ -186,14 +243,35 @@ class SamanVpnService : VpnService() {
         updateNotification(text)
         LogStore.append(this, "VPN_START", text)
 
-        var missingProxy = 0
+        val health = VpnHealthPolicy()
         monitor = executor.scheduleWithFixedDelay({
             if (isCurrent(ticket)) {
-                if (!HevBridge.isRunning()) {
-                    requestStop("Error: VPN worker stopped", stopCore = true)
-                } else {
-                    missingProxy = if (ProxyHealth.probeSocks5("127.0.0.1", SOCKS_PORT, 600)) 0 else missingProxy + 1
-                    if (missingProxy >= 3) requestStop("Error: VPN proxy unavailable", stopCore = true)
+                val coreAlive = coreBinder?.isBinderAlive == true
+                val workerAlive = HevBridge.isRunning()
+                val proxyReady = coreAlive && workerAlive &&
+                    ProxyHealth.probeSocks5("127.0.0.1", SOCKS_PORT, 600)
+                if (!isCurrent(ticket)) return@scheduleWithFixedDelay
+                // Aether intentionally closes/reopens SOCKS5 while selecting a
+                // new endpoint. Keep TUN/HEV alive while the core process lives.
+                when (health.observe(coreAlive, workerAlive, proxyReady)) {
+                    VpnHealthPolicy.State.CORE_STOPPED -> requestStop("Stopped")
+                    VpnHealthPolicy.State.WORKER_STOPPED ->
+                        requestStop("Error: VPN worker stopped", stopCore = true)
+                    VpnHealthPolicy.State.RECONNECTING -> {
+                        val reconnecting = "Connecting — ${ConnectionStatus.modeLabel(request.mode)} VPN reconnecting"
+                        if (lastStatus != reconnecting) {
+                            saveState(true, reconnecting)
+                            updateNotification("${ConnectionStatus.modeLabel(request.mode)} VPN reconnecting…")
+                            LogStore.append(this, "VPN_RECONNECT", "Proxy unavailable; retaining TUN and live core")
+                        }
+                    }
+                    VpnHealthPolicy.State.CONNECTED -> {
+                        if (lastStatus != text) {
+                            saveState(true, text)
+                            updateNotification(text)
+                            LogStore.append(this, "VPN_RECONNECT", "Proxy recovered; VPN resumed without closing TUN")
+                        }
+                    }
                 }
             }
         }, 2, 2, TimeUnit.SECONDS)
@@ -265,6 +343,7 @@ class SamanVpnService : VpnService() {
             saveState(false, status)
             LogStore.append(this, "VPN_STOP", "HEV and TUN closed: $status")
             mainHandler.post {
+                unbindCore()
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
             }

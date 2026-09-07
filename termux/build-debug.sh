@@ -46,8 +46,8 @@ RUN_COMMIT="$(gh run view "$RUN_ID" --repo "$REPO" --json headSha --jq '.headSha
 [[ "$RUN_COMMIT" == "$COMMIT" ]] || { echo 'Run/commit mismatch; stopped.'; exit 1; }
 echo "Building commit $COMMIT: https://github.com/$REPO/actions/runs/$RUN_ID"
 if ! gh run watch "$RUN_ID" --repo "$REPO" --exit-status; then
-  gh run view "$RUN_ID" --repo "$REPO" --log-failed > "$ROOT_DIR/../saman-v175-ci-failed.txt"
-  echo 'Build failed. Log saved beside the repository: saman-v175-ci-failed.txt'
+  gh run view "$RUN_ID" --repo "$REPO" --log-failed > "$ROOT_DIR/../saman-v176-ci-failed.txt"
+  echo 'Build failed. Log saved beside the repository: saman-v176-ci-failed.txt'
   exit 1
 fi
 

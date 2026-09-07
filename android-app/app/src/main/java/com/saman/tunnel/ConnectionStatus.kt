@@ -10,7 +10,10 @@ object ConnectionStatus {
             if (vpn.startsWith("Permission", true)) return "Error: $vpn"
         }
         if (corePhase != TunnelPhase.CONNECTED) return core
-        if (vpnRunning) return "Connected — VPN"
+        if (vpnRunning) {
+            return if (TunnelPhase.fromStatus(vpn) == TunnelPhase.CONNECTING) vpn
+            else "Connected — VPN"
+        }
         return when {
             vpn.startsWith("Error", true) -> vpn
             vpn.startsWith("Permission", true) -> "Error: $vpn"

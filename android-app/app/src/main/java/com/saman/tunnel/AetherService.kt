@@ -9,6 +9,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.graphics.Color
 import android.os.Build
+import android.os.Binder
 import android.os.Handler
 import android.os.Looper
 import android.os.IBinder
@@ -41,6 +42,9 @@ class AetherService : Service() {
     private val jobLock = Any()
     private val terminating = AtomicBoolean(false)
     private val mainHandler = Handler(Looper.getMainLooper())
+    // An opaque Binder lets the VPN observe this process across reconnection.
+    // No in-process service cast or cross-process SharedPreferences is needed.
+    private val livenessBinder = Binder()
 
     @Volatile private var jobId: Long = 0L
     @Volatile private var generation: Long = 0L
@@ -99,7 +103,8 @@ class AetherService : Service() {
         return restartPolicy
     }
 
-    override fun onBind(intent: Intent?): IBinder? = null
+    override fun onBind(intent: Intent?): IBinder? =
+        if (terminating.get()) null else livenessBinder
 
     override fun onDestroy() {
         // Explicit stops reach here after cleanup. Unexpected destruction uses
@@ -313,7 +318,7 @@ class AetherService : Service() {
                         LogStore.append(
                             this,
                             "HEALTH",
-                            "SOCKS5 binding recovered after $consecutiveSocksFailures failed check(s)"
+                            "SOCKS5 recovered after $consecutiveSocksFailures failed check(s)"
                         )
                     }
 
@@ -326,20 +331,19 @@ class AetherService : Service() {
                 } else {
                     consecutiveSocksFailures++
 
-                    LogStore.append(
-                        this,
-                        "HEALTH",
-                        "SOCKS5 binding check failed $consecutiveSocksFailures/3"
-                    )
+                    if (consecutiveSocksFailures <= 3 || consecutiveSocksFailures % 15 == 0) {
+                        LogStore.append(this, "HEALTH",
+                            "SOCKS5 unavailable; native job still running; check=$consecutiveSocksFailures")
+                    }
 
                     if (consecutiveSocksFailures >= 3 && !healthWarningShown) {
                         healthWarningShown = true
                         setState(
-                            "Connection unstable — checking SOCKS5",
+                            "Connecting — ${modeLabel(mode)} reconnecting",
                             mode
                         )
                         updateNotification(
-                            "${modeLabel(mode)} active — checking SOCKS5"
+                            "${modeLabel(mode)} Proxy reconnecting…"
                         )
                     }
                 }
