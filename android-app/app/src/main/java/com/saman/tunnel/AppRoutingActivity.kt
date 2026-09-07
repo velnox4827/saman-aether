@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.CheckBox
@@ -33,13 +34,22 @@ class AppRoutingActivity : Activity() {
     private lateinit var modeGroup: RadioGroup
     private lateinit var searchBox: EditText
 
+    // Generated runtime IDs are valid Android view resource IDs.
+    private val modeAllId: Int = View.generateViewId()
+    private val modeOnlyId: Int = View.generateViewId()
+    private val modeBypassId: Int = View.generateViewId()
+
     private fun dp(value: Int): Int =
         (value * resources.displayMetrics.density).toInt()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val prefs = getSharedPreferences(SamanVpnService.PREFS, MODE_PRIVATE)
+        val prefs = getSharedPreferences(
+            SamanVpnService.PREFS,
+            MODE_PRIVATE
+        )
+
         selected += prefs.getStringSet(
             SamanVpnService.KEY_SELECTED_APPS,
             emptySet()
@@ -55,9 +65,14 @@ class AppRoutingActivity : Activity() {
             ) ?: SamanVpnService.ROUTING_ALL
 
         when (mode) {
-            SamanVpnService.ROUTING_ONLY -> modeGroup.check(102)
-            SamanVpnService.ROUTING_BYPASS -> modeGroup.check(103)
-            else -> modeGroup.check(101)
+            SamanVpnService.ROUTING_ONLY ->
+                modeGroup.check(modeOnlyId)
+
+            SamanVpnService.ROUTING_BYPASS ->
+                modeGroup.check(modeBypassId)
+
+            else ->
+                modeGroup.check(modeAllId)
         }
 
         renderApps("")
@@ -88,17 +103,17 @@ class AppRoutingActivity : Activity() {
         }
 
         modeGroup.addView(RadioButton(this).apply {
-            id = 101
+            id = modeAllId
             text = "All apps — everything uses VPN"
         })
 
         modeGroup.addView(RadioButton(this).apply {
-            id = 102
+            id = modeOnlyId
             text = "Only selected apps — only checked apps use VPN"
         })
 
         modeGroup.addView(RadioButton(this).apply {
-            id = 103
+            id = modeBypassId
             text = "Bypass selected apps — checked apps stay outside VPN"
         })
 
@@ -110,28 +125,43 @@ class AppRoutingActivity : Activity() {
             setPadding(0, dp(8), 0, dp(6))
         }
 
-        bulkRow.addView(Button(this).apply {
-            text = "Select all"
-            setOnClickListener {
-                selected.clear()
-                selected += entries.map { entry -> entry.packageName }
-                renderApps(searchBox.text.toString())
-            }
-        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        bulkRow.addView(
+            Button(this).apply {
+                text = "Select all"
+                setOnClickListener {
+                    selected.clear()
+                    selected += entries.map { entry -> entry.packageName }
+                    renderApps(searchBox.text.toString())
+                }
+            },
+            LinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                1f
+            )
+        )
 
-        bulkRow.addView(Button(this).apply {
-            text = "Clear"
-            setOnClickListener {
-                selected.clear()
-                renderApps(searchBox.text.toString())
-            }
-        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        bulkRow.addView(
+            Button(this).apply {
+                text = "Clear"
+                setOnClickListener {
+                    selected.clear()
+                    renderApps(searchBox.text.toString())
+                }
+            },
+            LinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                1f
+            )
+        )
 
         root.addView(bulkRow)
 
         searchBox = EditText(this).apply {
             hint = "Search apps or package name"
             isSingleLine = true
+
             addTextChangedListener(object : TextWatcher {
                 override fun beforeTextChanged(
                     s: CharSequence?,
@@ -186,8 +216,13 @@ class AppRoutingActivity : Activity() {
         return packageManager
             .queryIntentActivities(launcher, 0)
             .mapNotNull { info ->
-                val pkg = info.activityInfo?.packageName ?: return@mapNotNull null
-                if (pkg == packageName) return@mapNotNull null
+                val pkg =
+                    info.activityInfo?.packageName
+                        ?: return@mapNotNull null
+
+                if (pkg == packageName) {
+                    return@mapNotNull null
+                }
 
                 val label =
                     runCatching {
@@ -219,16 +254,25 @@ class AppRoutingActivity : Activity() {
                 setPadding(0, dp(6), 0, dp(6))
             }
 
-            row.addView(ImageView(this).apply {
-                setImageDrawable(
-                    runCatching {
-                        packageManager.getApplicationIcon(entry.packageName)
-                    }.getOrNull()
-                )
-                adjustViewBounds = true
-            }, LinearLayout.LayoutParams(dp(42), dp(42)).apply {
-                marginEnd = dp(10)
-            })
+            row.addView(
+                ImageView(this).apply {
+                    setImageDrawable(
+                        runCatching {
+                            packageManager.getApplicationIcon(
+                                entry.packageName
+                            )
+                        }.getOrNull()
+                    )
+
+                    adjustViewBounds = true
+                },
+                LinearLayout.LayoutParams(
+                    dp(42),
+                    dp(42)
+                ).apply {
+                    marginEnd = dp(10)
+                }
+            )
 
             val labels = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
@@ -247,11 +291,17 @@ class AppRoutingActivity : Activity() {
 
             row.addView(
                 labels,
-                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                LinearLayout.LayoutParams(
+                    0,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    1f
+                )
             )
 
             val check = CheckBox(this).apply {
-                isChecked = selected.contains(entry.packageName)
+                isChecked =
+                    selected.contains(entry.packageName)
+
                 setOnCheckedChangeListener { _, checked ->
                     if (checked) {
                         selected += entry.packageName
@@ -274,17 +324,28 @@ class AppRoutingActivity : Activity() {
             listContainer.addView(TextView(this).apply {
                 text = "No apps found"
                 gravity = Gravity.CENTER
-                setPadding(0, dp(24), 0, dp(24))
+                setPadding(
+                    0,
+                    dp(24),
+                    0,
+                    dp(24)
+                )
             })
         }
     }
 
     private fun saveAndClose() {
-        val mode = when (modeGroup.checkedRadioButtonId) {
-            102 -> SamanVpnService.ROUTING_ONLY
-            103 -> SamanVpnService.ROUTING_BYPASS
-            else -> SamanVpnService.ROUTING_ALL
-        }
+        val mode =
+            when (modeGroup.checkedRadioButtonId) {
+                modeOnlyId ->
+                    SamanVpnService.ROUTING_ONLY
+
+                modeBypassId ->
+                    SamanVpnService.ROUTING_BYPASS
+
+                else ->
+                    SamanVpnService.ROUTING_ALL
+            }
 
         if (
             mode == SamanVpnService.ROUTING_ONLY &&
@@ -295,12 +356,18 @@ class AppRoutingActivity : Activity() {
                 "Select at least one app for Only selected mode",
                 Toast.LENGTH_LONG
             ).show()
+
             return
         }
 
-        getSharedPreferences(SamanVpnService.PREFS, MODE_PRIVATE)
-            .edit()
-            .putString(SamanVpnService.KEY_ROUTING_MODE, mode)
+        getSharedPreferences(
+            SamanVpnService.PREFS,
+            MODE_PRIVATE
+        ).edit()
+            .putString(
+                SamanVpnService.KEY_ROUTING_MODE,
+                mode
+            )
             .putStringSet(
                 SamanVpnService.KEY_SELECTED_APPS,
                 selected.toSet()
