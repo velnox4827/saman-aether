@@ -360,26 +360,43 @@ class AppRoutingActivity : Activity() {
             return
         }
 
-        getSharedPreferences(
-            SamanVpnService.PREFS,
-            MODE_PRIVATE
-        ).edit()
-            .putString(
-                SamanVpnService.KEY_ROUTING_MODE,
-                mode
-            )
-            .putStringSet(
-                SamanVpnService.KEY_SELECTED_APPS,
-                selected.toSet()
-            )
-            .apply()
+        val saved =
+            getSharedPreferences(
+                SamanVpnService.PREFS,
+                MODE_PRIVATE
+            ).edit()
+                .putString(
+                    SamanVpnService.KEY_ROUTING_MODE,
+                    mode
+                )
+                .putStringSet(
+                    SamanVpnService.KEY_SELECTED_APPS,
+                    selected.toSet()
+                )
+                .commit()
+
+        if (!saved) {
+            Toast.makeText(
+                this,
+                "Could not save app routing",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+
+        LogStore.append(
+            this,
+            "APP_ROUTING",
+            "saved mode=$mode selectedCount=${selected.size}"
+        )
 
         Toast.makeText(
             this,
-            "App routing saved — reconnect VPN to apply",
+            "App routing saved — applying now",
             Toast.LENGTH_SHORT
         ).show()
 
+        setResult(RESULT_OK)
         finish()
     }
 }

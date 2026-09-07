@@ -47,6 +47,7 @@ class MainActivity : Activity() {
     companion object {
         private const val REQUEST_SAVE_DIAGNOSTICS = 2002
         private const val REQUEST_VPN_PERMISSION = 2003
+        private const val REQUEST_APP_ROUTING = 2004
         private const val RELEASES_API =
             "https://api.github.com/repos/velnox4827/saman-aether/releases?per_page=10"
     }
@@ -352,11 +353,12 @@ class MainActivity : Activity() {
             purple,
             card
         ) {
-            startActivity(
+            startActivityForResult(
                 Intent(
                     this,
                     AppRoutingActivity::class.java
-                )
+                ),
+                REQUEST_APP_ROUTING
             )
         }
 
@@ -819,10 +821,24 @@ class MainActivity : Activity() {
                 putExtra(AetherService.EXTRA_MODE, mode)
             }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(intent)
-        } else {
-            startService(intent)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
+        } catch (t: Throwable) {
+            LogStore.append(
+                this,
+                "ERROR",
+                "Starting AetherService failed: ${t.javaClass.name}: ${t.message.orEmpty()}"
+            )
+            Toast.makeText(
+                this,
+                "Aether service could not start: ${t.javaClass.simpleName}",
+                Toast.LENGTH_LONG
+            ).show()
+            return
         }
 
         if (isVpnMode()) {
@@ -1012,10 +1028,27 @@ class MainActivity : Activity() {
         pendingVpnMode = null
         vpnPrepareBusy = false
 
+        val routingPrefs = getSharedPreferences(
+            SamanVpnService.PREFS,
+            MODE_PRIVATE
+        )
+
+        val routingMode =
+            routingPrefs.getString(
+                SamanVpnService.KEY_ROUTING_MODE,
+                SamanVpnService.ROUTING_ALL
+            ) ?: SamanVpnService.ROUTING_ALL
+
+        val selectedApps =
+            routingPrefs.getStringSet(
+                SamanVpnService.KEY_SELECTED_APPS,
+                emptySet()
+            )?.toSet() ?: emptySet()
+
         LogStore.append(
             this,
             "VPN_START",
-            "service dispatch begin for ${prettyMode(mode)}"
+            "service dispatch begin for ${prettyMode(mode)} routing=$routingMode selectedCount=${selectedApps.size}"
         )
 
         val intent = Intent(
@@ -1023,6 +1056,14 @@ class MainActivity : Activity() {
             SamanVpnService::class.java
         ).apply {
             action = SamanVpnService.ACTION_START
+            putExtra(
+                SamanVpnService.EXTRA_ROUTING_MODE,
+                routingMode
+            )
+            putStringArrayListExtra(
+                SamanVpnService.EXTRA_SELECTED_APPS,
+                ArrayList(selectedApps)
+            )
         }
 
         try {
@@ -1050,6 +1091,51 @@ class MainActivity : Activity() {
                 Toast.LENGTH_LONG
             ).show()
         }
+    }
+
+    private fun reapplyVpnRouting() {
+        if (!isVpnMode()) return
+
+        if (!ProxyHealth.probeSocks5("127.0.0.1", 1819, 700)) {
+            Toast.makeText(
+                this,
+                "Routing saved — it will apply on the next VPN connection",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+
+        val aetherPrefs = getSharedPreferences(
+            AetherService.PREFS,
+            MODE_PRIVATE
+        )
+
+        val mode =
+            aetherPrefs.getString(AetherService.KEY_MODE, "")
+                .orEmpty()
+                .ifBlank {
+                    aetherPrefs.getString(AetherService.KEY_LAST_MODE, "WG")
+                        .orEmpty()
+                        .ifBlank { "WG" }
+                }
+
+        LogStore.append(
+            this,
+            "APP_ROUTING",
+            "Hot-applying routing without restarting Aether mode=$mode"
+        )
+
+        stopVpnService()
+        vpnPrepareBusy = false
+        vpnStartDispatched = false
+
+        handler.postDelayed({
+            if (!isFinishing && !isDestroyed) {
+                vpnPrepareBusy = false
+                vpnStartDispatched = false
+                requestVpnPermissionAndStart(mode)
+            }
+        }, 650L)
     }
 
     private fun stopVpnService() {
@@ -1442,6 +1528,15 @@ class MainActivity : Activity() {
             resultCode,
             data
         )
+
+        if (requestCode == REQUEST_APP_ROUTING) {
+            refreshVpnControls()
+
+            if (resultCode == RESULT_OK) {
+                reapplyVpnRouting()
+            }
+            return
+        }
 
         if (requestCode == REQUEST_VPN_PERMISSION) {
             vpnPrepareBusy = false

@@ -20,6 +20,8 @@ class SamanVpnService : VpnService() {
     companion object {
         const val ACTION_START = "com.saman.tunnel.VPN_START"
         const val ACTION_STOP = "com.saman.tunnel.VPN_STOP"
+        const val EXTRA_ROUTING_MODE = "com.saman.tunnel.extra.ROUTING_MODE"
+        const val EXTRA_SELECTED_APPS = "com.saman.tunnel.extra.SELECTED_APPS"
 
         const val PREFS = "saman_vpn"
         const val KEY_CONNECTION_MODE = "connection_mode"
@@ -55,6 +57,12 @@ class SamanVpnService : VpnService() {
     @Volatile
     private var vpnRunning = false
 
+    @Volatile
+    private var requestedRoutingMode: String = ROUTING_ALL
+
+    @Volatile
+    private var requestedSelectedApps: Set<String> = emptySet()
+
     override fun onCreate() {
         super.onCreate()
         CrashRecorder.install(this)
@@ -83,6 +91,26 @@ class SamanVpnService : VpnService() {
                 }
 
                 ACTION_START -> {
+                    val fallbackPrefs = getSharedPreferences(PREFS, MODE_PRIVATE)
+
+                    requestedRoutingMode =
+                        intent.getStringExtra(EXTRA_ROUTING_MODE)
+                            ?: fallbackPrefs.getString(KEY_ROUTING_MODE, ROUTING_ALL)
+                            ?: ROUTING_ALL
+
+                    requestedSelectedApps =
+                        intent.getStringArrayListExtra(EXTRA_SELECTED_APPS)
+                            ?.toSet()
+                            ?: fallbackPrefs.getStringSet(KEY_SELECTED_APPS, emptySet())
+                                ?.toSet()
+                            ?: emptySet()
+
+                    LogStore.append(
+                        this,
+                        "APP_ROUTING",
+                        "request mode=$requestedRoutingMode selectedCount=${requestedSelectedApps.size} source=intent"
+                    )
+
                     ensureForeground("Preparing VPN…")
 
                     if (!vpnRunning && starting.compareAndSet(false, true)) {
@@ -166,13 +194,8 @@ class SamanVpnService : VpnService() {
             return
         }
 
-        val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
-        val routingMode =
-            prefs.getString(KEY_ROUTING_MODE, ROUTING_ALL) ?: ROUTING_ALL
-        val selectedApps =
-            prefs.getStringSet(KEY_SELECTED_APPS, emptySet())
-                ?.toSet()
-                ?: emptySet()
+        val routingMode = requestedRoutingMode
+        val selectedApps = requestedSelectedApps.toSet()
 
         val builder = Builder()
             .setSession("Saman Tunnel")

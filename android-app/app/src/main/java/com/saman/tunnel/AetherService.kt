@@ -345,6 +345,25 @@ class AetherService : Service() {
                 }
 
                 Thread.sleep(2000)
+            } catch (t: InterruptedException) {
+                Thread.currentThread().interrupt()
+
+                if (generation != myGeneration || jobId != id) {
+                    LogStore.append(
+                        this,
+                        "CORE",
+                        "Monitor interrupted during normal shutdown"
+                    )
+                    return
+                }
+
+                LogStore.append(
+                    this,
+                    "EXCEPTION",
+                    "monitor interrupted unexpectedly"
+                )
+                fail("Monitoring interrupted", mode)
+                return
             } catch (t: Throwable) {
                 LogStore.append(
                     this,
@@ -415,14 +434,11 @@ class AetherService : Service() {
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
 
-            Thread.sleep(150)
             LogStore.append(
                 this,
                 "SERVICE",
-                "Killing isolated core process pid=${Process.myPid()}"
+                "Core stopped cleanly; process left for Android to recycle pid=${Process.myPid()}"
             )
-
-            Process.killProcess(Process.myPid())
         }.start()
     }
 
@@ -444,8 +460,11 @@ class AetherService : Service() {
             Thread.sleep(250)
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
-            Thread.sleep(100)
-            Process.killProcess(Process.myPid())
+            LogStore.append(
+                this,
+                "SERVICE",
+                "Core failure stopped service without killing process pid=${Process.myPid()}"
+            )
         }.start()
     }
 
@@ -532,7 +551,11 @@ class AetherService : Service() {
             Thread.sleep(delayMs)
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
-            Process.killProcess(Process.myPid())
+            LogStore.append(
+                this,
+                "SERVICE",
+                "Core job ended; service stopped cleanly pid=${Process.myPid()}"
+            )
         }.start()
     }
 
