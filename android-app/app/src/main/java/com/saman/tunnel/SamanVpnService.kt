@@ -310,7 +310,15 @@ class SamanVpnService : VpnService() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        return Notification.Builder(this, CHANNEL_ID)
+        val builder =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                Notification.Builder(this, CHANNEL_ID)
+            } else {
+                @Suppress("DEPRECATION")
+                Notification.Builder(this)
+            }
+
+        return builder
             .setSmallIcon(R.mipmap.saman_app_icon_v120)
             .setContentTitle("Saman Tunnel VPN")
             .setContentText(text)
