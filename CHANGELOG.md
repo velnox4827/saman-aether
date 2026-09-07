@@ -1,6 +1,8 @@
 # Changelog
 
-## 1.7.6 Debug — 2026-09-07
+## v1.7.6
+
+Stable release — 2026-09-08
 
 - Keep Android TUN and HEV alive while Aether reconnects and temporarily closes
   its SOCKS5 listener. Three missed probes now show reconnection instead of
