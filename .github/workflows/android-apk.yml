@@ -3,7 +3,7 @@ name: Build Saman Tunnel v1.6.0 APKs
 on:
   workflow_dispatch:
   push:
-    branches: [main, "release/**"]
+    branches: [main, "release/**", vpn-debug-hev]
     paths:
       - "android-app/**"
       - ".github/workflows/android-apk.yml"
@@ -21,6 +21,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          submodules: 'recursive'
       - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
         with:
           distribution: temurin
@@ -69,6 +71,31 @@ jobs:
           cargo ndk -t arm64-v8a -t armeabi-v7a --platform 24 build --release --lib
           install -Dm755 target/aarch64-linux-android/release/libaether.so "$GITHUB_WORKSPACE/android-app/app/src/main/jniLibs/arm64-v8a/libaether.so"
           install -Dm755 target/armv7-linux-androideabi/release/libaether.so "$GITHUB_WORKSPACE/android-app/app/src/main/jniLibs/armeabi-v7a/libaether.so"
+      - name: Build pinned HEV tun2socks
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/26.3.11579264
+          ANDROID_NDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}/ndk/26.3.11579264
+        run: |
+          set -euxo pipefail
+          HEV="$GITHUB_WORKSPACE/android-app/third_party/hev-socks5-tunnel"
+          OUT="$GITHUB_WORKSPACE/android-app/app/src/main/jniLibs"
+          OBJ="$RUNNER_TEMP/hev-obj"
+          test "$(git -C "$HEV" describe --tags --exact-match)" = "2.17.0"
+          "$ANDROID_NDK_HOME/ndk-build" \
+            -C "$HEV" \
+            NDK_PROJECT_PATH="$HEV" \
+            APP_BUILD_SCRIPT="$HEV/Android.mk" \
+            NDK_APPLICATION_MK="$HEV/Application.mk" \
+            NDK_LIBS_OUT="$OUT" \
+            NDK_OUT="$OBJ" \
+            APP_ABI="arm64-v8a armeabi-v7a" \
+            APP_PLATFORM="android-24" \
+            APP_CFLAGS="-O3 -DANDROID -DPKGNAME=com/saman/tunnel -DCLSNAME=HevTunnel"
+          test -s "$OUT/arm64-v8a/libhev-socks5-tunnel.so"
+          test -s "$OUT/armeabi-v7a/libhev-socks5-tunnel.so"
+          sha256sum \
+            "$OUT/arm64-v8a/libhev-socks5-tunnel.so" \
+            "$OUT/armeabi-v7a/libhev-socks5-tunnel.so"
       - name: Unit tests and lint
         working-directory: android-app
         run: ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug
@@ -83,6 +110,10 @@ jobs:
           A32="$(find "$O" -type f -name '*armeabi-v7a*debug*.apk' -print -quit)"
           UNI="$(find "$O" -type f -name '*universal*debug*.apk' -print -quit)"
           test -f "$A64"; test -f "$A32"; test -f "$UNI"
+          unzip -l "$A64" | grep -q 'lib/arm64-v8a/libhev-socks5-tunnel.so'
+          unzip -l "$A32" | grep -q 'lib/armeabi-v7a/libhev-socks5-tunnel.so'
+          unzip -l "$UNI" | grep -q 'lib/arm64-v8a/libhev-socks5-tunnel.so'
+          unzip -l "$UNI" | grep -q 'lib/armeabi-v7a/libhev-socks5-tunnel.so'
           for APK in "$A64" "$A32" "$UNI"; do
             "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$APK"
             B="$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK")"
