@@ -78,7 +78,8 @@ jobs:
         run: |
           set -euxo pipefail
           HEV="$GITHUB_WORKSPACE/android-app/third_party/hev-socks5-tunnel"
-          OUT="$GITHUB_WORKSPACE/android-app/app/src/main/jniLibs"
+          HEV_OUT="$RUNNER_TEMP/hev-libs"
+          APP_LIBS="$GITHUB_WORKSPACE/android-app/app/src/main/jniLibs"
           OBJ="$RUNNER_TEMP/hev-obj"
           test "$(git -C "$HEV" rev-parse HEAD)" = "d1178b52fccd8659201e1e3f83030f298c998865"
           "$ANDROID_NDK_HOME/ndk-build" \
@@ -86,16 +87,37 @@ jobs:
             NDK_PROJECT_PATH="$HEV" \
             APP_BUILD_SCRIPT="$HEV/Android.mk" \
             NDK_APPLICATION_MK="$HEV/Application.mk" \
-            NDK_LIBS_OUT="$OUT" \
+            NDK_LIBS_OUT="$HEV_OUT" \
             NDK_OUT="$OBJ" \
             APP_ABI="arm64-v8a armeabi-v7a" \
             APP_PLATFORM="android-24" \
             APP_CFLAGS="-O3 -DANDROID -DPKGNAME=com/saman/tunnel -DCLSNAME=HevTunnel"
-          test -s "$OUT/arm64-v8a/libhev-socks5-tunnel.so"
-          test -s "$OUT/armeabi-v7a/libhev-socks5-tunnel.so"
+          test -s "$HEV_OUT/arm64-v8a/libhev-socks5-tunnel.so"
+          test -s "$HEV_OUT/armeabi-v7a/libhev-socks5-tunnel.so"
+
+          # Preserve Aether: build HEV outside app/src/main/jniLibs.
+          test -s "$APP_LIBS/arm64-v8a/libaether.so"
+          test -s "$APP_LIBS/armeabi-v7a/libaether.so"
+
+          install -Dm755 "$HEV_OUT/arm64-v8a/libhev-socks5-tunnel.so" "$APP_LIBS/arm64-v8a/libhev-socks5-tunnel.so"
+          install -Dm755 "$HEV_OUT/armeabi-v7a/libhev-socks5-tunnel.so" "$APP_LIBS/armeabi-v7a/libhev-socks5-tunnel.so"
+
+          # Both native engines must coexist before Gradle/CMake starts.
+          test -s "$APP_LIBS/arm64-v8a/libaether.so"
+          test -s "$APP_LIBS/arm64-v8a/libhev-socks5-tunnel.so"
+          test -s "$APP_LIBS/armeabi-v7a/libaether.so"
+          test -s "$APP_LIBS/armeabi-v7a/libhev-socks5-tunnel.so"
+
+          echo "ARM64 native libs:"
+          ls -lh "$APP_LIBS/arm64-v8a/libaether.so" "$APP_LIBS/arm64-v8a/libhev-socks5-tunnel.so"
+          echo "ARMv7 native libs:"
+          ls -lh "$APP_LIBS/armeabi-v7a/libaether.so" "$APP_LIBS/armeabi-v7a/libhev-socks5-tunnel.so"
+
           sha256sum \
-            "$OUT/arm64-v8a/libhev-socks5-tunnel.so" \
-            "$OUT/armeabi-v7a/libhev-socks5-tunnel.so"
+            "$APP_LIBS/arm64-v8a/libaether.so" \
+            "$APP_LIBS/arm64-v8a/libhev-socks5-tunnel.so" \
+            "$APP_LIBS/armeabi-v7a/libaether.so" \
+            "$APP_LIBS/armeabi-v7a/libhev-socks5-tunnel.so"
       - name: Unit tests and lint
         working-directory: android-app
         run: ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug
