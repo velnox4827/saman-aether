@@ -1,3 +1,4 @@
+import java.util.Base64
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -27,7 +28,7 @@ if (releaseRequested && !hasSamanReleaseSigning) {
 // Public development identity, deliberately unrelated to production signing.
 val publicDebugKeystore = layout.buildDirectory.file("debug-signing/public-debug.p12").get().asFile
 publicDebugKeystore.parentFile.mkdirs()
-publicDebugKeystore.writeBytes(java.util.Base64.getMimeDecoder().decode(
+publicDebugKeystore.writeBytes(Base64.getMimeDecoder().decode(
     rootProject.file("debug-signing/PUBLIC-DEBUG-KEYSTORE.base64").readText()
 ))
 
