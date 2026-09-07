@@ -61,6 +61,9 @@ class MainActivity : Activity() {
     private lateinit var vpnModeView: TextView
     private lateinit var routingView: TextView
     private var pendingVpnMode: String? = null
+    private var deferredVpnMode: String? = null
+    private var vpnPrepareBusy = false
+    private var vpnStartDispatched = false
 
     private val handler = Handler(Looper.getMainLooper())
     private var lastStartTap = 0L
@@ -100,6 +103,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        CrashRecorder.install(this)
 
         window.statusBarColor = canvas
         window.navigationBarColor = canvas
@@ -822,12 +826,22 @@ class MainActivity : Activity() {
         }
 
         if (isVpnMode()) {
-            requestVpnPermissionAndStart(mode)
+            deferredVpnMode = mode
+            vpnPrepareBusy = false
+            vpnStartDispatched = false
+            LogStore.append(
+                this,
+                "VPN_START",
+                "Deferred until Aether reports Connected: ${prettyMode(mode)}"
+            )
         }
     }
 
     private fun stop(cancelPendingSwitch: Boolean = true) {
         if (cancelPendingSwitch) cancelPendingModeSwitch()
+        deferredVpnMode = null
+        vpnPrepareBusy = false
+        vpnStartDispatched = false
         LogStore.append(this, "UI", "Stop requested")
         stopVpnService()
         startService(Intent(this, AetherService::class.java).apply {
@@ -925,28 +939,83 @@ class MainActivity : Activity() {
     }
 
     private fun requestVpnPermissionAndStart(mode: String) {
-        val prepareIntent = VpnService.prepare(this)
+        if (vpnPrepareBusy || vpnStartDispatched) return
+
+        vpnPrepareBusy = true
+        vpnStartDispatched = true
+
+        LogStore.append(
+            this,
+            "VPN_PERMISSION",
+            "prepare begin mode=${prettyMode(mode)}"
+        )
+
+        val prepareIntent = try {
+            VpnService.prepare(this)
+        } catch (t: Throwable) {
+            vpnPrepareBusy = false
+            vpnStartDispatched = false
+            LogStore.append(
+                this,
+                "ERROR",
+                "VpnService.prepare failed: ${t.javaClass.name}: ${t.message.orEmpty()}"
+            )
+            Toast.makeText(
+                this,
+                "VPN preparation failed: ${t.javaClass.simpleName}",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+
+        LogStore.append(
+            this,
+            "VPN_PERMISSION",
+            if (prepareIntent == null) {
+                "prepare result=already-granted"
+            } else {
+                "prepare result=consent-required"
+            }
+        )
 
         if (prepareIntent == null) {
+            vpnPrepareBusy = false
             startVpnService(mode)
             return
         }
 
         pendingVpnMode = mode
-        LogStore.append(this, "VPN_PERMISSION", "Requesting Android VPN permission")
-        startActivityForResult(
-            prepareIntent,
-            REQUEST_VPN_PERMISSION
-        )
+
+        try {
+            startActivityForResult(
+                prepareIntent,
+                REQUEST_VPN_PERMISSION
+            )
+        } catch (t: Throwable) {
+            pendingVpnMode = null
+            vpnPrepareBusy = false
+            vpnStartDispatched = false
+            LogStore.append(
+                this,
+                "ERROR",
+                "VPN consent activity failed: ${t.javaClass.name}: ${t.message.orEmpty()}"
+            )
+            Toast.makeText(
+                this,
+                "Could not open Android VPN permission screen",
+                Toast.LENGTH_LONG
+            ).show()
+        }
     }
 
     private fun startVpnService(mode: String) {
         pendingVpnMode = null
+        vpnPrepareBusy = false
 
         LogStore.append(
             this,
             "VPN_START",
-            "Built-in VPN requested for ${prettyMode(mode)}"
+            "service dispatch begin for ${prettyMode(mode)}"
         )
 
         val intent = Intent(
@@ -956,10 +1025,30 @@ class MainActivity : Activity() {
             action = SamanVpnService.ACTION_START
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(intent)
-        } else {
-            startService(intent)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
+
+            LogStore.append(
+                this,
+                "VPN_START",
+                "service dispatch returned successfully"
+            )
+        } catch (t: Throwable) {
+            vpnStartDispatched = false
+            LogStore.append(
+                this,
+                "ERROR",
+                "Starting SamanVpnService failed: ${t.javaClass.name}: ${t.message.orEmpty()}"
+            )
+            Toast.makeText(
+                this,
+                "VPN service failed to start: ${t.javaClass.simpleName}",
+                Toast.LENGTH_LONG
+            ).show()
         }
     }
 
@@ -1028,6 +1117,26 @@ class MainActivity : Activity() {
 
                 else -> "Apps: All"
             }
+    }
+
+    private fun maybeStartDeferredVpn(
+        mode: String,
+        rawStatus: String
+    ) {
+        if (!isVpnMode()) return
+        if (!rawStatus.startsWith("Connected", ignoreCase = true)) return
+        if (vpnPrepareBusy || vpnStartDispatched) return
+
+        val targetMode = deferredVpnMode ?: mode
+        if (targetMode.isBlank()) return
+
+        LogStore.append(
+            this,
+            "VPN_START",
+            "Aether connected; preparing built-in VPN for ${prettyMode(targetMode)}"
+        )
+
+        requestVpnPermissionAndStart(targetMode)
     }
 
     private fun copySocks() {
@@ -1335,6 +1444,7 @@ class MainActivity : Activity() {
         )
 
         if (requestCode == REQUEST_VPN_PERMISSION) {
+            vpnPrepareBusy = false
             if (resultCode == RESULT_OK) {
                 val mode =
                     pendingVpnMode
@@ -1356,6 +1466,7 @@ class MainActivity : Activity() {
                 startVpnService(mode)
             } else {
                 pendingVpnMode = null
+                vpnStartDispatched = false
 
                 LogStore.append(
                     this,
@@ -1645,6 +1756,8 @@ class MainActivity : Activity() {
         val prefs = getSharedPreferences(AetherService.PREFS, MODE_PRIVATE)
         val mode = prefs.getString(AetherService.KEY_MODE, "") ?: ""
         val rawStatus = prefs.getString(AetherService.KEY_STATUS, "Stopped") ?: "Stopped"
+
+        maybeStartDeferredVpn(mode, rawStatus)
         val status = rawStatus.trim()
 
         modeView.text = "Mode: ${prettyMode(mode)}"

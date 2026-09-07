@@ -55,33 +55,75 @@ class SamanVpnService : VpnService() {
     @Volatile
     private var vpnRunning = false
 
+    override fun onCreate() {
+        super.onCreate()
+        CrashRecorder.install(this)
+        LogStore.append(
+            this,
+            "VPN_SERVICE",
+            "created pid=${android.os.Process.myPid()} sdk=${Build.VERSION.SDK_INT}"
+        )
+    }
+
     override fun onBind(intent: Intent?): IBinder? =
         super.onBind(intent)
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
-            ACTION_STOP -> {
-                executor.execute { stopTunnel("Stopped") }
-                return START_NOT_STICKY
-            }
+        LogStore.append(
+            this,
+            "VPN_SERVICE",
+            "command action=${intent?.action ?: "null"} startId=$startId pid=${android.os.Process.myPid()}"
+        )
 
-            ACTION_START, null -> {
-                ensureForeground("Preparing VPN…")
-
-                if (!vpnRunning && starting.compareAndSet(false, true)) {
-                    executor.execute {
-                        try {
-                            startTunnel()
-                        } finally {
-                            starting.set(false)
-                        }
-                    }
+        return try {
+            when (intent?.action) {
+                ACTION_STOP -> {
+                    executor.execute { stopTunnel("Stopped") }
+                    START_NOT_STICKY
                 }
 
-                return START_STICKY
-            }
+                ACTION_START -> {
+                    ensureForeground("Preparing VPN…")
 
-            else -> return START_NOT_STICKY
+                    if (!vpnRunning && starting.compareAndSet(false, true)) {
+                        executor.execute {
+                            try {
+                                startTunnel()
+                            } catch (t: Throwable) {
+                                LogStore.append(
+                                    this,
+                                    "ERROR",
+                                    "VPN worker exception: ${t.javaClass.name}: ${t.message.orEmpty()}"
+                                )
+                                fail("VPN worker failed: ${t.javaClass.simpleName}")
+                            } finally {
+                                starting.set(false)
+                            }
+                        }
+                    }
+
+                    // Do not let Android auto-restart a crashing VPN process.
+                    START_NOT_STICKY
+                }
+
+                else -> {
+                    LogStore.append(
+                        this,
+                        "VPN_SERVICE",
+                        "ignored null/unknown restart command"
+                    )
+                    START_NOT_STICKY
+                }
+            }
+        } catch (t: Throwable) {
+            LogStore.append(
+                this,
+                "ERROR",
+                "VPN command exception: ${t.javaClass.name}: ${t.message.orEmpty()}"
+            )
+            saveState(false, "Error: ${t.javaClass.simpleName}")
+            runCatching { stopSelf() }
+            START_NOT_STICKY
         }
     }
 
