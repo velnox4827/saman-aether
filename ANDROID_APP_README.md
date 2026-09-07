@@ -1,5 +1,5 @@
 # Saman Tunnel Android
 
-The Android prototype phase is complete. Saman Tunnel v1.5.0 is the current stable release.
+Saman Tunnel v1.7.6 is the current stable Android release, with local SOCKS5/HTTP CONNECT proxy mode plus an optional Android VpnService/HEV device-VPN path and per-app routing.
 
 Use the complete, bilingual [README](README.md) for architecture, installation, APK selection, verification, lifecycle, diagnostics, build, CI, security, and troubleshooting information.
