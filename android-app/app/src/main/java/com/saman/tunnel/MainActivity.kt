@@ -1679,16 +1679,55 @@ class MainActivity : Activity() {
     private fun refreshBatteryStatus() {
         if (!::batteryView.isInitialized) return
 
-        val unrestricted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-            pm.isIgnoringBatteryOptimizations(packageName)
-        } else {
-            true
-        }
+        val androidUnrestricted =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+                pm.isIgnoringBatteryOptimizations(packageName)
+            } else {
+                true
+            }
+
+        val xiaomiUnrestricted = isXiaomiPowerKeeperUnrestricted()
+        val unrestricted = androidUnrestricted || xiaomiUnrestricted
 
         batteryView.text =
             if (unrestricted) "Battery: Unrestricted" else "Battery: Optimized"
+
         batteryView.setTextColor(if (unrestricted) green else orange)
+
+        batteryView.contentDescription =
+            when {
+                androidUnrestricted -> "Battery unrestricted by Android"
+                xiaomiUnrestricted -> "Battery unrestricted by Xiaomi PowerKeeper"
+                else -> "Battery optimization is enabled"
+            }
+    }
+
+    private fun isXiaomiPowerKeeperUnrestricted(): Boolean {
+        val device = "${Build.MANUFACTURER} ${Build.BRAND}".lowercase()
+        val isXiaomiFamily =
+            device.contains("xiaomi") ||
+                device.contains("redmi") ||
+                device.contains("poco")
+
+        if (!isXiaomiFamily) return false
+
+        val settingKeys = listOf(
+            "MILLET_NO_RESTRICT_APP",
+            "millet_no_restrict_app"
+        )
+
+        return settingKeys.any { key ->
+            val raw = runCatching {
+                Settings.System.getString(contentResolver, key)
+            }.getOrNull()?.trim().orEmpty()
+
+            raw.isNotBlank() && raw.split(',', ';', ':', '
+', ' ')
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+                .any { it == packageName }
+        }
     }
 
     private fun openBatterySettings() {

@@ -3,12 +3,14 @@ package com.saman.tunnel
 import android.app.Activity
 import android.content.Intent
 import android.graphics.Typeface
+import android.os.Build
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowInsets
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
@@ -19,6 +21,7 @@ import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import kotlin.math.max
 
 class AppRoutingActivity : Activity() {
 
@@ -79,9 +82,41 @@ class AppRoutingActivity : Activity() {
     }
 
     private fun buildUi() {
+        val baseLeft = dp(14)
+        val baseTop = dp(12)
+        val baseRight = dp(14)
+        val baseBottom = dp(12)
+
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(14), dp(14), dp(14), dp(14))
+            setPadding(baseLeft, baseTop, baseRight, baseBottom)
+
+            setOnApplyWindowInsetsListener { view, insets ->
+                val topInset =
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        insets.getInsets(WindowInsets.Type.statusBars()).top
+                    } else {
+                        @Suppress("DEPRECATION")
+                        insets.systemWindowInsetTop
+                    }
+
+                val bottomInset =
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        insets.getInsets(WindowInsets.Type.navigationBars()).bottom
+                    } else {
+                        @Suppress("DEPRECATION")
+                        insets.systemWindowInsetBottom
+                    }
+
+                view.setPadding(
+                    baseLeft,
+                    topInset + baseTop,
+                    baseRight,
+                    max(baseBottom, bottomInset + dp(6))
+                )
+
+                insets
+            }
         }
 
         root.addView(TextView(this).apply {
@@ -206,6 +241,7 @@ class AppRoutingActivity : Activity() {
         })
 
         setContentView(root)
+        root.requestApplyInsets()
     }
 
     private fun loadLauncherApps(): List<AppEntry> {
