@@ -9,6 +9,8 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.graphics.Color
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.IBinder
 import android.os.Process
 import org.json.JSONArray
@@ -16,6 +18,7 @@ import org.json.JSONObject
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 class AetherService : Service() {
     companion object {
@@ -36,11 +39,14 @@ class AetherService : Service() {
 
     private val executor = Executors.newSingleThreadExecutor()
     private val jobLock = Any()
+    private val terminating = AtomicBoolean(false)
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     @Volatile private var jobId: Long = 0L
     @Volatile private var generation: Long = 0L
     @Volatile private var currentMode: String = ""
     @Volatile private var currentPhase: TunnelPhase = TunnelPhase.STOPPED
+    @Volatile private var currentStatus: String = "Stopped"
 
     override fun onCreate() {
         super.onCreate()
@@ -55,7 +61,10 @@ class AetherService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         var restartPolicy = START_NOT_STICKY
         when (intent?.action) {
-            ACTION_STOP -> stopCore()
+            ACTION_STOP -> {
+                if (!terminating.get()) beginForeground("Stopping tunnel…")
+                stopCore()
+            }
 
             ACTION_START -> {
                 val mode =
@@ -63,13 +72,14 @@ class AetherService : Service() {
                         ?.ifBlank { "WG" }
                         ?: "WG"
 
-                if (jobId != 0L) {
+                if (jobId != 0L || currentPhase.isBusy || terminating.get()) {
                     LogStore.append(
                         this,
                         "SERVICE",
                         "Ignoring duplicate start mode=$mode jobId=$jobId"
                     )
-                    return START_REDELIVER_INTENT
+                    setState(currentStatus, currentMode)
+                    return START_NOT_STICKY
                 }
 
                 currentMode = mode
@@ -80,7 +90,7 @@ class AetherService : Service() {
                 )
                 beginForeground("Preparing ${modeLabel(mode)}…")
                 requestStart(mode)
-                restartPolicy = START_REDELIVER_INTENT
+                restartPolicy = START_NOT_STICKY
             }
 
             else -> stopSelf(startId)
@@ -92,23 +102,9 @@ class AetherService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
-        generation++
-        val id = claimJob()
-        if (id != 0L) {
-            runCatching { NativeBridge.cancelJob(id) }
-            releaseJob(id)
-        }
-        if (!currentPhase.shouldPreserveOnServiceDestroy) {
-            setState("Stopped — service ended", "")
-        }
-
-        LogStore.append(
-            this,
-            "SERVICE",
-            "Core service destroyed pid=${Process.myPid()} jobId=$id"
-        )
-
-        executor.shutdownNow()
+        // Explicit stops reach here after cleanup. Unexpected destruction uses
+        // the same cancellation path and cannot leave detached native listeners.
+        if (!terminating.get()) finishCore(null)
         super.onDestroy()
     }
 
@@ -120,6 +116,7 @@ class AetherService : Service() {
         executor.execute {
             try {
                 if (!waitForLocalPorts(myGeneration)) {
+                    if (generation != myGeneration) return@execute
                     fail(
                         "Port 1819/1820 is still in use after restart wait.",
                         mode
@@ -130,6 +127,7 @@ class AetherService : Service() {
                 if (generation != myGeneration) return@execute
                 launchCore(mode, myGeneration)
             } catch (t: Throwable) {
+                if (generation != myGeneration || terminating.get()) return@execute
                 LogStore.append(this, "EXCEPTION", t.stackTraceToString())
                 fail(t.message ?: t.javaClass.simpleName, mode)
             }
@@ -184,8 +182,12 @@ class AetherService : Service() {
         val args = JSONArray(modeArguments).toString()
         LogStore.append(this, "CORE", "Starting mode=$mode argumentCount=${modeArguments.size}")
 
-        val rawStarted = NativeBridge.startCore(args, filesDir.absolutePath)
-        val started = JSONObject(rawStarted)
+        val started = synchronized(jobLock) {
+            if (generation != myGeneration || terminating.get()) return
+            JSONObject(NativeBridge.startCore(args, filesDir.absolutePath)).also {
+                if (it.optBoolean("ok")) jobId = it.optLong("job", 0L)
+            }
+        }
         LogStore.append(this, "NATIVE", "startCore ok=${started.optBoolean("ok")}")
 
         if (!started.optBoolean("ok")) {
@@ -202,13 +204,7 @@ class AetherService : Service() {
             return
         }
 
-        if (generation != myGeneration) {
-            runCatching { NativeBridge.cancelJob(id) }
-            releaseJob(id)
-            return
-        }
-
-        assignJob(id)
+        if (generation != myGeneration || terminating.get()) return
         LogStore.append(
             this,
             "CORE",
@@ -224,7 +220,10 @@ class AetherService : Service() {
         for (i in 0 until 480) {
             if (generation != myGeneration || jobId != id) return
 
-            val rawPoll = NativeBridge.pollJob(id)
+            val rawPoll = synchronized(jobLock) {
+                if (generation != myGeneration || jobId != id) return
+                NativeBridge.pollJob(id)
+            }
             val polled = JSONObject(rawPoll)
 
             if (polled.optString("state") == "done") {
@@ -288,7 +287,10 @@ class AetherService : Service() {
 
         while (generation == myGeneration && jobId == id) {
             try {
-                val rawPoll = NativeBridge.pollJob(id)
+                val rawPoll = synchronized(jobLock) {
+                if (generation != myGeneration || jobId != id) return
+                NativeBridge.pollJob(id)
+            }
                 val polled = JSONObject(rawPoll)
 
                 if (polled.optString("state") == "done") {
@@ -301,9 +303,7 @@ class AetherService : Service() {
                     if (!error.isNullOrBlank()) {
                         fail(error, mode)
                     } else {
-                        setState("Stopped", "")
-                        updateNotification("Stopped")
-                        hardExitCoreProcess(150L)
+                        finishCore(null)
                     }
                     return
                 }
@@ -384,88 +384,81 @@ class AetherService : Service() {
                 "Connected — SOCKS5 :1819"
             }
 
+        if (terminating.get()) return
         setState(status, mode)
 
         updateNotification(
             if (httpReady) {
-                "${modeLabel(mode)} connected — SOCKS5 + HTTP"
+                "${modeLabel(mode)} Proxy connected — SOCKS5 + HTTP"
             } else {
-                "${modeLabel(mode)} connected — SOCKS5"
+                "${modeLabel(mode)} Proxy connected — SOCKS5"
             }
         )
     }
 
-    private fun stopCore() {
-        val id = claimJob()
-        val mode = currentMode
-
-        generation++
-        LogStore.append(
-            this,
-            "CORE",
-            "Hard stop requested jobId=$id pid=${Process.myPid()}"
-        )
-
-        setState("Stopping…", mode)
-        updateNotification("Stopping ${modeLabel(mode)}…")
-
-        Thread {
-            if (id != 0L) {
-                runCatching {
-                    NativeBridge.cancelJob(id)
-                    LogStore.append(
-                        this,
-                        "NATIVE",
-                        "cancelJob completed"
-                    )
-                }.onFailure {
-                    LogStore.append(
-                        this,
-                        "NATIVE",
-                        "cancelJob failed: ${it.javaClass.simpleName}"
-                    )
-                }
-                releaseJob(id)
-            }
-
-            Thread.sleep(250)
-            currentMode = ""
-            setState("Stopped", "")
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
-
-            LogStore.append(
-                this,
-                "SERVICE",
-                "Core stopped cleanly; process left for Android to recycle pid=${Process.myPid()}"
-            )
-        }.start()
-    }
+    private fun stopCore() = finishCore(null)
 
     private fun fail(message: String, mode: String) {
-        LogStore.append(
-            this,
-            "ERROR",
-            "mode=$mode message=$message"
-        )
-        setState("Error: $message", mode)
-        updateNotification("Error — open Saman Tunnel")
+        if (terminating.get()) return
+        LogStore.append(this, "ERROR", "mode=$mode message=$message")
+        finishCore(message)
+    }
 
-        val id = claimJob()
-        Thread {
-            if (id != 0L) {
-                runCatching { NativeBridge.cancelJob(id) }
-                releaseJob(id)
+    private fun finishCore(error: String?) {
+        if (!terminating.compareAndSet(false, true)) return
+        val mode = currentMode
+        val id = synchronized(jobLock) {
+            generation++
+            claimJob()
+        }
+        setState(error?.let { "Error: $it" } ?: "Stopping…", mode)
+        runCatching {
+            startService(Intent(this, SamanVpnService::class.java).apply {
+                action = SamanVpnService.ACTION_STOP
+            })
+        }
+        Thread({
+            var jobDone = id == 0L
+            if (id != 0L) runCatching {
+                val reply = JSONObject(NativeBridge.cancelJob(id))
+                LogStore.append(this, "NATIVE", "cancel accepted=${reply.optBoolean("ok")}")
             }
-            Thread.sleep(250)
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
-            LogStore.append(
-                this,
-                "SERVICE",
-                "Core failure stopped service without killing process pid=${Process.myPid()}"
-            )
-        }.start()
+            // Cancellation is a request, not an acknowledgement. Wait for both
+            // the job and its SOCKS/HTTP listeners before announcing Stopped.
+            val deadline = android.os.SystemClock.elapsedRealtime() + 4_000L
+            while (android.os.SystemClock.elapsedRealtime() < deadline) {
+                if (!jobDone) jobDone = runCatching {
+                    JSONObject(NativeBridge.pollJob(id)).optString("state") == "done"
+                }.getOrDefault(false)
+                if (jobDone && !isPortInUse(SOCKS_PORT) && !isPortInUse(HTTP_PORT)) break
+                Thread.sleep(100)
+            }
+            if (id != 0L && jobDone) releaseJob(id)
+            val needsRecycle = !jobDone || isPortInUse(SOCKS_PORT) || isPortInUse(HTTP_PORT)
+            LogStore.append(this, "CORE_STOP", "jobDone=$jobDone portsClosed=${!needsRecycle}")
+            executor.shutdownNow()
+            mainHandler.post {
+                // Only this dedicated process can be recycled. Never kill the UI.
+                val isolated = runCatching {
+                    java.io.File("/proc/self/cmdline").readText().trimEnd('\u0000') ==
+                        "$packageName:aether_core"
+                }.getOrDefault(false)
+                if (needsRecycle && !isolated) {
+                    setState("Error: Core cleanup incomplete", mode)
+                } else if (error == null) {
+                    setState("Stopped", "")
+                }
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+                if (isolated) {
+                    // Aether also owns a process-wide Rust runtime. End this
+                    // dedicated process so no detached client or runtime thread
+                    // survives Stop, even when both listener ports are closed.
+                    LogStore.append(this, "CORE_STOP", "Recycling isolated core; cleanupTimeout=$needsRecycle")
+                    Process.killProcess(Process.myPid())
+                }
+            }
+        }, "saman-core-stop").start()
     }
 
     private fun argumentsFor(mode: String): List<String> {
@@ -546,30 +539,11 @@ class AetherService : Service() {
         }
     }
 
-    private fun hardExitCoreProcess(delayMs: Long) {
-        Thread {
-            Thread.sleep(delayMs)
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
-            LogStore.append(
-                this,
-                "SERVICE",
-                "Core job ended; service stopped cleanly pid=${Process.myPid()}"
-            )
-        }.start()
-    }
-
     private fun releaseJob(id: Long) {
         runCatching { NativeBridge.freeJob(id) }
             .onFailure {
                 LogStore.append(this, "NATIVE", "freeJob failed: ${it.javaClass.simpleName}")
             }
-    }
-
-    private fun assignJob(id: Long) {
-        synchronized(jobLock) {
-            jobId = id
-        }
     }
 
     private fun claimJob(expectedId: Long? = null): Long =
@@ -584,7 +558,10 @@ class AetherService : Service() {
         }
 
     private fun setState(status: String, mode: String) {
+        val phase = TunnelPhase.fromStatus(status)
+        if (terminating.get() && phase !in listOf(TunnelPhase.STOPPING, TunnelPhase.STOPPED, TunnelPhase.FAILED)) return
         currentMode = mode
+        currentStatus = status
         currentPhase = TunnelPhase.fromStatus(status)
         LogStore.append(
             this,
@@ -635,6 +612,7 @@ class AetherService : Service() {
     }
 
     private fun updateNotification(text: String) {
+        if (terminating.get()) return
         getSystemService(NotificationManager::class.java)
             .notify(NOTIFICATION_ID, buildNotification(text))
     }

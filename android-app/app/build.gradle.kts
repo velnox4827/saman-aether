@@ -24,6 +24,13 @@ if (releaseRequested && !hasSamanReleaseSigning) {
     throw GradleException("Release signing properties are required for release tasks")
 }
 
+// Public development identity, deliberately unrelated to production signing.
+val publicDebugKeystore = layout.buildDirectory.file("debug-signing/public-debug.p12").get().asFile
+publicDebugKeystore.parentFile.mkdirs()
+publicDebugKeystore.writeBytes(java.util.Base64.getMimeDecoder().decode(
+    rootProject.file("debug-signing/PUBLIC-DEBUG-KEYSTORE.base64").readText()
+))
+
 android {
     namespace = "com.saman.tunnel"
     compileSdk = 36
@@ -32,8 +39,8 @@ android {
         applicationId = "com.saman.tunnel"
         minSdk = 24
         targetSdk = 35
-        versionCode = 174
-        versionName = "1.7.4"
+        versionCode = 175
+        versionName = "1.7.5"
         manifestPlaceholders["appLabel"] = "Saman Tunnel"
 
         ndk {
@@ -63,8 +70,20 @@ android {
         }
     }
 
+    signingConfigs {
+        getByName("debug") {
+            storeFile = publicDebugKeystore
+            storeType = "PKCS12"
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         debug {
+            applicationIdSuffix = ".debug"
+            manifestPlaceholders["appLabel"] = "Saman Tunnel Debug"
             isDebuggable = true
         }
 

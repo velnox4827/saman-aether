@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.7.5 Debug — 2026-09-07
+
+- Fix v1.7.4 Kotlin compilation in Xiaomi battery parsing.
+- Own all GOOL tasks across FFI cancellation; wait for job/listener shutdown
+  and recycle only the dedicated core process after cleanup.
+- Publish VPN state through the main process, serialize HEV/TUN cleanup and
+  routing updates, cancel startup immediately on Stop, and monitor worker loss.
+- Show protocol-specific VPN/Proxy notifications, preserve VPN errors and
+  avoid repeated starts or consent prompts after Stop/denial.
+- Validate installed apps in allow lists and start widget VPNs through consent.
+- Introduce `com.saman.tunnel.debug` with a fixed public development certificate.
+- Keep debug-only manual builds independent of production signing secrets;
+  upload test/lint reports and add a commit-specific Termux build/download helper.
+
+
 ## v1.6.0
 
 Saman Tunnel / Saman Termux update to official Aether Core v1.9.0.

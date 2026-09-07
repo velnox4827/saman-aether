@@ -79,6 +79,11 @@ object LogStore {
             appendLine("Saman Tunnel diagnostics")
             appendLine("========================")
             appendLine("App version: $appVersion")
+            appendLine("Package: ${context.packageName}")
+            val vpn = context.getSharedPreferences(SamanVpnService.PREFS, Context.MODE_PRIVATE)
+            appendLine("Connection mode: ${vpn.getString(SamanVpnService.KEY_CONNECTION_MODE, "PROXY")}")
+            appendLine("VPN running: ${vpn.getBoolean(SamanVpnService.KEY_RUNNING, false)}")
+            appendLine("VPN status: ${vpn.getString(SamanVpnService.KEY_STATUS, "Stopped")}")
             appendLine(
                 "Report: " +
                     if (fullHistory) {

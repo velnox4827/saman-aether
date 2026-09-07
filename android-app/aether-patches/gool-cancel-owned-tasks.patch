@@ -1,0 +1,32 @@
+--- a/aether/src/lib.rs
++++ b/aether/src/lib.rs
+@@ -2111,9 +2111,13 @@
+         )));
+     }
+
++    // FFI cancellation drops this future at any await point. Keep every
++    // spawned GOOL task owned by this scope, including partial startup.
++    let mut tasks = TaskGuard::new();
+     log::info!("[*] establishing outer WARP tunnel to {peer}...");
+     let (outer_stack, mut outer_exit) =
+         establish_wg(&primary, peer, TUNNEL_MTU, true, 5, "outer").await?;
++    tasks.push(outer_exit.abort_handle());
+
+     let (forwarder, _forwarder_guard) = spawn_udp_forwarder(&outer_stack, inner_peer).await?;
+     log::info!("[+] inner endpoint {inner_peer} tunneled through outer warp via {forwarder}");
+@@ -2121,10 +2125,15 @@
+     log::info!("[*] establishing inner WARP tunnel (warp-in-warp)...");
+     let (inner_stack, mut inner_exit) =
+         establish_wg(&secondary, forwarder, INNER_MTU, false, 20, "inner").await?;
++    tasks.push(inner_exit.abort_handle());
+
+     log::info!("[+] socks5 server listening on {listen}");
+     let http_task = spawn_http_proxy(&inner_stack);
++    if let Some(task) = &http_task {
++        tasks.push(task.abort_handle());
++    }
+     let mut socks_task = tokio::spawn(async move { socks::serve(listen, inner_stack).await });
++    tasks.push(socks_task.abort_handle());
+
+     #[derive(PartialEq)]
+     enum Winner {

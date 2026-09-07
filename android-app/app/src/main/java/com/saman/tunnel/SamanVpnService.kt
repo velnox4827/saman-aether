@@ -9,238 +9,156 @@ import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.net.VpnService
 import android.os.Build
-import android.os.IBinder
+import android.os.Handler
+import android.os.Looper
 import android.os.ParcelFileDescriptor
 import java.io.File
 import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 class SamanVpnService : VpnService() {
-
     companion object {
         const val ACTION_START = "com.saman.tunnel.VPN_START"
         const val ACTION_STOP = "com.saman.tunnel.VPN_STOP"
+        const val ACTION_RECONFIGURE = "com.saman.tunnel.VPN_RECONFIGURE"
+        const val ACTION_QUERY = "com.saman.tunnel.VPN_QUERY"
         const val EXTRA_ROUTING_MODE = "com.saman.tunnel.extra.ROUTING_MODE"
         const val EXTRA_SELECTED_APPS = "com.saman.tunnel.extra.SELECTED_APPS"
-
         const val PREFS = "saman_vpn"
         const val KEY_CONNECTION_MODE = "connection_mode"
         const val KEY_ROUTING_MODE = "routing_mode"
         const val KEY_SELECTED_APPS = "selected_apps"
         const val KEY_RUNNING = "vpn_running"
         const val KEY_STATUS = "vpn_status"
-
         const val CONNECTION_PROXY = "PROXY"
         const val CONNECTION_VPN = "VPN"
-
         const val ROUTING_ALL = "ALL"
         const val ROUTING_ONLY = "ONLY"
         const val ROUTING_BYPASS = "BYPASS"
-
         private const val CHANNEL_ID = "saman_vpn"
         private const val NOTIFICATION_ID = 1821
-
-        private const val TUN_IPV4 = "198.18.0.1"
-        private const val TUN_PREFIX = 30
         private const val TUN_MTU = 1400
-
-        private const val SOCKS_HOST = "127.0.0.1"
         private const val SOCKS_PORT = 1819
     }
 
-    private val executor = Executors.newSingleThreadExecutor()
-    private val starting = AtomicBoolean(false)
-
-    @Volatile
+    private data class Request(val mode: String, val routing: String, val apps: Set<String>)
+    private val executor = Executors.newSingleThreadScheduledExecutor()
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val ending = AtomicBoolean(false)
+    private val cleanupComplete = AtomicBoolean(false)
+    private val generation = AtomicLong(0)
+    private var monitor: ScheduledFuture<*>? = null
     private var tunInterface: ParcelFileDescriptor? = null
-
-    @Volatile
-    private var vpnRunning = false
-
-    @Volatile
-    private var requestedRoutingMode: String = ROUTING_ALL
-
-    @Volatile
-    private var requestedSelectedApps: Set<String> = emptySet()
+    @Volatile private var starting = false
+    @Volatile private var vpnRunning = false
+    @Volatile private var lastStatus = "Stopped"
+    @Volatile private var currentMode = ""
 
     override fun onCreate() {
         super.onCreate()
         CrashRecorder.install(this)
-        LogStore.append(
-            this,
-            "VPN_SERVICE",
-            "created pid=${android.os.Process.myPid()} sdk=${Build.VERSION.SDK_INT}"
-        )
+        LogStore.append(this, "VPN_SERVICE", "created pid=${android.os.Process.myPid()}")
     }
-
-    override fun onBind(intent: Intent?): IBinder? =
-        super.onBind(intent)
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        LogStore.append(
-            this,
-            "VPN_SERVICE",
-            "command action=${intent?.action ?: "null"} startId=$startId pid=${android.os.Process.myPid()}"
-        )
-
-        return try {
-            when (intent?.action) {
-                ACTION_STOP -> {
-                    executor.execute { stopTunnel("Stopped") }
-                    START_NOT_STICKY
+        when (intent?.action) {
+            ACTION_STOP -> requestStop("Stopped")
+            ACTION_QUERY -> {
+                saveState(vpnRunning, lastStatus)
+                if (!starting && !vpnRunning) stopSelf(startId)
+            }
+            ACTION_START, ACTION_RECONFIGURE -> {
+                if (ending.get()) return START_NOT_STICKY
+                if (intent.action == ACTION_START && (starting || vpnRunning)) {
+                    // Repeated commands must not regress a connected notification.
+                    ensureForeground(lastStatus)
+                    saveState(vpnRunning, lastStatus)
+                    return START_NOT_STICKY
                 }
-
-                ACTION_START -> {
-                    val fallbackPrefs = getSharedPreferences(PREFS, MODE_PRIVATE)
-
-                    requestedRoutingMode =
-                        intent.getStringExtra(EXTRA_ROUTING_MODE)
-                            ?: fallbackPrefs.getString(KEY_ROUTING_MODE, ROUTING_ALL)
-                            ?: ROUTING_ALL
-
-                    requestedSelectedApps =
-                        intent.getStringArrayListExtra(EXTRA_SELECTED_APPS)
-                            ?.toSet()
-                            ?: fallbackPrefs.getStringSet(KEY_SELECTED_APPS, emptySet())
-                                ?.toSet()
-                            ?: emptySet()
-
-                    LogStore.append(
-                        this,
-                        "APP_ROUTING",
-                        "request mode=$requestedRoutingMode selectedCount=${requestedSelectedApps.size} source=intent"
-                    )
-
-                    ensureForeground("Preparing VPN…")
-
-                    if (!vpnRunning && starting.compareAndSet(false, true)) {
-                        executor.execute {
-                            try {
-                                startTunnel()
-                            } catch (t: Throwable) {
-                                LogStore.append(
-                                    this,
-                                    "ERROR",
-                                    "VPN worker exception: ${t.javaClass.name}: ${t.message.orEmpty()}"
-                                )
-                                fail("VPN worker failed: ${t.javaClass.simpleName}")
-                            } finally {
-                                starting.set(false)
-                            }
+                val request = Request(
+                    intent.getStringExtra(AetherService.EXTRA_MODE).orEmpty(),
+                    intent.getStringExtra(EXTRA_ROUTING_MODE) ?: ROUTING_ALL,
+                    intent.getStringArrayListExtra(EXTRA_SELECTED_APPS)?.toSet() ?: emptySet()
+                )
+                val ticket = generation.incrementAndGet()
+                starting = true
+                vpnRunning = false
+                currentMode = request.mode
+                saveState(false, "Preparing VPN")
+                ensureForeground("${ConnectionStatus.modeLabel(currentMode)} VPN preparing…")
+                executor.execute {
+                    try {
+                        cleanupNative()
+                        if (isCurrent(ticket)) startTunnel(request, ticket)
+                    } catch (t: Throwable) {
+                        if (isCurrent(ticket)) {
+                            LogStore.append(this, "VPN_ERROR", t.stackTraceToString())
+                            requestStop("Error: VPN ${t.message ?: t.javaClass.simpleName}", stopCore = true)
                         }
+                    } finally {
+                        if (ticket == generation.get()) starting = false
                     }
-
-                    // Do not let Android auto-restart a crashing VPN process.
-                    START_NOT_STICKY
-                }
-
-                else -> {
-                    LogStore.append(
-                        this,
-                        "VPN_SERVICE",
-                        "ignored null/unknown restart command"
-                    )
-                    START_NOT_STICKY
                 }
             }
-        } catch (t: Throwable) {
-            LogStore.append(
-                this,
-                "ERROR",
-                "VPN command exception: ${t.javaClass.name}: ${t.message.orEmpty()}"
-            )
-            saveState(false, "Error: ${t.javaClass.simpleName}")
-            runCatching { stopSelf() }
-            START_NOT_STICKY
+            else -> stopSelf(startId)
         }
+        return START_NOT_STICKY
     }
+
+    private fun isCurrent(ticket: Long) = !ending.get() && ticket == generation.get()
 
     override fun onRevoke() {
         LogStore.append(this, "VPN_STOP", "Android revoked VPN permission")
-        executor.execute { stopTunnel("Permission revoked") }
-        super.onRevoke()
+        requestStop("Permission revoked", stopCore = true)
     }
 
     override fun onDestroy() {
-        runCatching { HevBridge.stop() }
-        runCatching { tunInterface?.close() }
-        tunInterface = null
-        vpnRunning = false
-        saveState(false, "Stopped")
-        executor.shutdownNow()
+        // Native join/close stays on the worker, never Android's main thread.
+        if (!ending.get()) requestStop(lastStatus.takeIf {
+            it.startsWith("Error") || it.startsWith("Permission")
+        } ?: "Stopped")
         super.onDestroy()
     }
 
-    private fun startTunnel() {
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        requestStop("Error: VPN service timed out", stopCore = true)
+    }
+
+    private fun startTunnel(request: Request, ticket: Long) {
         saveState(false, "Waiting for Aether SOCKS5")
-        updateNotification("Waiting for Aether…")
-        LogStore.append(this, "VPN_START", "Waiting for SOCKS5 127.0.0.1:1819")
-
-        var socksReady = false
-
-        for (attempt in 0 until 120) {
-            if (Thread.currentThread().isInterrupted) return
-
-            if (ProxyHealth.probeSocks5(SOCKS_HOST, SOCKS_PORT, 600)) {
-                socksReady = true
+        updateNotification("${ConnectionStatus.modeLabel(request.mode)} VPN waiting for proxy…")
+        val deadline = android.os.SystemClock.elapsedRealtime() + 30_000L
+        var ready = false
+        while (isCurrent(ticket) && android.os.SystemClock.elapsedRealtime() < deadline) {
+            if (ProxyHealth.probeSocks5("127.0.0.1", SOCKS_PORT, 600)) {
+                ready = true
                 break
             }
-
-            Thread.sleep(250)
+            Thread.sleep(150)
         }
-
-        if (!socksReady) {
-            fail("Aether SOCKS5 did not become ready")
-            return
-        }
-
-        val routingMode = requestedRoutingMode
-        val selectedApps = requestedSelectedApps.toSet()
+        if (!isCurrent(ticket)) return
+        check(ready) { "Aether SOCKS5 did not become ready" }
 
         val builder = Builder()
-            .setSession("Saman Tunnel")
+            .setSession("Saman Tunnel ${ConnectionStatus.modeLabel(request.mode)}")
             .setBlocking(false)
             .setMtu(TUN_MTU)
-            .addAddress(TUN_IPV4, TUN_PREFIX)
+            .addAddress("198.18.0.1", 30)
             .addRoute("0.0.0.0", 0)
             .addDnsServer("1.1.1.1")
             .addDnsServer("8.8.8.8")
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            builder.setMetered(false)
-        }
-
-        try {
-            applyAppRouting(builder, routingMode, selectedApps)
-        } catch (t: Throwable) {
-            fail("App routing failed: ${t.message ?: t.javaClass.simpleName}")
-            return
-        }
-
-        LogStore.append(
-            this,
-            "APP_ROUTING",
-            "mode=$routingMode selectedCount=${selectedApps.size}"
-        )
-
-        val established = runCatching { builder.establish() }.getOrNull()
-
-        if (established == null) {
-            fail("Android could not establish the VPN interface")
-            return
-        }
-
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) builder.setMetered(false)
+        applyAppRouting(builder, request.routing, request.apps)
+        if (!isCurrent(ticket)) return
+        val established = checkNotNull(builder.establish()) { "Android did not establish the VPN" }
         tunInterface = established
-
-        LogStore.append(
-            this,
-            "TUN_CREATED",
-            "ipv4=$TUN_IPV4/$TUN_PREFIX mtu=$TUN_MTU"
-        )
-
+        if (!isCurrent(ticket)) return
+        LogStore.append(this, "TUN_CREATED", "mode=${request.mode} routing=${request.routing} mtu=$TUN_MTU")
         val config = File(cacheDir, "hev-saman-vpn.yml")
-        config.writeText(
-            """
+        config.writeText("""
             misc:
               task-stack-size: 24576
               tcp-read-write-timeout: 300000
@@ -251,197 +169,147 @@ class SamanVpnService : VpnService() {
               icmp: 'reply'
             socks5:
               port: $SOCKS_PORT
-              address: '$SOCKS_HOST'
+              address: '127.0.0.1'
               udp: 'udp'
-            """.trimIndent()
-        )
-
-        if (!HevBridge.isLoaded()) {
-            val nativeError = HevBridge.getLoadError().ifBlank { "unknown JNI load error" }
-            LogStore.append(this, "ERROR", "HEV JNI unavailable: $nativeError")
-            runCatching { established.close() }
-            tunInterface = null
-            fail("HEV JNI unavailable")
-            return
+        """.trimIndent())
+        check(HevBridge.isLoaded()) { "HEV unavailable: ${HevBridge.getLoadError()}" }
+        if (!isCurrent(ticket)) return
+        check(HevBridge.start(config.absolutePath, established.fd)) {
+            "HEV start failed: ${HevBridge.getLoadError()}"
         }
-
-        LogStore.append(this, "HEV_START", "Starting HEV on Android TUN")
-
-        val started = runCatching {
-            HevBridge.start(config.absolutePath, established.fd)
-        }.getOrElse {
-            LogStore.append(this, "ERROR", "HEV start exception: ${it.javaClass.simpleName}")
-            false
-        }
-
-        if (!started) {
-            val nativeError = HevBridge.getLoadError().ifBlank { "native start returned false" }
-            LogStore.append(this, "ERROR", "HEV start failed: $nativeError")
-            runCatching { established.close() }
-            tunInterface = null
-            fail("HEV could not start")
-            return
-        }
-
         Thread.sleep(300)
-
-        if (!HevBridge.isRunning()) {
-            LogStore.append(this, "ERROR", "HEV worker exited immediately")
-            runCatching { established.close() }
-            tunInterface = null
-            fail("HEV worker exited")
-            return
-        }
-
+        if (!isCurrent(ticket)) return
+        check(HevBridge.isRunning()) { "HEV worker exited" }
         vpnRunning = true
-        saveState(true, "VPN connected")
-        updateNotification("VPN connected")
-        LogStore.append(this, "VPN_START", "VPN connected through HEV → SOCKS5 :1819")
+        val text = "${ConnectionStatus.modeLabel(request.mode)} VPN connected"
+        saveState(true, text)
+        updateNotification(text)
+        LogStore.append(this, "VPN_START", text)
+
+        var missingProxy = 0
+        monitor = executor.scheduleWithFixedDelay({
+            if (isCurrent(ticket)) {
+                if (!HevBridge.isRunning()) {
+                    requestStop("Error: VPN worker stopped", stopCore = true)
+                } else {
+                    missingProxy = if (ProxyHealth.probeSocks5("127.0.0.1", SOCKS_PORT, 600)) 0 else missingProxy + 1
+                    if (missingProxy >= 3) requestStop("Error: VPN proxy unavailable", stopCore = true)
+                }
+            }
+        }, 2, 2, TimeUnit.SECONDS)
     }
 
-    private fun applyAppRouting(
-        builder: Builder,
-        mode: String,
-        selectedApps: Set<String>
-    ) {
+    private fun applyAppRouting(builder: Builder, mode: String, selectedApps: Set<String>) {
         when (mode) {
             ROUTING_ONLY -> {
-                val apps = selectedApps.filter { it != packageName }
-
-                require(apps.isNotEmpty()) {
-                    "No apps selected for Only selected mode"
-                }
-
-                apps.forEach { pkg ->
+                var added = 0
+                selectedApps.filter { it != packageName }.forEach { pkg ->
                     try {
                         builder.addAllowedApplication(pkg)
+                        added++
                     } catch (_: PackageManager.NameNotFoundException) {
                         LogStore.append(this, "APP_ROUTING", "Skipping uninstalled selected app")
                     }
                 }
+                // An empty allow list means all apps to Android, including the
+                // core; do not accidentally build a recursive VPN route.
+                require(added > 0) { "No installed apps selected for Only selected mode" }
             }
-
-            ROUTING_BYPASS -> {
-                val apps = selectedApps + packageName
-
-                apps.forEach { pkg ->
-                    try {
-                        builder.addDisallowedApplication(pkg)
-                    } catch (_: PackageManager.NameNotFoundException) {
-                        LogStore.append(this, "APP_ROUTING", "Skipping unavailable bypass app")
-                    }
+            ROUTING_BYPASS -> (selectedApps + packageName).forEach { pkg ->
+                try {
+                    builder.addDisallowedApplication(pkg)
+                } catch (_: PackageManager.NameNotFoundException) {
+                    LogStore.append(this, "APP_ROUTING", "Skipping uninstalled bypass app")
                 }
             }
-
-            else -> {
-                builder.addDisallowedApplication(packageName)
-            }
+            else -> builder.addDisallowedApplication(packageName)
         }
     }
 
-    private fun stopTunnel(status: String) {
-        LogStore.append(this, "VPN_STOP", "Stopping HEV and TUN")
-
-        if (HevBridge.isRunning()) {
-            runCatching { HevBridge.stop() }
-            LogStore.append(this, "HEV_STOP", "HEV stopped")
-        }
-
-        runCatching { tunInterface?.close() }
-        tunInterface = null
-        vpnRunning = false
-
-        saveState(false, status)
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
-    }
-
-    private fun fail(message: String) {
-        LogStore.append(this, "ERROR", "VPN: $message")
-        saveState(false, "Error: $message")
-        updateNotification("VPN error — open Saman Tunnel")
-
+    private fun cleanupNative() {
+        monitor?.cancel(false)
+        monitor = null
+        // Join even if isRunning is false: a finished worker can still be joinable.
         runCatching { HevBridge.stop() }
         runCatching { tunInterface?.close() }
         tunInterface = null
         vpnRunning = false
+    }
 
-        Thread.sleep(150)
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
+    private fun requestStop(status: String, stopCore: Boolean = false) {
+        if (!ending.compareAndSet(false, true)) return
+        generation.incrementAndGet() // Cancel startup before the queued cleanup.
+        starting = false
+        // A native join must not hold the Android VPN indefinitely. This process
+        // owns only the bridge; recycling it closes its TUN file descriptor.
+        mainHandler.postDelayed({
+            if (!cleanupComplete.get()) {
+                val isolated = runCatching {
+                    File("/proc/self/cmdline").readText().trimEnd('\u0000') == "$packageName:vpn"
+                }.getOrDefault(false)
+                if (isolated) {
+                    saveState(false, status)
+                    LogStore.append(this, "VPN_STOP", "Recycling isolated VPN after cleanup timeout")
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                    android.os.Process.killProcess(android.os.Process.myPid())
+                }
+            }
+        }, 4_000L)
+        if (stopCore) runCatching {
+            startService(Intent(this, AetherService::class.java).apply { action = AetherService.ACTION_STOP })
+        }
+        executor.execute {
+            cleanupNative()
+            cleanupComplete.set(true)
+            saveState(false, status)
+            LogStore.append(this, "VPN_STOP", "HEV and TUN closed: $status")
+            mainHandler.post {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+            }
+        }
+        executor.shutdown()
     }
 
     private fun saveState(running: Boolean, status: String) {
-        getSharedPreferences(PREFS, MODE_PRIVATE)
-            .edit()
-            .putBoolean(KEY_RUNNING, running)
-            .putString(KEY_STATUS, status)
-            .apply()
+        lastStatus = status
+        sendBroadcast(Intent(this, TunnelStateReceiver::class.java).apply {
+            action = TunnelStateReceiver.ACTION_VPN_STATE
+            putExtra(TunnelStateReceiver.EXTRA_STATUS, status)
+            putExtra(TunnelStateReceiver.EXTRA_RUNNING, running)
+        })
     }
 
     private fun ensureForeground(text: String) {
         createNotificationChannel()
-        val notification = buildNotification(text)
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            startForeground(
-                NOTIFICATION_ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
-            )
-        } else {
-            startForeground(
-                NOTIFICATION_ID,
-                notification
-            )
-        }
+        if (Build.VERSION.SDK_INT >= 34) {
+            startForeground(NOTIFICATION_ID, buildNotification(text), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        } else startForeground(NOTIFICATION_ID, buildNotification(text))
     }
 
     private fun updateNotification(text: String) {
-        createNotificationChannel()
-        val manager = getSystemService(NotificationManager::class.java)
-        manager.notify(NOTIFICATION_ID, buildNotification(text))
+        getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification(text))
     }
 
     private fun buildNotification(text: String): Notification {
-        val openIntent = Intent(this, MainActivity::class.java)
-        val pendingIntent = PendingIntent.getActivity(
-            this,
-            1821,
-            openIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val builder =
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                Notification.Builder(this, CHANNEL_ID)
-            } else {
-                @Suppress("DEPRECATION")
-                Notification.Builder(this)
-            }
-
-        return builder
-            .setSmallIcon(R.mipmap.saman_app_icon_v120)
-            .setContentTitle("Saman Tunnel VPN")
-            .setContentText(text)
-            .setContentIntent(pendingIntent)
-            .setOngoing(true)
-            .build()
+        val open = PendingIntent.getActivity(this, 1821, Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val stop = PendingIntent.getService(this, 1822, Intent(this, AetherService::class.java).apply {
+            action = AetherService.ACTION_STOP
+        }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) Notification.Builder(this, CHANNEL_ID)
+            else Notification.Builder(this)
+        return builder.setSmallIcon(R.drawable.ic_stat_saman_tunnel)
+            .setContentTitle("Saman Tunnel VPN").setContentText(text)
+            .setContentIntent(open).setOngoing(true)
+            .addAction(android.R.drawable.ic_media_pause, "Stop", stop).build()
     }
 
     private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-
-        val manager = getSystemService(NotificationManager::class.java)
-
-        if (manager.getNotificationChannel(CHANNEL_ID) == null) {
-            manager.createNotificationChannel(
-                NotificationChannel(
-                    CHANNEL_ID,
-                    "Saman Tunnel VPN",
-                    NotificationManager.IMPORTANCE_LOW
-                )
-            )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            getSystemService(NotificationManager::class.java).createNotificationChannel(
+                NotificationChannel(CHANNEL_ID, "Saman Tunnel VPN", NotificationManager.IMPORTANCE_LOW))
         }
     }
 }

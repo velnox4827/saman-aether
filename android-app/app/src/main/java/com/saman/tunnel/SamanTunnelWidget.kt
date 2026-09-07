@@ -137,20 +137,25 @@ class SamanTunnelWidget : AppWidgetProvider() {
                 else -> "WG"
             }
 
+            val vpnPrefs = context.getSharedPreferences(SamanVpnService.PREFS, Context.MODE_PRIVATE)
+            val displayedStatus = ConnectionStatus.display(status,
+                vpnPrefs.getString(SamanVpnService.KEY_CONNECTION_MODE, SamanVpnService.CONNECTION_PROXY) == SamanVpnService.CONNECTION_VPN,
+                vpnPrefs.getBoolean(SamanVpnService.KEY_RUNNING, false),
+                vpnPrefs.getString(SamanVpnService.KEY_STATUS, "Preparing VPN").orEmpty())
             val state = when {
-                status.startsWith("Connected", true) ->
+                displayedStatus.startsWith("Connected", true) ->
                     State("● $displayMode", R.color.widget_state_on)
 
-                status.startsWith("Connection unstable", true) ->
+                displayedStatus.startsWith("Connection unstable", true) ->
                     State("▲ $displayMode", R.color.widget_state_warn)
 
-                status.startsWith("Error", true) ->
+                displayedStatus.startsWith("Error", true) ->
                     State("! $displayMode", R.color.widget_state_error)
 
-                status.startsWith("Starting", true) ||
-                status.startsWith("Connecting", true) ||
-                status.startsWith("Switching", true) ||
-                status.startsWith("Stopping", true) ->
+                displayedStatus.startsWith("Starting", true) ||
+                displayedStatus.startsWith("Connecting", true) ||
+                displayedStatus.startsWith("Switching", true) ||
+                displayedStatus.startsWith("Stopping", true) ->
                     State("… $displayMode", R.color.widget_state_working)
 
                 else ->
@@ -183,6 +188,17 @@ class SamanTunnelWidget : AppWidgetProvider() {
         private fun togglePendingIntent(
             context: Context
         ): PendingIntent {
+            val prefs = context.getSharedPreferences(AetherService.PREFS, Context.MODE_PRIVATE)
+            val active = TunnelPhase.fromStatus(prefs.getString(AetherService.KEY_STATUS, "Stopped").orEmpty()).isActive
+            val vpnSelected = context.getSharedPreferences(SamanVpnService.PREFS, Context.MODE_PRIVATE)
+                .getString(SamanVpnService.KEY_CONNECTION_MODE, SamanVpnService.CONNECTION_PROXY) == SamanVpnService.CONNECTION_VPN
+            if (!active && vpnSelected) {
+                // Android VPN consent requires a visible activity.
+                return PendingIntent.getActivity(context, 1301, Intent(context, MainActivity::class.java).apply {
+                    action = "com.saman.tunnel.QUICK_CONNECT"
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            }
             val intent = Intent(
                 context,
                 SamanTunnelWidget::class.java

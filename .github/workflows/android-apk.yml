@@ -1,7 +1,13 @@
-name: Build Saman Tunnel v1.7.4 APKs
+name: Build Saman Tunnel APKs
+run-name: "Saman Tunnel v1.7.5 • ${{ github.ref_name }}"
 
 on:
   workflow_dispatch:
+    inputs:
+      build_release:
+        description: Also build a signed release (requires release secrets)
+        type: boolean
+        default: false
   push:
     branches: [main, "release/**", vpn-debug-hev]
     paths:
@@ -51,7 +57,7 @@ jobs:
       - name: Apply verified Saman patches
         run: |
           set -euxo pipefail
-          for PATCH in android-app/aether-patches/smart-reconnect-all-modes.patch android-app/aether-patches/local-proxy-reuseaddr.patch; do
+          for PATCH in android-app/aether-patches/smart-reconnect-all-modes.patch android-app/aether-patches/local-proxy-reuseaddr.patch android-app/aether-patches/gool-cancel-owned-tasks.patch; do
             test -s "$PATCH"
             git -C "$RUNNER_TEMP/Aether" apply --check "$GITHUB_WORKSPACE/$PATCH"
             git -C "$RUNNER_TEMP/Aether" apply "$GITHUB_WORKSPACE/$PATCH"
@@ -120,7 +126,7 @@ jobs:
             "$APP_LIBS/armeabi-v7a/libhev-socks5-tunnel.so"
       - name: Unit tests and lint
         working-directory: android-app
-        run: ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug
+        run: ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug --stacktrace --console=plain
       - name: Build debug APKs
         working-directory: android-app
         run: ./gradlew --no-daemon :app:assembleDebug
@@ -139,21 +145,29 @@ jobs:
           for APK in "$A64" "$A32" "$UNI"; do
             "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$APK"
             B="$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK")"
-            grep -q "package: name='com.saman.tunnel' versionCode='174' versionName='1.7.4'" <<<"$B"
+            grep -q "package: name='com.saman.tunnel.debug' versionCode='175' versionName='1.7.5'" <<<"$B"
           done
+          python3 - "$A64" "$A32" "$UNI" <<'PYVERIFY'
+          import sys, zipfile
+          for apk, abis in zip(sys.argv[1:], [("arm64-v8a",), ("armeabi-v7a",), ("arm64-v8a", "armeabi-v7a")]):
+              with zipfile.ZipFile(apk) as archive:
+                  for abi in abis:
+                      for lib in ("libaether.so", "libsamanbridge.so", "libhev-socks5-tunnel.so"):
+                          assert archive.getinfo(f"lib/{abi}/{lib}").file_size > 0, (apk, abi, lib)
+          PYVERIFY
           mkdir -p dist
-          cp "$A64" dist/Saman-Tunnel-v1.7.4-arm64-v8a-debug.apk
-          cp "$A32" dist/Saman-Tunnel-v1.7.4-armeabi-v7a-debug.apk
-          cp "$UNI" dist/Saman-Tunnel-v1.7.4-universal-arm-debug.apk
+          cp "$A64" dist/Saman-Tunnel-v1.7.5-arm64-v8a-debug.apk
+          cp "$A32" dist/Saman-Tunnel-v1.7.5-armeabi-v7a-debug.apk
+          cp "$UNI" dist/Saman-Tunnel-v1.7.5-universal-arm-debug.apk
           (cd dist && sha256sum ./*.apk > SHA256SUMS)
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: saman-tunnel-v1.7.4-debug
+          name: saman-tunnel-v1.7.5-debug
           path: dist/*
           if-no-files-found: error
           retention-days: 30
       - name: Restore release signing identity
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && inputs.build_release
         env:
           KEYSTORE_B64: ${{ secrets.SAMAN_RELEASE_KEYSTORE_B64 }}
         run: |
@@ -162,7 +176,7 @@ jobs:
           umask 077
           printf '%s' "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/saman-release.jks"
       - name: Build signed release APKs
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && inputs.build_release
         working-directory: android-app
         env:
           ORG_GRADLE_PROJECT_SAMAN_KEYSTORE_FILE: ${{ runner.temp }}/saman-release.jks
@@ -171,7 +185,7 @@ jobs:
           ORG_GRADLE_PROJECT_SAMAN_KEY_PASSWORD: ${{ secrets.SAMAN_RELEASE_KEY_PASSWORD }}
         run: ./gradlew --no-daemon :app:assembleRelease
       - name: Verify signed release APKs
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && inputs.build_release
         run: |
           set -euo pipefail
           O="android-app/app/build/outputs/apk"
@@ -184,7 +198,7 @@ jobs:
             CERTS="$("$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK")"
             grep -q "certificate SHA-256 digest: $RELEASE_CERT_SHA256" <<<"$CERTS"
             B="$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK")"
-            grep -q "package: name='com.saman.tunnel' versionCode='174' versionName='1.7.4'" <<<"$B"
+            grep -q "package: name='com.saman.tunnel' versionCode='175' versionName='1.7.5'" <<<"$B"
           done
           unzip -l "$A64" | grep -q 'lib/arm64-v8a/libaether.so'
           unzip -l "$A64" | grep -q 'lib/arm64-v8a/libsamanbridge.so'
@@ -192,14 +206,24 @@ jobs:
           unzip -l "$A32" | grep -q 'lib/armeabi-v7a/libsamanbridge.so'
           unzip -l "$UNI" | grep -q 'lib/arm64-v8a/libaether.so'
           unzip -l "$UNI" | grep -q 'lib/armeabi-v7a/libaether.so'
-          cp "$A64" dist-release/Saman-Tunnel-v1.7.4-arm64-v8a.apk
-          cp "$A32" dist-release/Saman-Tunnel-v1.7.4-armeabi-v7a.apk
-          cp "$UNI" dist-release/Saman-Tunnel-v1.7.4-universal-arm.apk
+          cp "$A64" dist-release/Saman-Tunnel-v1.7.5-arm64-v8a.apk
+          cp "$A32" dist-release/Saman-Tunnel-v1.7.5-armeabi-v7a.apk
+          cp "$UNI" dist-release/Saman-Tunnel-v1.7.5-universal-arm.apk
           (cd dist-release && sha256sum ./*.apk > SHA256SUMS)
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && inputs.build_release
         with:
-          name: saman-tunnel-v1.7.4-release
+          name: saman-tunnel-v1.7.5-release
           path: dist-release/*
           if-no-files-found: error
           retention-days: 30
+      - name: Upload test and lint reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: saman-tunnel-v1.7.5-checks
+          path: |
+            android-app/app/build/reports/
+            android-app/app/build/test-results/
+          if-no-files-found: ignore
+          retention-days: 14

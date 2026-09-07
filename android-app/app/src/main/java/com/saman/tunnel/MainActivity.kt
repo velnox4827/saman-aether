@@ -68,6 +68,7 @@ class MainActivity : Activity() {
 
     private val handler = Handler(Looper.getMainLooper())
     private var lastStartTap = 0L
+    private var lastStopTap = 0L
     private var pendingDiagnosticsFull = false
     private var modeSwitchGeneration = 0L
     private var pendingModeSwitch: Runnable? = null
@@ -105,6 +106,8 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         CrashRecorder.install(this)
+        deferredVpnMode = savedInstanceState?.getString("deferred_vpn")
+        pendingVpnMode = savedInstanceState?.getString("pending_vpn")
 
         window.statusBarColor = canvas
         window.navigationBarColor = canvas
@@ -120,6 +123,29 @@ class MainActivity : Activity() {
         super.onResume()
         refreshBatteryStatus()
         handler.post(refresh)
+        if (intent?.action == "com.saman.tunnel.QUICK_CONNECT") {
+            intent.action = Intent.ACTION_MAIN
+            val mode = getSharedPreferences(AetherService.PREFS, MODE_PRIVATE)
+                .getString(AetherService.KEY_LAST_MODE, "WG").orEmpty().ifBlank { "WG" }
+            start(mode)
+        }
+        if (getSharedPreferences(SamanVpnService.PREFS, MODE_PRIVATE)
+                .getBoolean(SamanVpnService.KEY_RUNNING, false)) {
+            runCatching { startService(Intent(this, SamanVpnService::class.java).apply {
+                action = SamanVpnService.ACTION_QUERY
+            }) }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putString("deferred_vpn", deferredVpnMode)
+        outState.putString("pending_vpn", pendingVpnMode)
+        super.onSaveInstanceState(outState)
     }
 
     override fun onPause() {
@@ -716,7 +742,6 @@ class MainActivity : Activity() {
     }
 
     private fun start(mode: String) {
-        cancelPendingModeSwitch()
         if (isBusy()) {
             Toast.makeText(
                 this,
@@ -725,6 +750,7 @@ class MainActivity : Activity() {
             ).show()
             return
         }
+        cancelPendingModeSwitch()
 
         val now = SystemClock.elapsedRealtime()
         if (now - lastStartTap < 1400L) return
@@ -751,6 +777,15 @@ class MainActivity : Activity() {
 
         val phase = TunnelPhase.fromStatus(status)
         if (phase == TunnelPhase.CONNECTED || phase == TunnelPhase.DEGRADED) {
+            val current = prefs.getString(AetherService.KEY_MODE, "")
+            if (current == mode) {
+                val vpn = getSharedPreferences(SamanVpnService.PREFS, MODE_PRIVATE)
+                if (isVpnMode() && !vpn.getBoolean(SamanVpnService.KEY_RUNNING, false)) {
+                    vpnStartDispatched = false
+                    requestVpnPermissionAndStart(mode)
+                } else Toast.makeText(this, "Already connected — use Stop to disconnect", Toast.LENGTH_SHORT).show()
+                return
+            }
             LogStore.append(
                 this,
                 "UI",
@@ -812,6 +847,10 @@ class MainActivity : Activity() {
             "Start requested: $mode"
         )
 
+        getSharedPreferences(AetherService.PREFS, MODE_PRIVATE).edit()
+            .putString(AetherService.KEY_STATUS, "Starting…")
+            .putString(AetherService.KEY_MODE, mode)
+            .putString(AetherService.KEY_PHASE, TunnelPhase.STARTING.name).apply()
         val intent =
             Intent(
                 this,
@@ -833,6 +872,9 @@ class MainActivity : Activity() {
                 "ERROR",
                 "Starting AetherService failed: ${t.javaClass.name}: ${t.message.orEmpty()}"
             )
+            getSharedPreferences(AetherService.PREFS, MODE_PRIVATE).edit()
+                .putString(AetherService.KEY_STATUS, "Error: Core service could not start")
+                .putString(AetherService.KEY_PHASE, TunnelPhase.FAILED.name).apply()
             Toast.makeText(
                 this,
                 "Aether service could not start: ${t.javaClass.simpleName}",
@@ -845,6 +887,8 @@ class MainActivity : Activity() {
             deferredVpnMode = mode
             vpnPrepareBusy = false
             vpnStartDispatched = false
+            getSharedPreferences(SamanVpnService.PREFS, MODE_PRIVATE).edit()
+                .putString(SamanVpnService.KEY_STATUS, "Error: VPN could not start — tap mode to retry").apply()
             LogStore.append(
                 this,
                 "VPN_START",
@@ -856,8 +900,15 @@ class MainActivity : Activity() {
     private fun stop(cancelPendingSwitch: Boolean = true) {
         if (cancelPendingSwitch) cancelPendingModeSwitch()
         deferredVpnMode = null
+        pendingVpnMode = null
         vpnPrepareBusy = false
         vpnStartDispatched = false
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastStopTap < 800L) return
+        lastStopTap = now
+        getSharedPreferences(AetherService.PREFS, MODE_PRIVATE).edit()
+            .putString(AetherService.KEY_STATUS, "Stopping…")
+            .putString(AetherService.KEY_PHASE, TunnelPhase.STOPPING.name).apply()
         LogStore.append(this, "UI", "Stop requested")
         stopVpnService()
         startService(Intent(this, AetherService::class.java).apply {
@@ -881,8 +932,8 @@ class MainActivity : Activity() {
             .setTitle("Connection mode")
             .setSingleChoiceItems(
                 arrayOf(
-                    "Proxy — expose SOCKS5/HTTP only",
-                    "VPN — route Android apps through HEV"
+                    "Proxy — connect apps with a proxy setting",
+                    "VPN — connect the device or selected apps"
                 ),
                 if (currentVpn) 1 else 0
             ) { dialog, which ->
@@ -925,6 +976,7 @@ class MainActivity : Activity() {
                     ) {
                         requestVpnPermissionAndStart(runningMode)
                     } else {
+                        if (TunnelPhase.fromStatus(status).isActive) deferredVpnMode = runningMode
                         Toast.makeText(
                             this,
                             "VPN selected — choose WG, MASQUE or GOOL to connect",
@@ -939,6 +991,10 @@ class MainActivity : Activity() {
                         )
                         .apply()
 
+                    deferredVpnMode = null
+                    pendingVpnMode = null
+                    vpnPrepareBusy = false
+                    vpnStartDispatched = false
                     stopVpnService()
 
                     Toast.makeText(
@@ -955,7 +1011,11 @@ class MainActivity : Activity() {
     }
 
     private fun requestVpnPermissionAndStart(mode: String) {
-        if (vpnPrepareBusy || vpnStartDispatched) return
+        if (!isVpnMode() || vpnPrepareBusy || vpnStartDispatched) return
+        deferredVpnMode = null
+        getSharedPreferences(SamanVpnService.PREFS, MODE_PRIVATE).edit()
+            .putBoolean(SamanVpnService.KEY_RUNNING, false)
+            .putString(SamanVpnService.KEY_STATUS, "Waiting for VPN permission").apply()
 
         vpnPrepareBusy = true
         vpnStartDispatched = true
@@ -971,6 +1031,8 @@ class MainActivity : Activity() {
         } catch (t: Throwable) {
             vpnPrepareBusy = false
             vpnStartDispatched = false
+            getSharedPreferences(SamanVpnService.PREFS, MODE_PRIVATE).edit()
+                .putString(SamanVpnService.KEY_STATUS, "Error: VPN could not start — tap mode to retry").apply()
             LogStore.append(
                 this,
                 "ERROR",
@@ -1011,6 +1073,8 @@ class MainActivity : Activity() {
             pendingVpnMode = null
             vpnPrepareBusy = false
             vpnStartDispatched = false
+            getSharedPreferences(SamanVpnService.PREFS, MODE_PRIVATE).edit()
+                .putString(SamanVpnService.KEY_STATUS, "Error: VPN could not start — tap mode to retry").apply()
             LogStore.append(
                 this,
                 "ERROR",
@@ -1024,9 +1088,18 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun startVpnService(mode: String) {
+    private fun startVpnService(mode: String, reconfigure: Boolean = false) {
         pendingVpnMode = null
         vpnPrepareBusy = false
+        deferredVpnMode = null
+        val coreStatus = getSharedPreferences(AetherService.PREFS, MODE_PRIVATE)
+            .getString(AetherService.KEY_STATUS, "Stopped").orEmpty()
+        if (!isVpnMode() || TunnelPhase.fromStatus(coreStatus) !in
+                listOf(TunnelPhase.CONNECTED, TunnelPhase.DEGRADED)) {
+            vpnStartDispatched = false
+            return
+        }
+        vpnStartDispatched = true
 
         val routingPrefs = getSharedPreferences(
             SamanVpnService.PREFS,
@@ -1055,7 +1128,8 @@ class MainActivity : Activity() {
             this,
             SamanVpnService::class.java
         ).apply {
-            action = SamanVpnService.ACTION_START
+            action = if (reconfigure) SamanVpnService.ACTION_RECONFIGURE else SamanVpnService.ACTION_START
+            putExtra(AetherService.EXTRA_MODE, mode)
             putExtra(
                 SamanVpnService.EXTRA_ROUTING_MODE,
                 routingMode
@@ -1080,6 +1154,8 @@ class MainActivity : Activity() {
             )
         } catch (t: Throwable) {
             vpnStartDispatched = false
+            getSharedPreferences(SamanVpnService.PREFS, MODE_PRIVATE).edit()
+                .putString(SamanVpnService.KEY_STATUS, "Error: VPN could not start — tap mode to retry").apply()
             LogStore.append(
                 this,
                 "ERROR",
@@ -1096,7 +1172,9 @@ class MainActivity : Activity() {
     private fun reapplyVpnRouting() {
         if (!isVpnMode()) return
 
-        if (!ProxyHealth.probeSocks5("127.0.0.1", 1819, 700)) {
+        val coreStatus = getSharedPreferences(AetherService.PREFS, MODE_PRIVATE)
+            .getString(AetherService.KEY_STATUS, "Stopped").orEmpty()
+        if (TunnelPhase.fromStatus(coreStatus) !in listOf(TunnelPhase.CONNECTED, TunnelPhase.DEGRADED)) {
             Toast.makeText(
                 this,
                 "Routing saved — it will apply on the next VPN connection",
@@ -1125,20 +1203,15 @@ class MainActivity : Activity() {
             "Hot-applying routing without restarting Aether mode=$mode"
         )
 
-        stopVpnService()
-        vpnPrepareBusy = false
-        vpnStartDispatched = false
-
-        handler.postDelayed({
-            if (!isFinishing && !isDestroyed) {
-                vpnPrepareBusy = false
-                vpnStartDispatched = false
-                requestVpnPermissionAndStart(mode)
-            }
-        }, 650L)
+        // Reconfiguration closes and recreates the bridge on its single worker;
+        // no fixed-delay restart can overtake a previous Stop.
+        startVpnService(mode, reconfigure = true)
     }
 
     private fun stopVpnService() {
+        getSharedPreferences(SamanVpnService.PREFS, MODE_PRIVATE).edit()
+            .putBoolean(SamanVpnService.KEY_RUNNING, false)
+            .putString(SamanVpnService.KEY_STATUS, "Stopping…").apply()
         runCatching {
             startService(
                 Intent(
@@ -1213,8 +1286,8 @@ class MainActivity : Activity() {
         if (!rawStatus.startsWith("Connected", ignoreCase = true)) return
         if (vpnPrepareBusy || vpnStartDispatched) return
 
-        val targetMode = deferredVpnMode ?: mode
-        if (targetMode.isBlank()) return
+        val targetMode = deferredVpnMode ?: return
+        if (targetMode.isBlank() || targetMode != mode) return
 
         LogStore.append(
             this,
@@ -1541,16 +1614,12 @@ class MainActivity : Activity() {
         if (requestCode == REQUEST_VPN_PERMISSION) {
             vpnPrepareBusy = false
             if (resultCode == RESULT_OK) {
-                val mode =
-                    pendingVpnMode
-                        ?: getSharedPreferences(
-                            AetherService.PREFS,
-                            MODE_PRIVATE
-                        ).getString(
-                            AetherService.KEY_LAST_MODE,
-                            "WG"
-                        )
-                        ?: "WG"
+                val mode = pendingVpnMode
+                if (mode == null || !isVpnMode()) {
+                    pendingVpnMode = null
+                    vpnStartDispatched = false
+                    return
+                }
 
                 LogStore.append(
                     this,
@@ -1561,7 +1630,11 @@ class MainActivity : Activity() {
                 startVpnService(mode)
             } else {
                 pendingVpnMode = null
+                deferredVpnMode = null
                 vpnStartDispatched = false
+                getSharedPreferences(SamanVpnService.PREFS, MODE_PRIVATE).edit()
+                    .putBoolean(SamanVpnService.KEY_RUNNING, false)
+                    .putString(SamanVpnService.KEY_STATUS, "Permission denied — tap mode to retry").apply()
 
                 LogStore.append(
                     this,
@@ -1722,8 +1795,7 @@ class MainActivity : Activity() {
                 Settings.System.getString(contentResolver, key)
             }.getOrNull()?.trim().orEmpty()
 
-            raw.isNotBlank() && raw.split(',', ';', ':', '
-', ' ')
+            raw.isNotBlank() && raw.split(',', ';', ':', '\n', '\r', ' ')
                 .map { it.trim() }
                 .filter { it.isNotBlank() }
                 .any { it == packageName }
@@ -1892,7 +1964,10 @@ class MainActivity : Activity() {
         val rawStatus = prefs.getString(AetherService.KEY_STATUS, "Stopped") ?: "Stopped"
 
         maybeStartDeferredVpn(mode, rawStatus)
-        val status = rawStatus.trim()
+        val vpnPrefs = getSharedPreferences(SamanVpnService.PREFS, MODE_PRIVATE)
+        val status = ConnectionStatus.display(rawStatus.trim(), isVpnMode(),
+            vpnPrefs.getBoolean(SamanVpnService.KEY_RUNNING, false),
+            vpnPrefs.getString(SamanVpnService.KEY_STATUS, "Preparing VPN").orEmpty())
 
         modeView.text = "Mode: ${prettyMode(mode)}"
 
@@ -1922,7 +1997,7 @@ class MainActivity : Activity() {
 
                 detail =
                     if (builtInVpnRunning) {
-                        "VPN active • HEV → SOCKS5 :1819"
+                        "${prettyMode(mode)} VPN connected"
                     } else if (status.contains("HTTP", true)) {
                         "SOCKS5 :1819 + HTTP :1820"
                     } else {
