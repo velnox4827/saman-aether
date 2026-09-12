@@ -50,6 +50,7 @@ s2_aether_log_for_mode() {
         GOOL|gool) printf '%s\n' "$HOME/aether-gool.log" ;;
         'MASQUE H2'|h2|masque-h2) printf '%s\n' "$HOME/aether-masque-h2.log" ;;
         'MASQUE H3'|h3|masque-h3) printf '%s\n' "$HOME/aether-masque-h3.log" ;;
+        'MASQUE-in-MASQUE'|mim) printf '%s\n' "$HOME/aether-mim.log" ;;
         *) return 1 ;;
     esac
 }
@@ -72,6 +73,7 @@ s2_aether_mode() {
         *' --gool '*) echo 'GOOL' ;;
         *' --wg '*) echo 'WireGuard' ;;
         *' --masque '*' --h2 '*) echo 'MASQUE H2' ;;
+        *' --mim '*) echo 'MASQUE-in-MASQUE' ;;
         *' --masque '*) echo 'MASQUE H3' ;;
         *) s2_aether_mode_from_logs ;;
     esac
@@ -376,7 +378,8 @@ s2_aether_start() {
         gool) exec "$runner" GOOL ;;
         masque|h3|masque-h3|masque_h3) exec "$runner" MASQUE ;;
         h2|masque-h2|masque_h2) exec "$runner" MASQUE_H2 ;;
-        *) s2_err "Valid modes: wg, gool, h3, h2"; return 2 ;;
+        mim|masque-in-masque) exec "$runner" MIM ;;
+        *) s2_err "Valid modes: wg, gool, h3, h2, mim"; return 2 ;;
     esac
 }
 
@@ -415,7 +418,7 @@ s2_aether_stop() {
 
 s2_aether_restart() {
     local mode="${1:-}" lock="$HOME/.saman-aether/runner.lock"
-    [ -n "$mode" ] || { s2_err "Restart requires a mode: wg, gool, h3, h2"; return 2; }
+    [ -n "$mode" ] || { s2_err "Restart requires a mode: wg, gool, h3, h2, mim"; return 2; }
     s2_aether_stop || return
     for _ in $(seq 1 50); do [ ! -e "$lock" ] && [ ! -L "$lock" ] && break; sleep 0.1; done
     if [ -e "$lock" ] || [ -L "$lock" ]; then
@@ -483,3 +486,7 @@ s2_aether_menu() {
         esac
     done
 }
+
+# Optional panel layer: all arguments remain capability-gated official Aether flags.
+# shellcheck source=modules/aether-panel.sh
+source "$SAMAN2_ROOT/modules/aether-panel.sh"

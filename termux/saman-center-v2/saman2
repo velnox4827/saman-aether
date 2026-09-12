@@ -29,6 +29,9 @@ Usage:
   saman media                   Open Media Center
   saman share                   Start token-protected Saman Share
   saman aether status
+  saman aether panel            Persistent Aether control panel
+  saman aether panel config|capabilities|args|diagnostics
+  saman aether panel preset NAME|reset [--yes]|update [--check]|test|validate
   saman aether start MODE       MODE: wg, gool, h3, h2
   saman aether restart MODE
   saman aether stop|test|exit
@@ -181,6 +184,14 @@ case "${1:-}" in
             test|probe) s2_aether_probe ;;
             diagnostics) s2_aether_diagnostics "${3:-safe}" ;;
             exit) s2_aether_exit ;;
+            panel) saman_aether_panel_command "${3:-menu}" "${4:-}" ;;
+            config) saman_aether_panel_command config ;;
+            capabilities) saman_aether_panel_command capabilities ;;
+            preset) saman_aether_panel_command preset "${3:-}" ;;
+            reset) saman_aether_panel_command reset "${3:-}" ;;
+            update) saman_aether_panel_command update "${3:-}" ;;
+            validate) saman_aether_panel_command validate ;;
+            args) saman_aether_panel_command args ;;
             logs) s2_load_system; s2_logs aether --lines "${3:-80}" ;;
             *) s2_help; exit 2 ;;
         esac

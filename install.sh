@@ -83,8 +83,10 @@ resolve_upstream_aether() {
 }
 
 upstream_aether_version() {
+    local output
     [ -n "$AETHER_COMMAND" ] || resolve_upstream_aether
-    "$AETHER_COMMAND" --version 2>/dev/null | head -n1 || true
+    output="$("$AETHER_COMMAND" --version 2>/dev/null || true)"
+    printf '%s\n' "${output%%$'\n'*}"
 }
 
 installed_version() {

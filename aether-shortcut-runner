@@ -1,4 +1,5 @@
 #!/data/data/com.termux/files/usr/bin/bash
+# shellcheck disable=SC1090,SC2034,SC2318
 set -u
 set -o pipefail
 
@@ -17,6 +18,8 @@ case "$MODE" in
         MODE_KEY="wg"; MODE_LABEL="WireGuard" ;;
     GOOL)
         MODE_KEY="gool"; MODE_LABEL="GOOL" ;;
+    MIM)
+        MODE_KEY="mim"; MODE_LABEL="MASQUE-in-MASQUE" ;;
     *)
         printf 'ERROR: unknown mode %s\n' "${MODE:-<empty>}" >&2
         printf 'ACTION: use MASQUE, MASQUE_H3, MASQUE_H2, WG, or GOOL.\n' >&2
@@ -267,17 +270,38 @@ export AETHER_SMART_MASQUE_H3_MAX_VERIFY_MS="$SMART_MASQUE_H3_MAX_VERIFY_MS"
 export AETHER_SMART_MASQUE_H2_MAX_VERIFY_MS="$SMART_MASQUE_H2_MAX_VERIFY_MS"
 export AETHER_SMART_SHORT_LIVED_SECS="$SMART_SHORT_LIVED_SECS"
 
-COMMON_ARGS=(--bind "127.0.0.1:$SOCKS_PORT" --http-proxy "127.0.0.1:$HTTP_PORT" --reconnect-secs 1)
+PANEL_MODULE="$HOME/.local/share/saman-center-v2/modules/aether-panel.sh"
+if [ -r "$PANEL_MODULE" ]; then
+    # Saman only supplies saved preferences; the sourced module gates every flag
+    # against the official binary's live --help output.
+    source "$PANEL_MODULE"
+    saman_aether_init >/dev/null 2>&1 || true
+    saman_aether_load
+    saman_aether_detect_capabilities >/dev/null 2>&1 || true
+fi
+
 case "$MODE" in
-    MASQUE|MASQUE_H3)
-        ARGS=(--masque -4 "${COMMON_ARGS[@]}" --scan balanced --noize firewall --quick-reconnect) ;;
-    MASQUE_H2)
-        ARGS=(--masque --h2 -4 "${COMMON_ARGS[@]}" --scan balanced --noize firewall --quick-reconnect) ;;
-    WG)
-        ARGS=(--wg -4 "${COMMON_ARGS[@]}" --scan balanced --noize balanced --keepalive 5 --quick-reconnect) ;;
-    GOOL)
-        ARGS=(--gool -4 "${COMMON_ARGS[@]}" --scan balanced --noize balanced --keepalive 5 --quick-reconnect) ;;
+    MASQUE|MASQUE_H3) AETHER_PANEL_MODE=masque; AETHER_PANEL_H2=0; AETHER_PANEL_H3=1 ;;
+    MASQUE_H2) AETHER_PANEL_MODE=masque; AETHER_PANEL_H2=1; AETHER_PANEL_H3=0 ;;
+    WG) AETHER_PANEL_MODE=wg ;;
+    GOOL) AETHER_PANEL_MODE=gool ;;
+    MIM) AETHER_PANEL_MODE=mim ;;
 esac
+if declare -F saman_aether_build_args_array >/dev/null 2>&1; then
+    saman_aether_build_args_array "$AETHER_PANEL_MODE"
+    ARGS=("${SAMAN_AETHER_ARGS[@]}")
+    [[ "$AETHER_PANEL_BIND" == *:* ]] && SOCKS_PORT="${AETHER_PANEL_BIND##*:}"
+    [[ "$AETHER_PANEL_HTTP" == *:* ]] && HTTP_PORT="${AETHER_PANEL_HTTP##*:}"
+else
+    COMMON_ARGS=(--bind "127.0.0.1:$SOCKS_PORT" --http-proxy "127.0.0.1:$HTTP_PORT" --reconnect-secs 1)
+    case "$MODE" in
+        MASQUE|MASQUE_H3) ARGS=(--masque -4 "${COMMON_ARGS[@]}" --scan balanced --noize firewall --quick-reconnect) ;;
+        MASQUE_H2) ARGS=(--masque --h2 -4 "${COMMON_ARGS[@]}" --scan balanced --noize firewall --quick-reconnect) ;;
+        WG) ARGS=(--wg -4 "${COMMON_ARGS[@]}" --scan balanced --noize balanced --keepalive 5 --quick-reconnect) ;;
+        GOOL) ARGS=(--gool -4 "${COMMON_ARGS[@]}" --scan balanced --noize balanced --keepalive 5 --quick-reconnect) ;;
+        MIM) ARGS=(--mim -4 "${COMMON_ARGS[@]}" --scan balanced --noize firewall --quick-reconnect) ;;
+    esac
+fi
 
 port_listening_in_snapshot() {
     local port="$1" snapshot="$2"
@@ -463,7 +487,7 @@ line_is_success() {
     case "$MODE" in
         GOOL) [[ "$line" == *"[inner] wireguard tunnel validated"* || "$line" == *"socks5 server listening"* ]];;
         WG) [[ "$line" == *"wireguard tunnel validated"* || "$line" == *"socks5 server listening"* ]];;
-        MASQUE|MASQUE_H3|MASQUE_H2) [[ "$line" == *"socks5 server listening"* ]];;
+        MASQUE|MASQUE_H3|MASQUE_H2|MIM) [[ "$line" == *"socks5 server listening"* ]];;
     esac
 }
 

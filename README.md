@@ -19,7 +19,9 @@
 
 ### Overview
 
-Saman Tunnel runs a patched, pinned Aether Core inside an isolated Android application process and exposes local proxies to compatible applications. The same repository also maintains the current Termux integration: Saman Center is the central control surface for Aether and the wider Saman toolset.
+Saman Tunnel's Android application has its separately documented native build. The Termux integration is deliberately different: Saman does not fork, patch, or modify Aether. It uses the official upstream Aether core and provides a Termux UI/configuration layer around it.
+
+On Termux, `saman aether panel` is a persistent, capability-driven control panel. It stores only Saman preferences under `~/.config/saman/aether/`, derives supported flags from the installed core's live `--help`, and keeps Aether's own config/profile files untouched. The panel can manage modes, presets, scan/noize, proxy bindings, routing, DNS, fragmentation, reconnect behavior, diagnostics, safe reset, and checksum-verified official release updates.
 
 Main use cases:
 

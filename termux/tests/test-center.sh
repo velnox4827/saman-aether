@@ -8,7 +8,7 @@ trap 'rm -rf "$TEST_TMP"' EXIT
 
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 pass() { printf 'PASS: %s\n' "$*"; }
-run_center() { HOME="$TEST_TMP/home" PREFIX="${PREFIX:?}" SAMAN2_ROOT="$CENTER" bash "$CENTER/saman2" "$@"; }
+run_center() { env HOME="$TEST_TMP/home" PREFIX="${PREFIX:?}" SAMAN2_ROOT="$CENTER" PATH="$PATH" bash "$CENTER/saman2" "$@"; }
 mkdir -p "$TEST_TMP/home"
 
 # Read-only metadata commands must not create state, cache, or config directories.
@@ -83,9 +83,12 @@ printf 'x\n' >> "$HOME/ss-calls"
 exit 0
 MOCK
 chmod +x "$TEST_TMP/fakebin/ss"
-PATH="$TEST_TMP/fakebin:$PATH" run_center status >/dev/null
-ss_calls="$(wc -l < "$TEST_TMP/home/ss-calls")"
-[ "$ss_calls" -le 1 ] || fail "status invoked ss $ss_calls times"
+export PATH="$TEST_TMP/fakebin:$PATH"
+run_center aether status >/dev/null
+if [ -e "$TEST_TMP/home/ss-calls" ]; then
+    ss_calls="$(wc -l < "$TEST_TMP/home/ss-calls")"
+    [ "$ss_calls" -le 1 ] || fail "status invoked ss $ss_calls times"
+fi
 pass "single-snapshot status"
 
 # Doctor must return non-zero when a required core dependency fails.

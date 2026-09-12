@@ -30,7 +30,7 @@ export PREFIX="$TEST_TMP/prefix"
 export HOME="$TEST_TMP/home"
 mkdir -p "$PREFIX/bin" "$PREFIX/etc" "$HOME"
 cat > "$PREFIX/bin/aether" <<'AETHER'
-#!/usr/bin/env bash
+#!/data/data/com.termux/files/usr/bin/bash
 if [ "${1:-}" = --version ]; then printf 'Aether 9.9.9\n'; exit 0; fi
 sleep 30
 AETHER
