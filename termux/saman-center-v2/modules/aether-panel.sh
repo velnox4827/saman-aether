@@ -132,11 +132,28 @@ saman_aether_save() {
     } > "$tmp" && chmod 0600 "$tmp" && mv -f "$tmp" "$SAMAN_AETHER_SETTINGS" || { rm -f "$tmp"; return 1; }
 }
 
+saman_aether_setting_label() {
+    case "$1" in
+        MODE) printf 'Connection Mode';; PRESET) printf 'Preset';; SCAN) printf 'Scan Mode';; NOIZE) printf 'Obfuscation';; IP) printf 'IP Mode';; H2) printf 'MASQUE Carrier';; *) printf '%s' "$1";;
+    esac
+}
+
 saman_aether_set() {
-    local k="$1" v="$2"
+    local k="$1" v="$2" var old label
+    saman_aether_load
+    var="$(saman_aether_key_var "$k")"; old="${!var-}"
+    label="$(saman_aether_setting_label "$k")"
+    if [ "$old" = "$v" ]; then
+        printf 'Already selected: %s = %s\n' "$label" "$v"
+        return 0
+    fi
     saman_aether_assign "$k" "$v" || { printf 'ERROR: invalid Aether setting %s=%s\n' "$k" "$v" >&2; return 2; }
     [ "$k" = PRESET ] || saman_aether_mark_custom "$k"
-    saman_aether_save
+    saman_aether_save || return 1
+    saman_aether_load
+    var="$(saman_aether_key_var "$k")"
+    [ "${!var-}" = "$v" ] || { printf 'ERROR: saved Aether setting verification failed: %s\n' "$k" >&2; return 1; }
+    printf 'Saved: %s = %s\n' "$label" "$v"
 }
 
 saman_aether_mark_custom() {
@@ -396,14 +413,25 @@ saman_aether_mode_menu() {
         [ "${SAMAN_AETHER_CAP_HAS_GOOL:-0}" -eq 1 ] && options+=("GOOL / WARP-in-WARP")
         [ "${SAMAN_AETHER_CAP_HAS_MIM:-0}" -eq 1 ] && options+=("MASQUE-in-MASQUE")
         i=1; for option in "${options[@]}"; do printf '%s) %s\n' "$i" "$option"; i=$((i+1)); done
-        printf '0) Back\n'; read -r -p 'Choice: ' c
+        printf '0) Back\n'; read -r -p 'Choice: ' c || return
         [ "$c" = 0 ] && return
         case "$c" in
-            1) mode=masque; AETHER_PANEL_H2=0; AETHER_PANEL_H3=1;;
-            2) mode=masque; AETHER_PANEL_H2=1; AETHER_PANEL_H3=0;;
-            3) mode=wg;; 4) mode=gool;; 5) mode=mim;; *) continue;;
+            1) mode=masque; next_label='MASQUE'; next_h2=0; next_h3=1;;
+            2) mode=masque; next_label='MASQUE H2'; next_h2=1; next_h3=0;;
+            3) mode=wg; next_label='WG'; next_h2=0; next_h3=0;;
+            4) mode=gool; next_label='GOOL'; next_h2=0; next_h3=0;;
+            5) mode=mim; next_label='MIM'; next_h2=0; next_h3=0;;
+            *) continue;;
         esac
-        saman_aether_set MODE "$mode"; saman_aether_save
+        case "$AETHER_PANEL_MODE" in
+            masque) current_label='MASQUE'; [ "$AETHER_PANEL_H2" = 1 ] && current_label='MASQUE H2';;
+            wg) current_label='WG';; gool) current_label='GOOL';; mim) current_label='MIM';;
+        esac
+        [ "$current_label" = "$next_label" ] && { printf 'Already selected: Connection Mode = %s\n' "$next_label"; return; }
+        AETHER_PANEL_MODE="$mode"; AETHER_PANEL_H2="$next_h2"; AETHER_PANEL_H3="$next_h3"; saman_aether_mark_custom
+        saman_aether_save; saman_aether_load
+        printf 'Saved: Connection Mode = %s\n' "$next_label"
+        return
     done
 }
 
@@ -411,12 +439,26 @@ saman_aether_select_menu() {
     local key="$1" title="$2" values="$3" c i v
     while :; do
         printf '\n%s\n' "$title"; i=1; for v in $values; do printf '%s) %s\n' "$i" "$v"; i=$((i+1)); done; printf '0) Back\n'
-        read -r -p 'Choice: ' c; [ "$c" = 0 ] && return
+        read -r -p 'Choice: ' c || return; [ "$c" = 0 ] && return
         i=1; for v in $values; do if [ "$i" = "$c" ]; then saman_aether_set "$key" "$v"; return; fi; i=$((i+1)); done
     done
 }
 
-saman_aether_preset_menu() { saman_aether_select_menu PRESET 'Presets (official Aether arguments only)' 'upstream-default balanced fast stable restricted stealth compatibility custom'; }
+saman_aether_preset_menu() {
+    local c i=1 v selected current
+    saman_aether_load
+    printf '\nPresets (official Aether arguments only)\n'
+    for v in upstream-default balanced fast stable restricted stealth compatibility custom; do printf '%s) %s\n' "$i" "$v"; i=$((i+1)); done
+    printf '0) Back\n'; read -r -p 'Choice: ' c || return; [ "$c" = 0 ] && return
+    i=1; for v in upstream-default balanced fast stable restricted stealth compatibility custom; do if [ "$i" = "$c" ]; then selected="$v"; break; fi; i=$((i+1)); done
+    [ -n "${selected:-}" ] || return
+    current="$AETHER_PANEL_PRESET"
+    [ "$current" = "$selected" ] && { printf 'Already selected: Preset = %s\n' "$selected"; return; }
+    saman_aether_apply_preset "$selected" || return
+    saman_aether_load
+    [ "$AETHER_PANEL_PRESET" = "$selected" ] || { printf 'ERROR: saved Preset verification failed.\n' >&2; return 1; }
+    printf 'Saved: Preset = %s\n' "$selected"
+}
 saman_aether_scan_menu() { saman_aether_select_menu SCAN 'Scan modes: turbo=first response, balanced=fastest few, thorough=whole ranges, stealth=fewer probes, ironclad=real tunnel/HTTP validation' "$SAMAN_AETHER_CAP_SCANS"; }
 saman_aether_noize_menu() { saman_aether_select_menu NOIZE 'Obfuscation profiles (official Noize)' "$SAMAN_AETHER_CAP_NOIZE"; }
 
@@ -442,7 +484,7 @@ saman_aether_advanced_menu() { local c v; while :; do saman_aether_load; printf 
 s2_aether_menu() {
     saman_aether_init; saman_aether_load; saman_aether_detect_capabilities >/dev/null 2>&1 || true
     local c
-    while :; do saman_aether_load; printf '\nAETHER CONTROL PANEL\n--------------------\nMode [%s]  Preset [%s]  Scan [%s]  Noize [%s]\n1) Connect / Start\n2) Connection Mode\n3) Preset\n4) Scan Mode\n5) Obfuscation / Noize\n6) Network / IP\n7) MASQUE Settings\n8) WireGuard Settings\n9) GOOL Settings\n10) DNS / Proxy / Routing\n11) Advanced Settings\n12) Show Current Configuration\n13) Test Current Configuration\n14) Update Aether\n15) Reset Aether Settings\n16) Version / Diagnostics\n0) Back\n' "$AETHER_PANEL_MODE" "$AETHER_PANEL_PRESET" "${AETHER_PANEL_SCAN:-default}" "${AETHER_PANEL_NOIZE:-default}"; read -r -p 'Choice: ' c; case "$c" in 1) s2_aether_start "$AETHER_PANEL_MODE";; 2) saman_aether_mode_menu;; 3) saman_aether_preset_menu; saman_aether_load; saman_aether_apply_preset "$AETHER_PANEL_PRESET";; 4) saman_aether_scan_menu;; 5) saman_aether_noize_menu;; 6|10) saman_aether_network_menu;; 7) saman_aether_masque_menu;; 8) saman_aether_wireguard_menu;; 9) saman_aether_gool_menu;; 11) saman_aether_advanced_menu;; 12) saman_aether_show_config; s2_pause;; 13) saman_aether_test_current; s2_pause;; 14) saman_aether_update; s2_pause;; 15) saman_aether_reset; s2_pause;; 16) saman_aether_diagnostics_panel; s2_pause;; 0) return;; esac; done
+    while :; do saman_aether_load; printf '\nAETHER CONTROL PANEL\n--------------------\nMode [%s]  Preset [%s]  Scan [%s]  Noize [%s]\n1) Connect / Start\n2) Connection Mode\n3) Preset\n4) Scan Mode\n5) Obfuscation / Noize\n6) Network / IP\n7) MASQUE Settings\n8) WireGuard Settings\n9) GOOL Settings\n10) DNS / Proxy / Routing\n11) Advanced Settings\n12) Show Current Configuration\n13) Test Current Configuration\n14) Update Aether\n15) Reset Aether Settings\n16) Version / Diagnostics\n0) Back\n' "$AETHER_PANEL_MODE" "$AETHER_PANEL_PRESET" "${AETHER_PANEL_SCAN:-default}" "${AETHER_PANEL_NOIZE:-default}"; read -r -p 'Choice: ' c; case "$c" in 1) s2_aether_start "$AETHER_PANEL_MODE";; 2) saman_aether_mode_menu;; 3) saman_aether_preset_menu;; 4) saman_aether_scan_menu;; 5) saman_aether_noize_menu;; 6|10) saman_aether_network_menu;; 7) saman_aether_masque_menu;; 8) saman_aether_wireguard_menu;; 9) saman_aether_gool_menu;; 11) saman_aether_advanced_menu;; 12) saman_aether_show_config; s2_pause;; 13) saman_aether_test_current; s2_pause;; 14) saman_aether_update; s2_pause;; 15) saman_aether_reset; s2_pause;; 16) saman_aether_diagnostics_panel; s2_pause;; 0) return;; esac; done
 }
 
 saman_aether_panel_command() {

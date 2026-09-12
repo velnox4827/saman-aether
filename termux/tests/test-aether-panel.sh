@@ -79,4 +79,19 @@ saman_aether_load
 [ -z "$AETHER_PANEL_SCAN" ]
 [ "$AETHER_PANEL_QUICK" = 0 ]
 
+out="$(printf '4\n' | saman_aether_mode_menu)"
+printf '%s\n' "$out" | grep -q 'Saved: Connection Mode = GOOL'
+saman_aether_load; [ "$AETHER_PANEL_MODE" = gool ]
+out="$(printf '4\n' | saman_aether_mode_menu)"
+printf '%s\n' "$out" | grep -q 'Already selected: Connection Mode = GOOL'
+out="$(printf '2\n' | saman_aether_scan_menu)"
+printf '%s\n' "$out" | grep -q 'Saved: Scan Mode = balanced'
+saman_aether_load; [ "$AETHER_PANEL_SCAN" = balanced ]
+out="$(printf '2\n' | saman_aether_scan_menu)"
+printf '%s\n' "$out" | grep -q 'Already selected: Scan Mode = balanced'
+out="$(printf '2\n' | saman_aether_preset_menu)"
+printf '%s\n' "$out" | grep -q 'Saved: Preset = balanced'
+out="$(printf '2\n' | saman_aether_preset_menu)"
+printf '%s\n' "$out" | grep -q 'Already selected: Preset = balanced'
+
 printf '%s\n' 'PASS: capability detection, persistence, args, presets, custom marker'
