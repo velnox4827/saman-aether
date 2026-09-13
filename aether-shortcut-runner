@@ -20,9 +20,15 @@ case "$MODE" in
         MODE_KEY="gool"; MODE_LABEL="GOOL" ;;
     MIM)
         MODE_KEY="mim"; MODE_LABEL="MASQUE-in-MASQUE" ;;
+    TOR)
+        MODE_KEY="tor-inside"; MODE_LABEL="Tor inside selected transport" ;;
+    TOR_REVERSE)
+        MODE_KEY="tor-reverse"; MODE_LABEL="Tor reverse over MASQUE H2" ;;
+    TOR_ONLY)
+        MODE_KEY="tor-only"; MODE_LABEL="Tor only" ;;
     *)
         printf 'ERROR: unknown mode %s\n' "${MODE:-<empty>}" >&2
-        printf 'ACTION: use MASQUE, MASQUE_H3, MASQUE_H2, WG, or GOOL.\n' >&2
+        printf 'ACTION: use MASQUE, MASQUE_H3, MASQUE_H2, WG, GOOL, MIM, TOR, TOR_REVERSE, or TOR_ONLY.\n' >&2
         exit 2
         ;;
 esac
@@ -286,6 +292,9 @@ case "$MODE" in
     WG) AETHER_PANEL_MODE=wg ;;
     GOOL) AETHER_PANEL_MODE=gool ;;
     MIM) AETHER_PANEL_MODE=mim ;;
+    TOR) AETHER_PANEL_TOR_MODE=inside ;;
+    TOR_REVERSE) AETHER_PANEL_MODE=masque; AETHER_PANEL_H2=1; AETHER_PANEL_H3=0; AETHER_PANEL_TOR_MODE=reverse ;;
+    TOR_ONLY) AETHER_PANEL_TOR_MODE=only ;;
 esac
 if declare -F saman_aether_build_args_array >/dev/null 2>&1; then
     saman_aether_build_args_array "$AETHER_PANEL_MODE"

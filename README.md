@@ -1,661 +1,372 @@
-# Saman Tunnel
+# سامان برای Termux — رابط رسمی Aether
 
-<p align="center">
-  <img src="android-app/app/src/main/res/drawable-nodpi/saman_tunnel_logo.png" width="150" alt="Saman Tunnel logo">
-</p>
+<div dir="rtl">
 
-<p align="center"><strong>Stable Android local-proxy + device-VPN frontend and centralized Saman/Aether toolkit for Termux</strong></p>
+**Saman** یک رابط و مدیر چرخهٔ اجرا برای نسخهٔ رسمی و بدون‌تغییر [Aether](https://github.com/CluvexStudio/Aether) در Termux است. سامان هستهٔ شبکهٔ جداگانه، fork یا patch اختصاصی Aether نمی‌سازد؛ انتخاب‌ها را به آرگومان‌های پشتیبانی‌شدهٔ همان فایل اجرایی رسمی تبدیل می‌کند، اجرای متعلق به سامان را مدیریت می‌کند و وضعیت و لاگ را نشان می‌دهد.
 
-**Language:** [English](#english) | [فارسی](#فارسی)
+> نکتهٔ مهم: نسخهٔ Termux یک **پروکسی محلی** می‌سازد، نه VPN سراسری اندروید. فقط برنامه‌ای که صریحاً از SOCKS5/HTTP CONNECT استفاده کند از این مسیر عبور می‌کند. انتخاب Tor نیز به‌تنهایی همهٔ ترافیک گوشی را از Tor عبور نمی‌دهد و تضمین ناشناس‌بودن نیست.
 
-**Current stable Android release:** [Saman Tunnel v1.7.6](https://github.com/velnox4827/saman-aether/releases/tag/v1.7.6) · **Aether Core:** v1.9.0 at `311b573352bb67e494895ff67d20b002d075116a` · **License:** [GNU AGPL-3.0](LICENSE)
+## شروع سریع در Termux
 
-> Saman Tunnel is an independent derivative project, not the official Aether application. It can expose local SOCKS5/HTTP CONNECT proxies and, when VPN mode is enabled by the user, run an Android `VpnService` that forwards device/app traffic through the local Aether SOCKS5 tunnel.
+Termux را از [F-Droid](https://f-droid.org/packages/com.termux/) یا [مخزن رسمی Termux](https://github.com/termux/termux-app) نصب کنید؛ نسخهٔ قدیمی Play Store توصیه نمی‌شود.
+
+### ۱) پیش‌نیازها و Aether رسمی
+
+```bash
+pkg update
+pkg install -y bash curl coreutils jq tar procps grep sed iproute2
+
+curl --proto '=https' --tlsv1.2 -fsSL \
+  https://raw.githubusercontent.com/CluvexStudio/Aether/main/aether.sh \
+  -o "$TMPDIR/aether.sh"
+bash "$TMPDIR/aether.sh" install
+aether --version
+```
+
+این همان نصب‌کنندهٔ رسمی upstream است؛ معماری گوشی را تشخیص می‌دهد، فایل release مناسب Android را می‌گیرد و checksum منتشرشده را بررسی می‌کند. انتشار رسمی Aether v2.0.0 برای Android/Termux با قابلیت Tor ساخته شده است.
+
+### ۲) نصب یا تعمیر Saman
+
+```bash
+curl --proto '=https' --tlsv1.2 -fsSL \
+  https://raw.githubusercontent.com/velnox4827/saman-aether/main/install.sh \
+  -o "$TMPDIR/saman-install.sh"
+bash "$TMPDIR/saman-install.sh" install
+```
+
+### ۳) اجرا
+
+```bash
+saman
+```
+
+فرمان‌های بررسی اولیه:
+
+```bash
+saman status
+saman doctor --verbose
+saman aether capabilities
+saman aether config
+```
+
+`termux-setup-storage` برای اجرای Aether یا سامان لازم نیست؛ فقط برای دسترسی اختیاری به فضای اشتراکی Android استفاده می‌شود. Termux:Widget نیز فقط برای میان‌بر صفحهٔ اصلی اختیاری است.
+
+## رفتار منو
+
+- هر صفحه پیش از نمایش دوباره پاک می‌شود؛ صفحه‌های قبلی روی ترمینال انباشته نمی‌شوند.
+- همهٔ انتخاب‌های اصلی شماره دارند و با کیبورد Android/Termux کار می‌کنند.
+- ورودی خالی یا نامعتبر هیچ گزینه‌ای را اجرا نمی‌کند و به‌عنوان انتخاب پیش‌فرض پذیرفته نمی‌شود.
+- گزینهٔ **Back** فقط به صفحهٔ والد برمی‌گردد.
+- گزینهٔ **Exit Saman** رابط سامان را می‌بندد؛ اتصال در حال اجرا را متوقف نمی‌کند.
+- توقف اتصال فقط با گزینه یا فرمان صریح **Stop** انجام می‌شود.
+- علامت `[x]` انتخاب ذخیره‌شده را نشان می‌دهد. «انتخاب ذخیره‌شده» با «حالت واقعاً در حال اجرا» جداگانه نمایش داده می‌شود.
+- پیام موفقیت یا خطا تا تأیید کاربر باقی می‌ماند و سپس منو بازطراحی می‌شود.
+- خروجی تفصیلی سرویس در لاگ نوشته می‌شود تا خروجی پس‌زمینه منو را خراب نکند.
+
+تنظیمات رابط Aether در این فایل خصوصی ذخیره می‌شود:
+
+```text
+~/.config/saman/aether/settings.conf
+```
+
+این فایل با whitelist خوانده می‌شود و به‌عنوان کد shell اجرا نمی‌شود. identity، کلیدها و فایل‌های پیکربندی اصلی Aether همچنان متعلق به خود Aether هستند.
+
+## استفادهٔ روزمره
+
+### منوی تعاملی
+
+```bash
+saman
+# سپس Aether / Connection را انتخاب کنید
+```
+
+پنل Aether بخش‌های جدا برای این کارها دارد:
+
+- اتصال/شروع؛
+- توقف، راه‌اندازی مجدد و وضعیت؛
+- انتخاب transportهای پشتیبانی‌شده؛
+- حالت‌ها و تنظیمات Tor؛
+- preset، scan، obfuscation، IP، DNS، proxy و routing؛
+- به‌روزرسانی Saman و هستهٔ رسمی Aether؛
+- لاگ، راهنما و diagnostics.
+
+فهرست دقیق گزینه‌ها با خروجی زندهٔ `aether --help` محدود می‌شود. اگر نسخهٔ نصب‌شده قابلیتی را نداشته باشد، سامان آن را اجرا نمی‌کند و وضعیت unavailable نشان می‌دهد.
+
+### فرمان‌های مستقیم
+
+```bash
+saman aether status
+saman aether start h3
+saman aether start h2
+saman aether start wg
+saman aether start gool
+saman aether start mim
+saman aether restart h3
+saman aether stop
+saman aether test
+saman aether logs
+saman aether diagnostics safe
+saman aether diagnostics full
+
+saman aether panel
+saman aether config
+saman aether capabilities
+saman aether args
+saman aether validate
+```
+
+فرمان‌های سازگاری نیز به همان مسیر مرکزی واگذار می‌شوند:
+
+```bash
+saman2 aether status
+aether-control status
+aether-control start h3
+```
+
+شروع تکراری نمونهٔ دوم نمی‌سازد. Stop/Restart فقط پردازش و runner متعلق به سامان را پس از بررسی هویت اجرایی هدف می‌گیرد و پردازش‌های نامرتبط را با `pkill` یا الگوی گسترده متوقف نمی‌کند.
+
+## transportها و profileها
+
+Saman فقط گزینه‌هایی را نمایش می‌دهد که هستهٔ رسمی نصب‌شده واقعاً اعلام می‌کند. Aether v2.0.0 این transportها را ارائه می‌کند:
+
+| گزینه | آرگومان upstream | توضیح کوتاه |
+|---|---|---|
+| MASQUE H3 | `--masque --h3` | HTTP/3/QUIC؛ انتخاب معمول |
+| MASQUE H2 | `--masque --h2` | HTTP/2/TCP برای شبکه‌ای که QUIC را می‌بندد |
+| WireGuard | `--wg` | WireGuard مستقیم |
+| GOOL | `--gool` | WARP-in-WARP |
+| MIM | `--mim` | MASQUE-in-MASQUE |
+
+حالت‌های scan رسمی عبارت‌اند از `turbo`، `balanced`، `thorough`، `stealth` و `ironclad`. profileهای Noize رسمی نیز از `aether --help` خوانده می‌شوند. endpoint دستی، allow/block و bypass/direct فقط در صورت پشتیبانی upstream اضافه می‌شوند؛ سامان flag ساختگی تولید نمی‌کند.
+
+پروکسی‌های عادی در حالت غیر-Tor:
+
+```text
+SOCKS5        127.0.0.1:1819
+HTTP CONNECT  127.0.0.1:1820
+```
+
+نمونهٔ آزمون SOCKS با DNS سمت پروکسی:
+
+```bash
+curl --socks5-hostname 127.0.0.1:1819 \
+  https://www.cloudflare.com/cdn-cgi/trace
+```
+
+وجود listener به‌تنهایی موفقیت اینترنت را ثابت نمی‌کند؛ وضعیت READY پس از سیگنال readiness هسته و بررسی endpoint مربوط گزارش می‌شود.
+
+## Tor رسمی Aether
+
+Aether v2.0.0 از [Arti](https://gitlab.torproject.org/tpo/core/arti) استفاده می‌کند و releaseهای رسمی Android آن با feature رسمی `tor` ساخته شده‌اند. سامان این قابلیت را پیاده‌سازی مجدد نمی‌کند و فقط گزینه‌های upstream را در دسترس می‌گذارد.
+
+| حالت در Saman | flag رسمی | مسیر | خروجی |
+|---|---|---|---|
+| Tor خاموش | بدون flag Tor | شما ←→ WARP | خروجی WARP |
+| Tor داخل تونل | `--tor` | شما → WARP → Tor → اینترنت | خروجی Tor |
+| تونل داخل Tor | `--tor-reverse` | شما → Tor → WARP → اینترنت | خروجی WARP |
+| فقط Tor | `--tor-only` | شما → Tor → اینترنت | خروجی Tor |
+
+نکات مهم:
+
+- `--tor` با transportهای رسمی Aether کار می‌کند. SOCKS روی `1819` خروجی WARP را نگه می‌دارد و SOCKS دوم روی `1820` خروجی Tor است.
+- چون `1820` در حالت Tor به SOCKS مخصوص Tor تعلق دارد، سامان هم‌زمان HTTP CONNECT را روی همان پورت فعال نمی‌کند.
+- `--tor-reverse` به‌دلیل TCP-only بودن Tor از MASQUE روی HTTP/2 استفاده می‌کند و با WireGuard/GOOL/MIM سازگار نیست.
+- `--tor-only` تونل WARP نمی‌سازد و SOCKS Tor را روی bind اصلی (پیش‌فرض `127.0.0.1:1819`) ارائه می‌کند.
+- نام میزبان را با `socks5h://` یا `--socks5-hostname` به Tor بدهید؛ حل DNS محلی می‌تواند مقصد را بیرون از Tor افشا کند. Tor در این مسیر UDP حمل نمی‌کند.
+- bootstrap نخست ممکن است طولانی باشد. سامان قبل از پیام آماده، منتظر readiness واقعی Tor می‌ماند و شکست bootstrap را در لاگ نشان می‌دهد.
+
+آزمون Tor-inside پس از READY:
+
+```bash
+curl --socks5-hostname 127.0.0.1:1820 \
+  https://check.torproject.org/api/ip
+```
+
+آزمون `tor-only` با bind پیش‌فرض:
+
+```bash
+curl --socks5-hostname 127.0.0.1:1819 \
+  https://check.torproject.org/api/ip
+```
+
+### bridge و pluggable transport
+
+Aether می‌تواند ابتدا Tor مستقیم را امتحان و در صورت مسدودبودن bridge را از BridgeDB بگیرد. در پنل می‌توان رفتار خودکار، اجبار bridge یا غیرفعال‌کردن bridge را فقط با flagهای رسمی انتخاب کرد.
+
+انتشار Android arm64 نسخهٔ v2.0.0 پوشهٔ `pt/` و فایل `pt/lyrebird` را همراه خود دارد. updater سامان فایل اجرایی و پوشهٔ PT همان archive رسمی را با checksum نصب و در شکست rollback می‌کند. transportهای دیگری فقط وقتی استفاده می‌شوند که upstream آن‌ها را در release آینده همراه کند یا فایل اجرایی سازگار از قبل روی دستگاه موجود و صریحاً انتخاب شده باشد.
+
+bridge خصوصی، credential یا token را در issue، لاگ، screenshot یا commit قرار ندهید. سامان مقدار bridge خصوصی را در خلاصهٔ تنظیمات و خروجی آرگومان‌ها نمایش نمی‌دهد. فایل تنظیمات خصوصی را عمومی نکنید.
+
+## وضعیت و لاگ‌ها
+
+```bash
+saman aether status
+saman logs aether --lines 80
+saman aether logs
+saman aether diagnostics safe
+```
+
+لاگ‌ها براساس حالت جدا و محدود می‌شوند؛ برای Tor نیز لاگ همان اجرای رسمی Aether شامل درصد bootstrap و خطای bridge/PT است. منوی log فقط خروجی ذخیره‌شده را می‌خواند و آن را پاک نمی‌کند.
+
+پیش از اشتراک diagnostics—even در حالت safe—آن را بازبینی کنید. گزارش full ممکن است آدرس‌ها و شناسه‌های بیشتری داشته باشد. کلید خصوصی، bridge خصوصی، credential و state اجرایی نباید commit شوند.
+
+## به‌روزرسانی جداگانه
+
+### به‌روزرسانی Saman بدون تغییر Aether
+
+```bash
+curl --proto '=https' --tlsv1.2 -fsSL \
+  https://raw.githubusercontent.com/velnox4827/saman-aether/main/install.sh \
+  -o "$TMPDIR/saman-install.sh"
+bash "$TMPDIR/saman-install.sh" check
+bash "$TMPDIR/saman-install.sh" update
+```
+
+نصب‌کننده ابتدا فایل‌های مدیریت‌شدهٔ سامان را در `~/.saman-aether-backups/` پشتیبان می‌گیرد، نسخهٔ جدید را stage و syntax-check می‌کند و در شکست rollback انجام می‌دهد. فایل رسمی `aether`، identity، تنظیمات کاربر و لاگ‌ها حذف نمی‌شوند.
+
+### بررسی یا به‌روزرسانی Aether رسمی
+
+```bash
+saman aether update --check
+saman aether update
+```
+
+این مسیر release پایدار `CluvexStudio/Aether` و asset دقیق معماری Android را می‌گیرد، وجود checksum را اجباری می‌کند، archive را پیش از استخراج بررسی می‌کند، فایل اجرایی و `pt/` را stage و validate می‌کند و سپس جایگزینی اتمیک و قابل‌بازیابی انجام می‌دهد. این عملیات Saman را به‌روزرسانی نمی‌کند.
+
+برای جلوگیری از خراب‌شدن سرویس، هنگام اجرای واقعی update ابتدا اتصال متعلق به سامان را با `saman aether stop` متوقف کنید. هرگز برای به‌روزرسانی از `force-push`، release ناشناس یا binary بدون checksum استفاده نکنید.
+
+## رفع اشکال
+
+### منو پاک نمی‌شود یا کاراکترها خراب‌اند
+
+```bash
+export TERM=xterm-256color
+saman
+```
+
+در non-TTY یا وقتی `TERM` موجود نیست، سامان escape sequence پاک‌سازی صفحه را چاپ نمی‌کند. اگر کلیدهای جهت کار نکردند از شماره‌ها استفاده کنید. ورودی خالی نباید گزینه‌ای را اجرا کند.
+
+### Aether پیدا نمی‌شود
+
+```bash
+command -v aether
+aether --version
+aether --help
+bash "$TMPDIR/aether.sh" install
+```
+
+Saman بدون executable رسمی Aether هستهٔ جایگزین یا جعلی نمی‌سازد.
+
+### Tor unavailable است
+
+```bash
+saman aether capabilities
+aether --version
+```
+
+صرف دیده‌شدن `--tor` در help کافی نیست، چون help در build بدون feature نیز می‌تواند موجود باشد. سامان شواهد build واقعی Tor را نیز بررسی می‌کند. از release رسمی Android که با `--features tor` ساخته شده استفاده کنید و سپس `saman aether update` را برای نصب archive رسمی و PT اجرا کنید.
+
+### bootstrap Tor متوقف می‌شود
+
+- لاگ Tor را از منوی Logs ببینید؛ درصد و آخرین خطا را بررسی کنید.
+- ساعت Android، DNS و دسترسی شبکه را بررسی کنید.
+- bridge را روی automatic یا forced بگذارید؛ bridge خصوصی ساختگی وارد نکنید.
+- وجود PT رسمی را بررسی کنید و در صورت نیاز updater رسمی را دوباره اجرا کنید.
+- `--tor` معمولاً روی شبکه‌ای که Tor مستقیم را می‌بندد مفیدتر است، چون Tor داخل تونل WARP حمل می‌شود.
+
+### تداخل پورت
+
+```bash
+ss -ltn
+saman aether status
+```
+
+پردازشی که `127.0.0.1:1819` یا `:1820` را گرفته شناسایی و فقط در صورت تعلق به خودتان متوقف کنید. Saman پردازش نامرتبط را برای آزادکردن پورت نمی‌کشد و شروع را با خطای عملی متوقف می‌کند.
+
+### PID مانده یا شروع تکراری
+
+```bash
+saman aether status
+saman repair --dry-run
+```
+
+Saman هویت runner/core متعلق به خودش را بررسی می‌کند. فایل PID نامعتبر نباید باعث توقف پردازش دیگری شود. از `pkill aether` استفاده نکنید.
+
+### اتصال روی Android در پس‌زمینه قطع می‌شود
+
+Battery optimization را برای Termux محدود نکنید و اجازهٔ foreground/background لازم را بدهید. wake lock فقط برای اجرای طولانی اختیاری است. «Force stop» Termux همهٔ پردازش‌های آن را می‌بندد.
+
+## یادداشت تغییرات Termux
+
+این به‌روزرسانی:
+
+- منوهای Aether را به جریان تکرارشونده و غیرrecursive با یک مالک ورودی تبدیل می‌کند؛
+- صفحهٔ قبلی را در TTY پاک و پیام عملیات را تا تأیید کاربر حفظ می‌کند؛
+- انتخاب عددی، ورودی نامعتبر، EOF/Ctrl-C و ترمینال باریک را پوشش می‌دهد؛
+- انتخاب ذخیره‌شده را با `[x]` و حالت واقعاً در حال اجرا را جدا نشان می‌دهد؛
+- start/stop/restart را به runner و PID متعلق به سامان محدود می‌کند و خروجی پس‌زمینه را به لاگ می‌فرستد؛
+- قابلیت‌های رسمی Tor در Aether v2.0.0، تنظیمات bridge/PT، readiness و خطاهای پورت/bootstrap را اضافه می‌کند؛
+- updater هستهٔ رسمی را برای binary و `pt/` با checksum، staging، backup، جایگزینی اتمیک و rollback سخت‌گیرانه می‌کند؛
+- تست‌های regression منو، persistence، dispatch، lifecycle، Tor و مسیرهای شکست updater را اضافه می‌کند.
+
+## معماری و امنیت
+
+```text
+saman / Termux:Widget
+  -> ~/.local/share/saman-center-v2/saman2
+  -> modules/aether.sh + modules/aether-panel.sh
+  -> ~/.aether-shortcut-runner
+  -> $PREFIX/bin/aether  (official upstream, unmodified)
+  -> loopback proxy endpoints
+```
+
+`$PREFIX/bin/saman-aether-core` فقط alias سازگاری به همان executable رسمی است؛ binary کپی‌شده یا patched دیگری نیست. Saman فایل رسمی Aether را fork نمی‌کند و منطق Tor/WARP را دوباره پیاده‌سازی نمی‌کند.
+
+پروکسی‌ها authentication ندارند؛ bind را روی loopback نگه دارید. آن‌ها را بدون firewall و درک ریسک روی `0.0.0.0` منتشر نکنید. کلیدها، tokenها، bridge خصوصی، فایل identity، config شخصی و لاگ runtime را commit نکنید.
+
+## برنامهٔ اندروید (بخش ثانویه/قدیمی)
+
+این مخزن برنامهٔ جداگانهٔ Saman Tunnel برای Android را نیز نگه می‌دارد. آن برنامه معماری، release و چرخهٔ ساخت مستقل دارد و با wrapper upstream-only در Termux یکی نیست. برای جزئیات به [ANDROID_APP_README.md](ANDROID_APP_README.md)، [CHANGELOG.md](CHANGELOG.md) و [Releases](https://github.com/velnox4827/saman-aether/releases) مراجعه کنید.
+
+</div>
 
 ---
 
 <a id="english"></a>
-## English
+## English (short reference)
 
-### Overview
+Saman for Termux is a menu, configuration, logging, update, and lifecycle wrapper around the unmodified official [Aether](https://github.com/CluvexStudio/Aether) executable. Termux is the primary workflow documented here; the separate legacy Android application is documented in [ANDROID_APP_README.md](ANDROID_APP_README.md).
 
-Saman Tunnel's Android application has its separately documented native build. The Termux integration is deliberately different: Saman does not fork, patch, or modify Aether. It uses the official upstream Aether core and provides a Termux UI/configuration layer around it.
-
-On Termux, `saman aether panel` is a persistent, capability-driven control panel. It stores only Saman preferences under `~/.config/saman/aether/`, derives supported flags from the installed core's live `--help`, and keeps Aether's own config/profile files untouched. The panel can manage modes, presets, scan/noize, proxy bindings, routing, DNS, fragmentation, reconnect behavior, diagnostics, safe reset, and checksum-verified official release updates.
-
-Main use cases:
-
-- run MASQUE H3/H2, WireGuard, or GOOL through local SOCKS5/HTTP CONNECT endpoints;
-- optionally enable Android VPN mode so apps can use the tunnel without configuring a proxy manually;
-- choose per-app routing with **Only selected** or **Bypass** lists;
-- keep the Android TUN/HEV forwarding path alive while Aether performs a normal endpoint reconnect, while still cleaning up on real core loss, explicit Stop, VPN permission loss, or HEV failure;
-- control the patched Aether Core from one canonical `saman` command in Termux;
-- inspect connection/reconnection state, bounded logs, and sanitized diagnostics;
-- retain compatible entry points while avoiding duplicate PID, port, and process logic.
-
-### Features and architecture
-
-#### Android application
-
-- Package: `com.saman.tunnel`; minimum Android 7 / API 24, target API 35, compile SDK 36. This includes Android 15 compatibility.
-- `MainActivity` is the main UI. `AetherService` runs the embedded Rust `libaether.so` through `libsamanbridge.so` in the isolated `:aether_core` process.
-- `SamanVpnService` is a non-exported Android `VpnService` in the dedicated `:vpn` process. It is protected by `android.permission.BIND_VPN_SERVICE` and is started only after Android VPN consent.
-- VPN mode creates the Android TUN interface and uses pinned HEV `tun2socks` (`libhev-socks5-tunnel.so`) to forward TUN traffic to Aether's local SOCKS5 listener at `127.0.0.1:1819`.
-- **Only selected** routes only the checked applications through the VPN. **Bypass** excludes the checked applications from the VPN. Checked applications are shown first in both lists, with search and saved selection preserved.
-- Local-proxy mode remains available independently: compatible clients can use SOCKS5 `127.0.0.1:1819` or HTTP CONNECT `127.0.0.1:1820` without enabling Android VPN mode.
-- During a normal Aether endpoint reconnect, the local SOCKS listener can disappear temporarily. v1.7.6 keeps the TUN and HEV path alive, reports **reconnecting**, and restores **connected** when the proxy returns instead of cancelling the native reconnect after three missed probes.
-- Actual core loss, HEV worker exit, explicit Stop, or VPN permission revocation still tears the VPN down. Start/stop and cleanup are serialized to avoid duplicate workers and stale TUN state.
-- Smart Reconnect remains in the patched Aether Core for WG, MASQUE H3/H2, and GOOL. The GOOL task-ownership/cancellation patch is also applied.
-- The widget and main UI share the same persisted tunnel state and can start the last mode; no second Aether core is created.
-
-#### Logging, diagnostics, security, and updates
-
-- App logs are bounded at 1 MiB and core logs at 2 MiB, with one previous core log. Safe diagnostics keep bounded recent sessions; both Safe and Full reports run the diagnostics sanitizer.
-- Diagnostics redact authorization headers, cookies, tokens, passwords, API keys, private keys, credential-bearing URLs, selected device identifiers, and IPv6 identifiers. Review every report before sharing it.
-- Android backup is disabled (`android:allowBackup="false"`) and cleartext traffic is disabled (`android:usesCleartextTraffic="false"`). The service and state receiver are not exported.
-- The update check is manual. It accepts stable Android tags such as `v1.7.6`, rejects the Termux release stream and foreign hosts, and opens only trusted GitHub Releases URLs. It does not silently install an APK.
-
-#### Aether Core and supported modes
-
-Aether Core v1.9.0 is pinned to commit `311b573352bb67e494895ff67d20b002d075116a`. The Android build applies the reviewed Smart Reconnect, reusable-local-listener, and GOOL owned-task cancellation patches, then builds the pinned HEV tun2socks submodule for ARM64 and ARMv7.
-
-| Mode | Current invocation behavior |
-|---|---|
-| MASQUE H3 | `--masque`, IPv4, balanced scan, firewall noize, quick reconnect |
-| MASQUE H2 | `--masque --h2` where supported, with the same H3 scan/reconnect policy |
-| WireGuard | `--wg`, IPv4, balanced scan/noize, keepalive 5, quick reconnect |
-| GOOL | `--gool`, IPv4, balanced scan/noize, keepalive 5, quick reconnect |
-
-All modes use `--reconnect-secs 1` and expose:
-
-```text
-SOCKS5       127.0.0.1:1819
-HTTP CONNECT 127.0.0.1:1820
-```
-
-Smart Reconnect cache thresholds are 650 ms for WG RTT, 1800 ms for MASQUE H3 verification, 2500 ms for MASQUE H2 verification, and 20 seconds for short-lived paths/pairs. These limits validate cached routes; fresh scans remain `balanced`.
-
-#### Current Termux/Saman architecture
-
-The canonical path is centralized:
-
-```text
-Termux:Widget Saman-Center
-        -> ~/bin/saman
-        -> ~/.local/share/saman-center-v2/saman2
-        -> modules/aether.sh
-        -> ~/.aether-shortcut-runner
-        -> $PREFIX/bin/saman-aether-core
-        -> 127.0.0.1:1819 / 127.0.0.1:1820
-```
-
-- `saman` is the canonical command.
-- `saman2` remains an upgrade-compatible alias to the same Saman Center implementation.
-- `aether-control` is a lightweight compatibility wrapper: it validates arguments and delegates to `saman aether ...`.
-- `saman-aether-core` is the patched core. A separately installed upstream `$PREFIX/bin/aether` is retained and is not overwritten.
-- `saman-aether-diagnostics` generates bounded, sanitized runtime reports.
-- `.aether-shortcut-runner` owns the mode-specific Aether runtime arguments, readiness wait, smart reconnect environment, wake lock, log rotation, and isolated process lifecycle.
-- Saman Center also routes optional Saman modules such as SDM/download, media, sharing, phone, backup, and diagnostics. Missing optional tools do not change the canonical Aether path.
-- The installer creates centralized `Saman-Center`/`Saman-Center-v2` shortcuts. It does **not** recreate obsolete independent `0-Aether-*` through `3-Aether-*` shortcuts. Existing legacy copies are left untouched for backward compatibility.
-
-### Android installation
-
-1. Download only from the [v1.7.6 GitHub release](https://github.com/velnox4827/saman-aether/releases/tag/v1.7.6).
-2. Download the matching APK and `SHA256SUMS`; verify the checksum before installation.
-3. Allow your browser or file manager to install unknown apps only for this installation, then revoke that permission if it is no longer needed.
-4. Install the APK, open Saman Tunnel, grant notification permission, choose MASQUE H3/H2, WireGuard, or GOOL, and wait for the core to connect.
-5. For **local-proxy mode**, configure the client application to use `127.0.0.1:1819` (SOCKS5) or `127.0.0.1:1820` (HTTP CONNECT).
-6. For **Android VPN mode**, enable VPN in Saman Tunnel and approve Android's VPN consent dialog. Use **Only selected** to tunnel only checked apps, or **Bypass** to leave checked apps outside the VPN.
-7. If the underlying endpoint reconnects, the VPN may display **reconnecting** while retaining TUN/HEV; it should return to **connected** when Aether's local proxy is available again.
-
-For Android 15 and vendor firmware, allow foreground/background operation and set battery use to unrestricted if the service is stopped while the screen is off. Do not use “Force stop”; Android prevents background restart after a force stop until the app is opened again.
-
-#### APK variants
-
-- `Saman-Tunnel-v1.7.6-arm64-v8a.apk` — recommended for almost all current 64-bit ARM phones and tablets; smallest suitable package.
-- `Saman-Tunnel-v1.7.6-armeabi-v7a.apk` — for older 32-bit ARM devices only.
-- `Saman-Tunnel-v1.7.6-universal-arm.apk` — contains both ARM ABIs; choose it when the device ABI is unknown or one file must support both generations. It is larger.
-
-The Android app does not publish an x86/x86_64 APK.
-
-#### Upgrade from an older Android version
-
-- Do not uninstall first if you want an in-place upgrade from an official stable build.
-- Verify the new APK, stop any active proxy/VPN tunnel, then install it over the existing `com.saman.tunnel` package.
-- Android accepts the update only when the package name and signing identity match. The official v1.7.6 release keeps the established stable signing certificate.
-- A debug build uses `com.saman.tunnel.debug` and a separate public development certificate, so it is intentionally independent from the stable package.
-- After the update, open the app once, verify version `1.7.6`, test the selected protocol, and if VPN mode is used confirm Android VPN consent and app-routing selection.
-
-### Termux installation and upgrade
-
-Prerequisites:
-
-- a current Termux build from F-Droid or the official Termux GitHub project—not the obsolete Play Store build;
-- network access to `api.github.com`, `github.com`, and `raw.githubusercontent.com`;
-- Termux:Widget for the optional home-screen shortcut; Termux:API is optional for battery/notification integrations;
-- `termux-setup-storage` only for shared-storage exports. Core operation does not require shared storage.
-
-Install or repair idempotently:
+Quick start:
 
 ```bash
-curl --proto '=https' --tlsv1.2 -fsSL \
-  https://raw.githubusercontent.com/velnox4827/saman-aether/main/install.sh \
-  -o "$TMPDIR/saman-install.sh"
+pkg update
+pkg install -y bash curl coreutils jq tar procps grep sed iproute2
+curl -fsSL https://raw.githubusercontent.com/CluvexStudio/Aether/main/aether.sh -o "$TMPDIR/aether.sh"
+bash "$TMPDIR/aether.sh" install
+curl -fsSL https://raw.githubusercontent.com/velnox4827/saman-aether/main/install.sh -o "$TMPDIR/saman-install.sh"
 bash "$TMPDIR/saman-install.sh" install
+saman
 ```
 
-Check available versions or upgrade:
-
-```bash
-bash "$TMPDIR/saman-install.sh" check
-bash "$TMPDIR/saman-install.sh" update
-```
-
-The installer detects `arm64`, `armv7`, or `x86_64`; queries non-draft/non-prerelease GitHub releases; selects the exact architecture archive; requires its `.sha256` asset; fails closed on mismatch; stages source and core before changing live files; creates a private timestamped backup under `~/.saman-aether-backups/`; and rolls back if installation or verification fails. User configuration, logs, upstream `aether`, and unrelated shortcuts are preserved.
-
-After installation, refresh Termux:Widget. On Android 15, set Termux battery use to unrestricted for long sessions and allow notifications/wake-lock behavior as needed. Android may kill Termux under memory or battery pressure; Saman detects stale PID files and a single orphaned canonical core, while explicit start cleans canonical orphan processes before binding ports.
-
-### Usage
+Core commands:
 
 ```bash
 saman status
 saman doctor --verbose
-saman repair --dry-run
-saman logs aether --lines 80
-saman config show
-saman config validate
-saman config set NETWORK_TIMEOUT 8
-saman refresh
-saman backup
-saman share
 saman aether status
-saman aether start h3
-saman aether start h2
-saman aether start wg
-saman aether start gool
-saman aether restart wg
+saman aether panel
 saman aether stop
-saman aether test
-saman aether diagnostics safe
-saman aether diagnostics full
+saman aether update --check
+saman aether update
 ```
 
-Saman Center 2.1 loads only the module required by the selected command, so
-`version` and `help` remain read-only and fast. `status` takes one process and
-socket snapshot; `doctor` distinguishes required failures from optional-tool
-warnings; `repair --dry-run` previews only conservative runtime cleanup; and
-`logs` is noninteractive and line-bounded.
+The normal endpoints are SOCKS5 `127.0.0.1:1819` and HTTP CONNECT `127.0.0.1:1820`. Tor support comes only from official Tor-enabled Aether builds:
 
-Numeric settings live in `~/.config/saman-center-v2/settings.conf`. The file is
-whitelist-parsed and is never sourced as shell code. Use `saman config show` to
-see effective values, `saman config validate` to report invalid values or port
-collisions, and `saman config set KEY VALUE` for an atomic update. Supported
-keys cover the Aether/Share ports, Share size/free-space/connection limits,
-network and Termux API deadlines, dashboard cache TTL, bounded log sizes,
-Aether readiness/port hand-off/log-guard timing, and Smart Reconnect thresholds.
-Unknown custom lines are preserved but never evaluated.
+- `--tor`: WARP SOCKS on 1819 and Tor SOCKS on 1820;
+- `--tor-reverse`: MASQUE/H2 through Tor, final WARP SOCKS on 1819;
+- `--tor-only`: plain Tor SOCKS on the configured main bind (1819 by default).
 
-Compatibility commands remain valid:
+Use `socks5h`/proxy-side hostname resolution for Tor. Tor carries TCP, not UDP. Selecting Tor does not route all Android traffic and is not an anonymity guarantee. Saman never kills unrelated processes, never patches the upstream core, and keeps detailed service output in bounded logs.
 
-```bash
-saman2 aether status
-aether-control start h3
-aether-control status
-aether-control diagnostics safe
-```
-
-Only one canonical `saman-aether-core` instance should run. Mode switching stops exact core executable PIDs, waits up to five seconds, force-stops only a still-matching canonical PID if necessary, checks ports, and starts the requested mode. Current per-mode logs are limited to 5 MiB; the previous log is limited to 1 MiB.
-
-### Backup and restore policy
-
-- Android application data is intentionally excluded from Android backup.
-- Every Termux install/update/uninstall first snapshots managed files privately under `~/.saman-aether-backups/<timestamp>/` with restrictive permissions. Automatic rollback restores the exact managed targets on failure.
-- `saman backup` creates a source/script snapshot and deliberately excludes cookies, SSH keys, private keys, personal downloads, and private configuration.
-- Do not move installer backups containing local scripts to public/shared storage without reviewing them. Restore manually only from a trusted timestamped backup while Aether is stopped.
-
-### Verification
-
-Verify all release APKs from the directory containing the downloaded files:
-
-```bash
-sha256sum -c SHA256SUMS
-```
-
-Expected v1.7.6 hashes:
-
-```text
-31f432c2fc48b4f21cdef4b0251ed3f1b74d2deea41e72e0956f67f12b46153f  Saman-Tunnel-v1.7.6-arm64-v8a.apk
-143c8ae9a98a98d2b5021f88a8e41b6ee104eb60954c5ae422ce36a3226c6f1f  Saman-Tunnel-v1.7.6-armeabi-v7a.apk
-f7e654eb314be63e2df23b158bb5535a858d7a0ed7c982c40853aba137c02583  Saman-Tunnel-v1.7.6-universal-arm.apk
-```
-
-With Android Build Tools installed, verify signing continuity:
-
-```bash
-apksigner verify --verbose --print-certs Saman-Tunnel-v1.7.6-arm64-v8a.apk
-```
-
-Expected signer certificate SHA-256:
-
-```text
-03233edadf89ed27c7cf80452916a7bd25e8c74abe0f12d2eefcb8b290b48805
-```
-
-A checksum proves file integrity; the certificate fingerprint proves continuity with the Saman Tunnel stable release identity. Verify both, and use only HTTPS GitHub release URLs.
-
-### Build from source
-
-The verified v1.7.6 Android build stack is:
-
-- Aether Core v1.9.0 commit `311b573352bb67e494895ff67d20b002d075116a`;
-- pinned HEV tun2socks submodule commit `d1178b52fccd8659201e1e3f83030f298c998865`;
-- Rust `1.91.0` and cargo-ndk `4.1.2`;
-- Android NDK `26.3.11579264`, CMake `3.22.1`, platform 36, Build Tools `35.0.0`;
-- Java/Temurin 17, Gradle `8.13`, Android Gradle Plugin/Kotlin as pinned by the repository.
-
-Reproduce the workflow rather than building against arbitrary Aether/HEV revisions:
-
-```bash
-git clone --recurse-submodules https://github.com/velnox4827/saman-aether.git
-cd saman-aether
-git switch --detach v1.7.6
-git submodule update --init --recursive
-# Follow .github/workflows/android-apk.yml:
-# - fetch the pinned Aether commit,
-# - apply Smart Reconnect + reusable listener + GOOL cancellation patches,
-# - build libaether.so and pinned HEV for arm64-v8a / armeabi-v7a,
-# - run unit tests/lint and build the APK variants.
-cd android-app
-./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
-```
-
-A stable release build requires the existing private signing identity through the four `SAMAN_*` Gradle properties/GitHub Secrets. Never place keystores or passwords in the repository or command history. Debug/local builds cannot replace the official stable signer.
-
-For the patched Termux executable, `.github/workflows/termux-core.yml` builds Android targets with cargo-ndk and packages `saman-aether-core` for arm64, armv7, and x86_64.
-
-### CI and GitHub Actions
-
-- Work is developed on `main`, `release/**`, and focused maintenance branches; immutable public tags identify releases.
-- `android-apk.yml` runs Android unit tests and lint, builds Aether plus pinned HEV for ARM64/ARMv7, produces ARM64, ARMv7 and Universal debug APKs, and on manual dispatch also builds and verifies signed stable APKs with the expected certificate.
-- `release.yml` responds to `v*` tags, rebuilds and verifies Aether + HEV, checks all three stable APK variants and the signing certificate, then creates the public GitHub Release with APKs, per-file hashes, and `SHA256SUMS`. Existing release tags and published artifacts must never be moved or replaced.
-- `termux-core.yml` builds patched Termux cores for three architectures and publishes non-latest `termux-v*` releases with per-archive SHA-256 files.
-- `termux-maintenance.yml` runs syntax/routing/installer policy tests and ShellCheck for the canonical Termux implementation.
-- Signing material exists only in GitHub Secrets during signed workflow jobs. Pull requests and normal pushes produce no official signed release.
-
-### Security
-
-Never expose, log, upload, or commit signing keystores, signing passwords, private keys, API/OAuth keys, Telegram bot tokens, GitHub tokens, cookies, `rpc.secret`, credentials, or private configuration. Keep signing files in private application storage; do not copy them to shared storage. Before committing, inspect `git status`, staged diffs, untracked files, and workflow changes. Diagnostics are sanitized but must still be reviewed before sharing.
-
-The local proxies listen only on loopback. Do not change them to `0.0.0.0` unless you understand and secure the exposure. Download updates only from this repository’s HTTPS Releases page, verify SHA-256 and signer continuity, and never run an installer copied from an untrusted mirror.
-
-### Troubleshooting
-
-- **Aether does not start:** run `saman doctor --verbose`, then `saman aether status`. Confirm `$PREFIX/bin/saman-aether-core` and `~/.aether-shortcut-runner` are executable and GitHub dependencies are reachable.
-- **Stale PID or orphan:** `saman aether status` validates the PID against the exact patched core executable and can recover one orphan. `saman aether stop` cleans matching canonical core processes; it does not kill arbitrary processes from an untrusted PID file.
-- **Port conflict:** stop other proxies using `127.0.0.1:1819` or `:1820`; inspect with `ss -ltnp`. Saman waits for port hand-off and fails safely rather than starting a duplicate listener.
-- **Android VPN issue:** Saman Tunnel v1.7.6 includes its own `VpnService`. Grant Android VPN consent and notifications, allow foreground/background execution, remove restrictive battery policy, verify the core is connected, and confirm **Only selected** / **Bypass** routing. During normal endpoint recovery, a temporary **reconnecting** state is expected; persistent core loss or HEV failure should stop the VPN.
-- **Termux is killed:** install a current Termux build, disable battery optimization for Termux, allow background activity, and use a wake lock for long Aether sessions. Open Termux again and check status before restarting.
-- **Update/download failure:** check DNS/TLS and connectivity to `api.github.com`, `github.com`, and `raw.githubusercontent.com`; retry `install.sh check`. The installer refuses missing or mismatched checksums.
-- **APK will not install/update:** verify the ABI, free space, package name, checksum, and signer. A signing mismatch requires removing the differently signed package; official signing material must not be replaced.
-- **GitHub/API connectivity:** try the direct [Releases page](https://github.com/velnox4827/saman-aether/releases) in a browser. Proxy GitHub through the local SOCKS endpoint only after Aether is healthy.
-- **Logs and diagnostics:** use `saman aether logs`, inspect `~/aether-<mode>.log`, or generate `saman aether diagnostics safe`. Use `full` only when more retained history is necessary; it remains sanitized but is larger.
-
-### Project structure
-
-```text
-.github/workflows/                 Android, release, Termux core, maintenance CI
-android-app/                       Android UI/service/JNI project
-  aether-patches/                  Smart Reconnect and listener patches
-  app/src/main/java/com/saman/tunnel/
-termux/saman-center-v2/            Canonical modular Saman Center implementation
-termux/aether-control              Compatibility delegator
-termux/tests/                      Termux shell and routing tests
-install.sh                         Idempotent Termux install/update/rollback
-.aether-shortcut-runner (installed) <- repository: aether-shortcut-runner
-saman-aether-diagnostics           Sanitized Termux diagnostics
-shortcuts/                         Retained legacy compatibility sources; not newly installed
-CHANGELOG.md                       Release and maintenance history
-```
-
-### Releases and changelog
-
-- [Saman Tunnel v1.7.6](https://github.com/velnox4827/saman-aether/releases/tag/v1.7.6)
-- [CHANGELOG.md](CHANGELOG.md)
-- [All GitHub Releases](https://github.com/velnox4827/saman-aether/releases)
-- [Upstream Aether](https://github.com/CluvexStudio/Aether)
-- [Issues](https://github.com/velnox4827/saman-aether/issues)
-
----
-
-<a id="فارسی"></a>
-## فارسی
-
-<div dir="rtl">
-
-### معرفی
-
-Saman Tunnel یک نسخهٔ پچ‌شده و ثابت از Aether Core را در یک پردازش ایزولهٔ برنامهٔ اندروید اجرا می‌کند و پروکسی‌های محلی را در اختیار برنامه‌های سازگار می‌گذارد. همین مخزن، یکپارچه‌سازی فعلی Termux را نیز نگه‌داری می‌کند: Saman Center سطح کنترل مرکزی Aether و مجموعه‌ابزار Saman است.
-
-کاربردهای اصلی:
-
-- اجرای MASQUE H3/H2، WireGuard یا GOOL از طریق درگاه‌های محلی SOCKS5 و HTTP CONNECT؛
-- فعال‌کردن اختیاری VPN اندروید تا برنامه‌ها بدون تنظیم دستی proxy از تونل استفاده کنند؛
-- تعیین مسیریابی برنامه‌ها با حالت‌های **Only selected** و **Bypass**؛
-- نگه‌داشتن مسیر TUN/HEV هنگام reconnect عادی Aether، در حالی که از دست‌رفتن واقعی core، Stop صریح، لغو مجوز VPN یا خرابی HEV همچنان cleanup کامل انجام می‌دهد؛
-- کنترل Aether Core پچ‌شده از طریق فرمان مرکزی `saman` در Termux؛
-- مشاهدهٔ وضعیت اتصال/reconnect، لاگ‌های محدود و گزارش‌های عیب‌یابی پاک‌سازی‌شده؛
-- حفظ ورودی‌های سازگار قدیمی بدون تکرار منطق PID، پورت و پردازش.
-
-### امکانات و معماری
-
-#### برنامهٔ اندروید
-
-- نام بسته `com.saman.tunnel` است؛ حداقل Android 7 / API 24، target API 35 و compile SDK 36 است و Android 15 را پشتیبانی می‌کند.
-- `MainActivity` رابط اصلی است. `AetherService` هستهٔ Rust یعنی `libaether.so` را از طریق `libsamanbridge.so` در پردازش ایزولهٔ `:aether_core` اجرا می‌کند.
-- `SamanVpnService` یک Android `VpnService` غیرقابل‌دسترسی از بیرون در پردازش جداگانهٔ `:vpn` است؛ با `android.permission.BIND_VPN_SERVICE` محافظت می‌شود و فقط پس از رضایت کاربر در دیالوگ VPN اندروید شروع می‌شود.
-- در حالت VPN، برنامه رابط TUN اندروید را می‌سازد و HEV `tun2socks` ثابت‌شده (`libhev-socks5-tunnel.so`) ترافیک TUN را به SOCKS5 محلی Aether روی `127.0.0.1:1819` می‌فرستد.
-- در **Only selected** فقط برنامه‌های تیک‌خورده از VPN عبور می‌کنند. در **Bypass** برنامه‌های تیک‌خورده از VPN خارج می‌شوند. برنامه‌های انتخاب‌شده در هر دو فهرست بالاتر نمایش داده می‌شوند و search و انتخاب ذخیره‌شده حفظ می‌شوند.
-- حالت proxy محلی همچنان مستقل در دسترس است: برنامه‌های سازگار می‌توانند بدون فعال‌کردن VPN از SOCKS5 روی `127.0.0.1:1819` یا HTTP CONNECT روی `127.0.0.1:1820` استفاده کنند.
-- هنگام reconnect عادی Aether ممکن است listener محلی SOCKS موقتاً بسته شود. در v1.7.6، TUN و HEV حفظ می‌شوند، وضعیت **reconnecting** نمایش داده می‌شود و پس از برگشت proxy وضعیت دوباره **connected** می‌شود؛ watchdog دیگر صرفاً به‌خاطر سه probe ناموفق reconnect بومی را لغو نمی‌کند.
-- ازبین‌رفتن واقعی core، خروج worker مربوط به HEV، Stop صریح یا لغو مجوز VPN همچنان VPN را پاک‌سازی و متوقف می‌کند. شروع/توقف و cleanup سریالی شده‌اند تا worker تکراری یا TUN مانده ایجاد نشود.
-- Smart Reconnect برای WG، MASQUE H3/H2 و GOOL در Aether Core پچ‌شده باقی مانده و patch مالکیت/cancellation وظایف GOOL نیز اعمال می‌شود.
-- ویجت و رابط اصلی state تونل یکسان را استفاده می‌کنند و core دوم ساخته نمی‌شود.
-
-#### لاگ، عیب‌یابی، امنیت و به‌روزرسانی
-
-- لاگ برنامه به ۱ MiB و لاگ هسته به ۲ MiB محدود است و یک لاگ قبلی هسته نگه‌داری می‌شود. گزارش Safe فقط sessionهای اخیر و محدود را نگه می‌دارد؛ هر دو گزارش Safe و Full از sanitizer عبور می‌کنند.
-- گزارش‌های عیب‌یابی، هدرهای authorization، کوکی‌ها، توکن‌ها، گذرواژه‌ها، API keyها، کلیدهای خصوصی، URLهای دارای اعتبارنامه، برخی شناسه‌های دستگاه و شناسه‌های IPv6 را حذف یا پنهان می‌کنند. پیش از اشتراک‌گذاری هر گزارش، آن را بازبینی کنید.
-- پشتیبان‌گیری اندروید غیرفعال است (`android:allowBackup="false"`) و ترافیک cleartext نیز غیرفعال است (`android:usesCleartextTraffic="false"`). سرویس و گیرندهٔ state از بیرون export نشده‌اند.
-- بررسی آپدیت دستی است. فقط tagهای پایدار اندروید مانند `v1.7.6` پذیرفته می‌شوند؛ جریان انتشار Termux و میزبان‌های دیگر رد می‌شوند و فقط صفحهٔ قابل‌اعتماد GitHub Releases باز می‌شود. APK به‌صورت مخفی یا خودکار نصب نمی‌شود.
-
-#### Aether Core و حالت‌های پشتیبانی‌شده
-
-Aether Core v1.9.0 روی commit `311b573352bb67e494895ff67d20b002d075116a` ثابت شده است. build اندروید پچ‌های Smart Reconnect، listener محلی قابل‌استفادهٔ مجدد و cancellation وظایف GOOL را اعمال می‌کند و سپس submodule ثابت HEV tun2socks را برای ARM64 و ARMv7 می‌سازد.
-
-| حالت | رفتار فعلی هنگام اجرا |
-|---|---|
-| MASQUE H3 | `--masque`، IPv4، اسکن balanced، noize از نوع firewall و quick reconnect |
-| MASQUE H2 | در صورت پشتیبانی `--masque --h2`، با همان سیاست اسکن و reconnect حالت H3 |
-| WireGuard | `--wg`، IPv4، اسکن/noize متوازن، keepalive برابر ۵ و quick reconnect |
-| GOOL | `--gool`، IPv4، اسکن/noize متوازن، keepalive برابر ۵ و quick reconnect |
-
-همهٔ حالت‌ها از `--reconnect-secs 1` استفاده می‌کنند و این درگاه‌ها را ارائه می‌دهند:
-
-```text
-SOCKS5       127.0.0.1:1819
-HTTP CONNECT 127.0.0.1:1820
-```
-
-حدهای کش Smart Reconnect عبارت‌اند از ۶۵۰ ms برای RTT در WG، مقدار ۱۸۰۰ ms برای بررسی MASQUE H3، مقدار ۲۵۰۰ ms برای MASQUE H2 و ۲۰ ثانیه برای مسیر یا جفت کوتاه‌عمر. این حدود فقط برای اعتبارسنجی مسیرهای کش‌شده‌اند و اسکن تازه همچنان `balanced` باقی می‌ماند.
-
-#### معماری فعلی Termux/Saman
-
-مسیر مرجع و مرکزی به شکل زیر است:
-
-```text
-Termux:Widget Saman-Center
-        -> ~/bin/saman
-        -> ~/.local/share/saman-center-v2/saman2
-        -> modules/aether.sh
-        -> ~/.aether-shortcut-runner
-        -> $PREFIX/bin/saman-aether-core
-        -> 127.0.0.1:1819 / 127.0.0.1:1820
-```
-
-- `saman` فرمان مرجع است.
-- `saman2` برای سازگاری هنگام ارتقا باقی مانده و به همان Saman Center اشاره می‌کند.
-- `aether-control` یک wrapper سبک سازگاری است؛ آرگومان‌ها را بررسی می‌کند و به `saman aether ...` واگذار می‌نماید.
-- `saman-aether-core` هستهٔ پچ‌شده است. اگر `$PREFIX/bin/aether` رسمی جداگانه نصب شده باشد، حفظ می‌شود و overwrite نخواهد شد.
-- `saman-aether-diagnostics` گزارش اجرایی محدود و پاک‌سازی‌شده تولید می‌کند.
-- `.aether-shortcut-runner` مالک آرگومان‌های هر حالت، انتظار برای readiness، متغیرهای Smart Reconnect، wake lock، چرخش لاگ و چرخهٔ پردازش ایزولهٔ Aether است.
-- Saman Center ماژول‌های اختیاری Saman مانند SDM/download، رسانه، اشتراک‌گذاری، تلفن، پشتیبان و عیب‌یابی را نیز مسیریابی می‌کند. نبود ابزار اختیاری، مسیر مرجع Aether را تغییر نمی‌دهد.
-- نصب‌کننده shortcutهای مرکزی `Saman-Center` و `Saman-Center-v2` را می‌سازد و shortcutهای مستقل و منسوخ `0-Aether-*` تا `3-Aether-*` را **دوباره ایجاد نمی‌کند**. نسخه‌های قدیمی موجود برای سازگاری حذف نمی‌شوند.
-
-### نصب در اندروید
-
-۱. فقط از [صفحهٔ انتشار v1.7.6 در GitHub](https://github.com/velnox4827/saman-aether/releases/tag/v1.7.6) دانلود کنید.
-۲. APK مناسب و فایل `SHA256SUMS` را بگیرید و پیش از نصب checksum را بررسی کنید.
-۳. فقط برای همین نصب اجازهٔ نصب از منبع ناشناس را به مرورگر یا فایل‌منیجر بدهید و در صورت عدم نیاز بعداً آن را لغو کنید.
-۴. APK را نصب، Saman Tunnel را باز و مجوز اعلان را بدهید؛ یکی از MASQUE H3/H2، WireGuard یا GOOL را انتخاب کنید و منتظر اتصال core بمانید.
-۵. برای **حالت proxy محلی**، برنامهٔ مقصد را روی SOCKS5 `127.0.0.1:1819` یا HTTP CONNECT `127.0.0.1:1820` تنظیم کنید.
-۶. برای **حالت VPN اندروید**، VPN را در Saman Tunnel فعال کنید و دیالوگ رضایت VPN اندروید را تأیید کنید. در **Only selected** فقط برنامه‌های تیک‌خورده تونل می‌شوند و در **Bypass** برنامه‌های تیک‌خورده خارج از VPN می‌مانند.
-۷. اگر endpoint زیرین reconnect شود، VPN ممکن است در حالی که TUN/HEV حفظ شده وضعیت **reconnecting** نشان دهد و پس از برگشت proxy دوباره **connected** شود.
-
-در Android 15 و firmwareهای محدودکننده، اجرای foreground/background را مجاز و مصرف باتری را در صورت نیاز unrestricted کنید. از «Force stop» استفاده نکنید؛ تا زمانی که برنامه دوباره باز نشود اندروید اجازهٔ restart پس‌زمینه را نمی‌دهد.
-
-#### گونه‌های APK
-
-- `Saman-Tunnel-v1.7.6-arm64-v8a.apk` — پیشنهاد اصلی برای تقریباً همهٔ گوشی‌ها و تبلت‌های ARM 64 بیتی جدید.
-- `Saman-Tunnel-v1.7.6-armeabi-v7a.apk` — فقط برای دستگاه‌های ARM 32 بیتی قدیمی.
-- `Saman-Tunnel-v1.7.6-universal-arm.apk` — شامل هر دو ABI است؛ وقتی معماری دستگاه مشخص نیست یا یک فایل برای هر دو نسل لازم است از این نسخه استفاده کنید. حجم آن بیشتر است.
-
-برای Android نسخهٔ x86/x86_64 منتشر نمی‌شود.
-
-#### ارتقا از نسخهٔ قدیمی اندروید
-
-- برای ارتقای درجا از نسخهٔ رسمی Stable، ابتدا نسخهٔ قبلی را حذف نکنید.
-- APK جدید را اعتبارسنجی کنید، proxy/VPN فعال را متوقف کنید و سپس روی بستهٔ موجود `com.saman.tunnel` نصب نمایید.
-- Android فقط وقتی ارتقا را می‌پذیرد که نام بسته و هویت امضا یکسان باشد. v1.7.6 رسمی همان گواهی امضای Stable قبلی را حفظ می‌کند.
-- نسخهٔ Debug از بستهٔ `com.saman.tunnel.debug` و گواهی توسعهٔ عمومی جداگانه استفاده می‌کند و عمداً مستقل از Stable است.
-- پس از ارتقا، برنامه را یک‌بار باز کنید، نسخهٔ `1.7.6` را بررسی کنید، پروتکل را تست کنید و در صورت استفاده از VPN، رضایت اندروید و فهرست app routing را نیز بررسی نمایید.
-
-### نصب و ارتقا در Termux
-
-پیش‌نیازها:
-
-- نسخهٔ جدید Termux از F-Droid یا پروژهٔ رسمی Termux در GitHub؛ از نسخهٔ منسوخ Play Store استفاده نکنید؛
-- دسترسی شبکه به `api.github.com`، `github.com` و `raw.githubusercontent.com`؛
-- Termux:Widget برای shortcut اختیاری صفحهٔ اصلی؛ Termux:API فقط برای یکپارچه‌سازی اختیاری باتری/اعلان؛
-- اجرای `termux-setup-storage` فقط برای export به فضای اشتراکی لازم است. اجرای هسته به فضای اشتراکی نیاز ندارد.
-
-نصب تمیز یا تعمیر idempotent:
-
-```bash
-curl --proto '=https' --tlsv1.2 -fsSL \
-  https://raw.githubusercontent.com/velnox4827/saman-aether/main/install.sh \
-  -o "$TMPDIR/saman-install.sh"
-bash "$TMPDIR/saman-install.sh" install
-```
-
-بررسی نسخه‌ها یا ارتقا:
-
-```bash
-bash "$TMPDIR/saman-install.sh" check
-bash "$TMPDIR/saman-install.sh" update
-```
-
-نصب‌کننده معماری `arm64`، `armv7` یا `x86_64` را تشخیص می‌دهد؛ releaseهای non-draft و non-prerelease را از GitHub می‌گیرد؛ archive دقیق معماری را انتخاب می‌کند؛ وجود فایل `.sha256` را اجباری می‌داند؛ در mismatch بدون تغییر امن متوقف می‌شود؛ سورس و هسته را پیش از تغییر فایل‌های فعال stage می‌کند؛ یک پشتیبان خصوصی زمان‌دار در `~/.saman-aether-backups/` می‌سازد و در صورت شکست نصب یا verification، rollback انجام می‌دهد. تنظیمات کاربر، لاگ‌ها، `aether` رسمی و shortcutهای نامرتبط حفظ می‌شوند.
-
-پس از نصب، Termux:Widget را refresh کنید. در Android 15 برای session طولانی، مصرف باتری Termux را unrestricted کنید و در صورت نیاز اعلان و wake lock را مجاز نگه دارید. اندروید ممکن است Termux را زیر فشار حافظه یا باتری ببندد؛ Saman فایل PID مانده و یک پردازش orphan از هستهٔ مرجع را تشخیص می‌دهد و شروع صریح، orphanهای همان هسته را پیش از bind پورت پاک می‌کند.
-
-### استفاده
-
-```bash
-saman status
-saman doctor --verbose
-saman repair --dry-run
-saman logs aether --lines 80
-saman config show
-saman config validate
-saman config set NETWORK_TIMEOUT 8
-saman refresh
-saman backup
-saman share
-saman aether status
-saman aether start h3
-saman aether start h2
-saman aether start wg
-saman aether start gool
-saman aether restart wg
-saman aether stop
-saman aether test
-saman aether diagnostics safe
-saman aether diagnostics full
-```
-
-Saman Center 2.1 فقط ماژول لازم برای فرمان انتخاب‌شده را بارگذاری می‌کند؛ بنابراین
-`version` و `help` سریع و بدون تغییر وضعیت هستند. فرمان `status` فقط یک snapshot
-از پردازش‌ها و socketها می‌گیرد، `doctor` شکست dependencyهای ضروری را از هشدار
-ابزارهای اختیاری جدا می‌کند، `repair --dry-run` فقط پاک‌سازی محافظه‌کارانهٔ runtime
-را پیش‌نمایش می‌کند و خروجی `logs` غیرتعاملی و محدود به تعداد خط است.
-
-تنظیمات عددی در `~/.config/saman-center-v2/settings.conf` قرار دارند. این فایل فقط
-با whitelist خوانده می‌شود و هرگز به‌عنوان کد shell اجرا نمی‌شود. برای دیدن مقدارهای
-موثر از `saman config show`، برای تشخیص مقدار نامعتبر یا تداخل پورت از
-`saman config validate` و برای به‌روزرسانی اتمیک از `saman config set KEY VALUE`
-استفاده کنید. کلیدهای پشتیبانی‌شده پورت‌های Aether/Share، محدودیت حجم/فضای آزاد/
-اتصال Share، deadline شبکه و Termux API، TTL کش dashboard، اندازهٔ محدود لاگ،
-زمان‌بندی readiness/تحویل پورت/محافظ لاگ Aether و آستانه‌های Smart Reconnect را
-پوشش می‌دهند. خط‌های سفارشی ناشناخته حفظ می‌شوند، اما هرگز ارزیابی نمی‌شوند.
-
-فرمان‌های سازگاری نیز معتبرند:
-
-```bash
-saman2 aether status
-aether-control start h3
-aether-control status
-aether-control diagnostics safe
-```
-
-فقط یک نمونهٔ مرجع `saman-aether-core` باید فعال باشد. هنگام تغییر حالت، PIDها با executable دقیق هسته تطبیق داده می‌شوند، تا پنج ثانیه برای توقف صبر می‌شود و فقط PIDای که هنوز متعلق به همان هسته است در صورت ضرورت force-stop می‌شود؛ سپس پورت‌ها بررسی و حالت جدید اجرا می‌شود. لاگ جاری هر حالت به ۵ MiB و لاگ قبلی به ۱ MiB محدود است.
-
-### سیاست پشتیبان و بازیابی
-
-- دادهٔ برنامهٔ اندروید عمداً از Android backup خارج شده است.
-- هر عملیات install/update/uninstall در Termux ابتدا فایل‌های مدیریت‌شده را با دسترسی محدود در `~/.saman-aether-backups/<timestamp>/` ثبت می‌کند. rollback خودکار در صورت شکست، targetهای مدیریت‌شده را دقیقاً برمی‌گرداند.
-- فرمان `saman backup` یک snapshot از سورس/اسکریپت‌ها می‌سازد و عمداً کوکی، کلید SSH، کلید خصوصی، دانلود شخصی و تنظیمات خصوصی را کنار می‌گذارد.
-- پشتیبان‌های نصب‌کننده را بدون بازبینی به فضای عمومی/اشتراکی منتقل نکنید. بازیابی دستی فقط از پشتیبان زمان‌دار قابل‌اعتماد و در حالی انجام شود که Aether متوقف است.
-
-### اعتبارسنجی
-
-در پوشه‌ای که APKها و فایل checksum قرار دارند، همهٔ فایل‌ها را بررسی کنید:
-
-```bash
-sha256sum -c SHA256SUMS
-```
-
-هش‌های مورد انتظار v1.7.6:
-
-```text
-31f432c2fc48b4f21cdef4b0251ed3f1b74d2deea41e72e0956f67f12b46153f  Saman-Tunnel-v1.7.6-arm64-v8a.apk
-143c8ae9a98a98d2b5021f88a8e41b6ee104eb60954c5ae422ce36a3226c6f1f  Saman-Tunnel-v1.7.6-armeabi-v7a.apk
-f7e654eb314be63e2df23b158bb5535a858d7a0ed7c982c40853aba137c02583  Saman-Tunnel-v1.7.6-universal-arm.apk
-```
-
-اگر Android Build Tools نصب است، پیوستگی امضا را بررسی کنید:
-
-```bash
-apksigner verify --verbose --print-certs Saman-Tunnel-v1.7.6-arm64-v8a.apk
-```
-
-SHA-256 مورد انتظار گواهی signer:
-
-```text
-03233edadf89ed27c7cf80452916a7bd25e8c74abe0f12d2eefcb8b290b48805
-```
-
-Checksum سلامت فایل را ثابت می‌کند و fingerprint گواهی، پیوستگی هویت انتشار Stable سامان تونل را. هر دو را بررسی کنید و فقط از URLهای HTTPS در GitHub Releases استفاده نمایید.
-
-### ساخت از سورس
-
-پشتهٔ تأییدشدهٔ build اندروید v1.7.6:
-
-- Aether Core v1.9.0 روی commit `311b573352bb67e494895ff67d20b002d075116a`؛
-- submodule ثابت HEV tun2socks روی commit `d1178b52fccd8659201e1e3f83030f298c998865`؛
-- Rust `1.91.0` و cargo-ndk `4.1.2`؛
-- Android NDK `26.3.11579264`، CMake `3.22.1`، platform 36 و Build Tools `35.0.0`؛
-- Java/Temurin 17، Gradle `8.13` و نسخه‌های AGP/Kotlin ثابت‌شده در مخزن.
-
-به‌جای build از revision دلخواه Aether یا HEV، workflow تأییدشده را بازتولید کنید:
-
-```bash
-git clone --recurse-submodules https://github.com/velnox4827/saman-aether.git
-cd saman-aether
-git switch --detach v1.7.6
-git submodule update --init --recursive
-# مطابق .github/workflows/android-apk.yml:
-# - Aether ثابت را دریافت کنید،
-# - پچ‌های Smart Reconnect + reusable listener + GOOL cancellation را اعمال کنید،
-# - libaether.so و HEV ثابت را برای arm64-v8a / armeabi-v7a بسازید،
-# - unit test/lint و APKها را بسازید.
-cd android-app
-./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
-```
-
-build رسمی Stable به هویت خصوصی امضا از طریق چهار property/Secret با نام `SAMAN_*` نیاز دارد. keystore یا گذرواژه را هرگز در مخزن یا history فرمان قرار ندهید. buildهای Debug/محلی جای signer رسمی Stable را نمی‌گیرند.
-
-برای executable پچ‌شدهٔ Termux، `.github/workflows/termux-core.yml` targetهای Android را با cargo-ndk می‌سازد و `saman-aether-core` را برای arm64، armv7 و x86_64 بسته‌بندی می‌کند.
-
-### CI و GitHub Actions
-
-- توسعه روی `main`، شاخه‌های `release/**` و شاخه‌های maintenance متمرکز انجام می‌شود؛ tagهای عمومی و immutable نسخه‌های انتشار را مشخص می‌کنند.
-- `android-apk.yml` تست واحد و lint را اجرا می‌کند، Aether و HEV ثابت را برای ARM64/ARMv7 می‌سازد، APKهای Debug از نوع ARM64، ARMv7 و Universal تولید می‌کند و در اجرای دستی APKهای Stable امضاشده را نیز با گواهی مورد انتظار می‌سازد و اعتبارسنجی می‌کند.
-- `release.yml` به tagهای `v*` پاسخ می‌دهد، Aether + HEV را دوباره build و verify می‌کند، هر سه APK Stable و گواهی امضا را بررسی می‌کند و سپس GitHub Release عمومی را همراه APKها، hashهای جداگانه و `SHA256SUMS` می‌سازد. tagها و artifactهای منتشرشده هرگز نباید جابه‌جا یا جایگزین شوند.
-- `termux-core.yml` هسته‌های پچ‌شدهٔ Termux را برای سه معماری می‌سازد و releaseهای غیر latest از نوع `termux-v*` را همراه فایل SHA-256 هر archive منتشر می‌کند.
-- `termux-maintenance.yml` تست syntax، routing و سیاست نصب‌کننده را به‌همراه ShellCheck روی پیاده‌سازی مرجع Termux اجرا می‌کند.
-- اطلاعات امضا فقط هنگام job امضاشده و از GitHub Secrets استفاده می‌شود. pull request و push عادی، انتشار رسمی امضاشده تولید نمی‌کنند.
-
-### امنیت
-
-keystore امضا، گذرواژهٔ امضا، کلید خصوصی، API/OAuth key، توکن ربات Telegram، GitHub token، کوکی، `rpc.secret`، credential و تنظیمات خصوصی را هرگز نمایش، لاگ، آپلود یا commit نکنید. فایل امضا را در فضای خصوصی برنامه نگه دارید و به shared storage انتقال ندهید. پیش از commit، `git status`، diff مرحله‌بندی‌شده، فایل‌های untracked و تغییر workflowها را بررسی کنید. گزارش‌ها پاک‌سازی می‌شوند، اما پیش از اشتراک‌گذاری همچنان باید بازبینی شوند.
-
-پروکسی‌ها فقط روی loopback گوش می‌دهند. آن‌ها را بدون درک و ایمن‌سازی ریسک، به `0.0.0.0` تغییر ندهید. آپدیت را فقط از صفحهٔ HTTPS Releases همین مخزن بگیرید، SHA-256 و پیوستگی signer را بررسی کنید و نصب‌کنندهٔ mirror ناشناس را اجرا نکنید.
-
-### رفع مشکلات
-
-- **Aether شروع نمی‌شود:** `saman doctor --verbose` و سپس `saman aether status` را اجرا کنید. executable بودن `$PREFIX/bin/saman-aether-core` و `~/.aether-shortcut-runner` و دسترسی به GitHub را بررسی نمایید.
-- **PID مانده یا پردازش orphan:** `saman aether status`، PID را با executable دقیق هستهٔ پچ‌شده می‌سنجد و می‌تواند یک orphan را بازیابی کند. `saman aether stop` پردازش‌های مرجع مطابق را پاک می‌کند و بر اساس PID نامعتبر، پردازش دلخواه را نمی‌کشد.
-- **تداخل پورت:** پروکسی دیگری را که از `127.0.0.1:1819` یا `:1820` استفاده می‌کند متوقف و با `ss -ltnp` بررسی کنید. Saman برای hand-off صبر می‌کند و به‌جای اجرای listener دوم، امن متوقف می‌شود.
-- **مشکل سرویس اندروید/VPN:** Saman Tunnel یک `VpnService` نیست. مجوز اعلان و اجرای foreground/background را بدهید، محدودیت باتری را بردارید و bypass بر اساس برنامه در VPN اصلی را درست تنظیم کنید.
-- **Termux توسط اندروید بسته می‌شود:** نسخهٔ جدید Termux نصب کنید، battery optimization را برای آن غیرفعال نمایید، فعالیت پس‌زمینه را مجاز کنید و برای session طولانی wake lock داشته باشید. Termux را دوباره باز و پیش از restart وضعیت را بررسی کنید.
-- **شکست آپدیت/دانلود:** DNS/TLS و اتصال به `api.github.com`، `github.com` و `raw.githubusercontent.com` را بررسی و `install.sh check` را تکرار کنید. نصب‌کننده checksum گمشده یا نامطابق را نمی‌پذیرد.
-- **APK نصب یا ارتقا نمی‌شود:** ABI، فضای خالی، نام بسته، checksum و signer را بررسی کنید. mismatch امضا نیازمند حذف بسته‌ای است که با امضای متفاوت نصب شده؛ هویت رسمی امضا نباید جایگزین شود.
-- **اتصال GitHub/API:** صفحهٔ مستقیم [Releases](https://github.com/velnox4827/saman-aether/releases) را در مرورگر باز کنید. فقط پس از سالم‌شدن Aether، GitHub را از SOCKS محلی عبور دهید.
-- **لاگ و عیب‌یابی:** از `saman aether logs` استفاده کنید، فایل `~/aether-<mode>.log` را ببینید یا `saman aether diagnostics safe` بسازید. فقط وقتی history بیشتری لازم است از `full` استفاده کنید؛ آن هم پاک‌سازی می‌شود ولی بزرگ‌تر است.
-
-### ساختار پروژه
-
-```text
-.github/workflows/                 CI اندروید، انتشار، هسته Termux و maintenance
-android-app/                       پروژه رابط/سرویس/JNI اندروید
-  aether-patches/                  پچ‌های Smart Reconnect و listener
-  app/src/main/java/com/saman/tunnel/
-termux/saman-center-v2/            پیاده‌سازی ماژولار و مرجع Saman Center
-termux/aether-control              delegator سازگاری
-termux/tests/                      تست‌های shell و routing در Termux
-install.sh                         نصب/ارتقا/rollback به‌صورت idempotent
-.aether-shortcut-runner (نصب‌شده)  <- فایل مخزن: aether-shortcut-runner
-saman-aether-diagnostics           عیب‌یابی پاک‌سازی‌شدهٔ Termux
-shortcuts/                         سورس سازگاری قدیمی؛ در نصب جدید ساخته نمی‌شود
-CHANGELOG.md                       تاریخچهٔ انتشار و maintenance
-```
-
-### نسخه‌ها و تغییرات
-
-- [Saman Tunnel v1.7.6](https://github.com/velnox4827/saman-aether/releases/tag/v1.7.6)
-- [CHANGELOG.md](CHANGELOG.md)
-- [همهٔ نسخه‌ها در GitHub Releases](https://github.com/velnox4827/saman-aether/releases)
-- [Aether اصلی](https://github.com/CluvexStudio/Aether)
-- [Issues](https://github.com/velnox4827/saman-aether/issues)
-
-</div>
-
-
-### Aether v1.9.0 integration
-
-- Adaptive MASQUE H2 flow-control and improved H2 throughput.
-- Larger/adaptive netstack TCP buffers.
-- Optional `AETHER_NETSTACK_TCP_RX`, `AETHER_NETSTACK_TCP_TX`, and `AETHER_MASQUE_MTU` overrides; Saman leaves them automatic by default.
-- `aether help` support.
-- Optional manual GOOL peers with `--wiw-outer IP:PORT`, `--wiw-inner IP:PORT`, and `--wiw-peers OUTER_IP:PORT,INNER_IP:PORT`.
-- Automatic GOOL scanning remains the default; when one manual hop is supplied, Aether scans the other.
-
-
-### یکپارچه‌سازی Aether v1.9.0
-
-- بهبود سرعت MASQUE H2 با flow-control تطبیقی.
-- بافرهای TCP نت‌استک بزرگ‌تر و تطبیقی.
-- متغیرهای اختیاری `AETHER_NETSTACK_TCP_RX`، `AETHER_NETSTACK_TCP_TX` و `AETHER_MASQUE_MTU`؛ در Saman به‌صورت پیش‌فرض خودکار می‌مانند.
-- پشتیبانی از `aether help`.
-- peer دستی GOOL با `--wiw-outer IP:PORT`، `--wiw-inner IP:PORT` و `--wiw-peers OUTER_IP:PORT,INNER_IP:PORT`.
-- اسکن خودکار GOOL همچنان پیش‌فرض است؛ اگر فقط یک hop دستی بدهید، hop دیگر اسکن می‌شود.
+License: [GNU AGPL-3.0](LICENSE).

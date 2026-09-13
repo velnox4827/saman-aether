@@ -1,5 +1,26 @@
 # Changelog
 
+## Saman Termux v1.8.0 — 2026-09-13
+
+- Rebuilt the Aether menus as clear/redraw loops with safe numeric input,
+  persistent `[x]` selections, separate selected/running state, and distinct
+  Back, Exit, and Stop actions.
+- Added capability-gated integration for official upstream Aether v2.0 Tor:
+  Tor inside the selected tunnel, MASQUE/H2 through Tor, and Tor-only, plus
+  supported bridge and pluggable-transport settings without exposing private
+  bridge lines.
+- Detached the owned service output from the menu, tightened runner/core
+  ownership checks, prevented duplicate starts, and retained detailed bounded
+  logs and readiness/error progress.
+- Hardened official Aether release updates with mandatory checksums, safe archive
+  validation, staged binary/PT installation, private backups, atomic replacement,
+  and rollback.
+- Added shell and pseudo-terminal regressions for menu rendering/input,
+  navigation, persistence, lifecycle dispatch, Tor availability/readiness,
+  port conflicts, and updater failures.
+- Rewrote the root README as a Persian-first, Termux-first installation and
+  operations guide; the Android application documentation is now secondary.
+
 ## v1.7.6
 
 Stable release — 2026-09-08

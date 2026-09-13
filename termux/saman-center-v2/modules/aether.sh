@@ -1,8 +1,9 @@
 #!/data/data/com.termux/files/usr/bin/bash
 
 s2_aether_core_pids() {
+    # Diagnostic inventory only.  Lifecycle operations never act on this list.
     local proc exe core
-    core="$(readlink -f "$PREFIX/bin/saman-aether-core" 2>/dev/null || true)"
+    core="$(readlink -f "${SAMAN_AETHER_CORE:-$PREFIX/bin/saman-aether-core}" 2>/dev/null || true)"
     [ -n "$core" ] || return 0
     for proc in /proc/[0-9]*; do
         [ -r "$proc/exe" ] || continue
@@ -15,33 +16,53 @@ s2_aether_pid_is_core() {
     local pid="${1:-}" exe core
     [[ "$pid" =~ ^[0-9]+$ ]] || return 1
     kill -0 "$pid" 2>/dev/null || return 1
-    core="$(readlink -f "$PREFIX/bin/saman-aether-core" 2>/dev/null || true)"
+    core="$(readlink -f "${SAMAN_AETHER_CORE:-$PREFIX/bin/saman-aether-core}" 2>/dev/null || true)"
     exe="$(readlink -f "/proc/$pid/exe" 2>/dev/null || true)"
     [ -n "$core" ] && [ "$exe" = "$core" ]
 }
 
-s2_aether_pid() {
-    local pf="$HOME/.saman-aether/aether.pid" pid='' found='' count=0 candidate
-    [ -s "$pf" ] && pid="$(<"$pf")"
-    if s2_aether_pid_is_core "$pid"; then
-        printf '%s\n' "$pid"
-        return 0
-    fi
-    [ -e "$pf" ] && rm -f "$pf"
-    while IFS= read -r candidate; do
-        [ -n "$candidate" ] || continue
-        found="$candidate"; count=$((count + 1))
-    done < <(s2_aether_core_pids)
-    if [ "$count" -eq 1 ]; then
-        mkdir -p "${pf%/*}"
-        printf '%s\n' "$found" > "$pf"
-        printf '%s\n' "$found"
-    fi
+s2_process_start_identity() {
+    local pid="$1" stat rest
+    local -a fields=()
+    [[ "$pid" =~ ^[0-9]+$ ]] && [ -r "/proc/$pid/stat" ] || return 1
+    IFS= read -r stat < "/proc/$pid/stat" || return 1
+    rest="${stat##*) }"; read -r -a fields <<< "$rest"
+    [ "${#fields[@]}" -ge 20 ] && [[ "${fields[19]}" =~ ^[0-9]+$ ]] || return 1
+    printf '%s\n' "${fields[19]}"
 }
+
+s2_aether_owned_runner() {
+    local lock="$HOME/.saman-aether/runner.lock" owner pid start nonce current cmd runner base
+    [ -L "$lock" ] || return 1
+    owner="$(readlink "$lock" 2>/dev/null || true)"
+    IFS=: read -r pid start nonce <<< "$owner"
+    [[ "$pid" =~ ^[0-9]+$ && "$start" =~ ^[0-9]+$ && -n "$nonce" ]] || return 1
+    kill -0 "$pid" 2>/dev/null || return 1
+    current="$(s2_process_start_identity "$pid" 2>/dev/null || true)"
+    [ "$current" = "$start" ] || return 1
+    runner="$(readlink -f "${SAMAN_AETHER_RUNNER:-$HOME/.aether-shortcut-runner}" 2>/dev/null || true)"
+    base="$(readlink -f "${SAMAN_AETHER_RUNNER_BASE:-$HOME/.aether-shortcut-runner-base}" 2>/dev/null || true)"
+    [ -n "$runner" ] || return 1
+    cmd="$(tr '\0' '\n' < "/proc/$pid/cmdline" 2>/dev/null || true)"
+    grep -Fxq "$runner" <<< "$cmd" || { [ -n "$base" ] && grep -Fxq "$base" <<< "$cmd"; } || return 1
+    printf '%s\n' "$pid"
+}
+
+s2_aether_owned_pid() {
+    local pf="$HOME/.saman-aether/aether.pid" pid runner ppid
+    runner="$(s2_aether_owned_runner)" || return 1
+    [ -s "$pf" ] || return 1
+    pid="$(<"$pf")"; s2_aether_pid_is_core "$pid" || return 1
+    ppid="$(awk '/^PPid:/{print $2}' "/proc/$pid/status" 2>/dev/null || true)"
+    [ "$ppid" = "$runner" ] || return 1
+    printf '%s\n' "$pid"
+}
+
+s2_aether_pid() { s2_aether_owned_pid 2>/dev/null || true; }
 
 s2_aether_pid_running() {
     local pid="${1:-$(s2_aether_pid)}"
-    s2_aether_pid_is_core "$pid"
+    [ -n "$pid" ] && s2_aether_pid_is_core "$pid" && [ "$pid" = "$(s2_aether_owned_pid 2>/dev/null || true)" ]
 }
 
 s2_aether_log_for_mode() {
@@ -51,13 +72,17 @@ s2_aether_log_for_mode() {
         'MASQUE H2'|h2|masque-h2) printf '%s\n' "$HOME/aether-masque-h2.log" ;;
         'MASQUE H3'|h3|masque-h3) printf '%s\n' "$HOME/aether-masque-h3.log" ;;
         'MASQUE-in-MASQUE'|mim) printf '%s\n' "$HOME/aether-mim.log" ;;
+        'Tor inside selected transport'|tor-inside) printf '%s\n' "$HOME/aether-tor-inside.log" ;;
+        'Tor reverse over MASQUE H2'|tor-reverse) printf '%s\n' "$HOME/aether-tor-reverse.log" ;;
+        'Tor only'|tor-only) printf '%s\n' "$HOME/aether-tor-only.log" ;;
         *) return 1 ;;
     esac
 }
 
 s2_aether_mode_from_logs() {
     local f newest='' mt=0 t label
-    for label in 'WireGuard' GOOL 'MASQUE H3' 'MASQUE H2'; do
+    for label in 'WireGuard' GOOL 'MASQUE H3' 'MASQUE H2' 'MASQUE-in-MASQUE' \
+        'Tor inside selected transport' 'Tor reverse over MASQUE H2' 'Tor only'; do
         f="$(s2_aether_log_for_mode "$label" 2>/dev/null || true)"
         [ -f "$f" ] || continue
         t="$(stat -c %Y "$f" 2>/dev/null || echo 0)"
@@ -70,6 +95,16 @@ s2_aether_mode() {
     local pid="${1:-$(s2_aether_pid)}" cmd=''
     [ -n "$pid" ] && [ -r "/proc/$pid/cmdline" ] && cmd="$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null || true)"
     case " $cmd " in
+        *' --tor-only '*) echo 'Tor only' ;;
+        *' --tor-reverse '*) echo 'Tor reverse over MASQUE H2' ;;
+        *' --tor '*)
+            case " $cmd " in
+                *' --wg '*) echo 'Tor inside WireGuard' ;;
+                *' --gool '*) echo 'Tor inside GOOL' ;;
+                *' --mim '*) echo 'Tor inside MASQUE-in-MASQUE' ;;
+                *' --h2 '*) echo 'Tor inside MASQUE H2' ;;
+                *) echo 'Tor inside MASQUE H3' ;;
+            esac ;;
         *' --gool '*) echo 'GOOL' ;;
         *' --wg '*) echo 'WireGuard' ;;
         *' --masque '*' --h2 '*) echo 'MASQUE H2' ;;
@@ -153,7 +188,7 @@ s2_aether_core_version() {
 
 s2_aether_core_label() {
     if [ -x "$PREFIX/bin/saman-aether-core" ]; then
-        printf '%s [patched]\n' "$(s2_aether_core_version)"
+        printf '%s [official]\n' "$(s2_aether_core_version)"
     elif s2_have aether; then
         printf '%s [official]\n' "$(s2_aether_core_version)"
     else
@@ -369,62 +404,98 @@ s2_aether_probe() {
 
 s2_aether_exit() { s2_aether_probe full; }
 
+s2_aether_launch_runner() {
+    local dispatch="$1" runner="${SAMAN_AETHER_RUNNER:-$HOME/.aether-shortcut-runner}" log="$2"
+    nohup "$runner" "$dispatch" >> "$log" 2>&1 </dev/null &
+    S2_AETHER_LAUNCH_PID=$!
+}
+
+s2_aether_wait_for_start() {
+    local log="$1" deadline=$((SECONDS + ${SAMAN_AETHER_START_WAIT_SECS:-120})) pid
+    while [ "$SECONDS" -lt "$deadline" ]; do
+        pid="$(s2_aether_owned_pid 2>/dev/null || true)"
+        if [ -n "$pid" ] && awk -v m="${S2_AETHER_START_MARKER:-}" 'index($0,m){seen=1;next} seen && /^OK: Aether connected/{ok=1} END{exit(ok?0:1)}' "$log" 2>/dev/null; then
+            printf 'READY\n'; return 0
+        fi
+        if [ -n "${S2_AETHER_LAUNCH_PID:-}" ] && ! kill -0 "$S2_AETHER_LAUNCH_PID" 2>/dev/null; then
+            printf 'FAILED\n'; return 1
+        fi
+        sleep 0.25
+    done
+    printf 'TIMEOUT\n'; return 1
+}
+
 s2_aether_start() {
-    local mode="${1:-}" runner="$HOME/.aether-shortcut-runner"
+    local mode="${1:-}" runner="${SAMAN_AETHER_RUNNER:-$HOME/.aether-shortcut-runner}" dispatch log result
     [ -x "$runner" ] || { s2_err "Aether runner not found: $runner"; return 1; }
+    if s2_aether_owned_pid >/dev/null 2>&1 || s2_aether_owned_runner >/dev/null 2>&1; then
+        s2_err "Aether is already managed by Saman; stop it before starting another."
+        return 1
+    fi
     rm -f "$(s2_aether_probe_file)" 2>/dev/null || true
-    case "${mode,,}" in
-        wg|wireguard) exec "$runner" WG ;;
-        gool) exec "$runner" GOOL ;;
-        masque|h3|masque-h3|masque_h3) exec "$runner" MASQUE ;;
-        h2|masque-h2|masque_h2) exec "$runner" MASQUE_H2 ;;
-        mim|masque-in-masque) exec "$runner" MIM ;;
-        *) s2_err "Valid modes: wg, gool, h3, h2, mim"; return 2 ;;
+    if [ -z "${AETHER_PANEL_TOR_MODE+x}" ]; then saman_aether_init; saman_aether_load; saman_aether_detect_capabilities >/dev/null 2>&1 || true; fi
+    case "${AETHER_PANEL_TOR_MODE:-off}" in
+        inside) dispatch=TOR ;;
+        reverse) dispatch=TOR_REVERSE ;;
+        only) dispatch=TOR_ONLY ;;
+        off)
+            case "${mode,,}" in
+                wg|wireguard) dispatch=WG ;;
+                gool) dispatch=GOOL ;;
+                masque|h3|masque-h3|masque_h3) [ "${AETHER_PANEL_H2:-0}" = 1 ] && dispatch=MASQUE_H2 || dispatch=MASQUE ;;
+                h2|masque-h2|masque_h2) dispatch=MASQUE_H2 ;;
+                mim|masque-in-masque) dispatch=MIM ;;
+                *) s2_err "Valid modes: wg, gool, h3, h2, mim"; return 2 ;;
+            esac
+            ;;
     esac
+    log="$HOME/.saman-aether/start-${dispatch,,}.log"
+    mkdir -p "${log%/*}"; chmod 0700 "${log%/*}" 2>/dev/null || true
+    [ ! -f "$log" ] || mv -f "$log" "$log.previous"
+    S2_AETHER_START_MARKER="[Saman launch $$.$RANDOM.$SECONDS]"
+    printf '%s\n' "$S2_AETHER_START_MARKER" > "$log"; chmod 0600 "$log"
+    printf 'Starting %s; detailed output: %s\n' "$dispatch" "$log"
+    s2_aether_launch_runner "$dispatch" "$log" || { s2_err 'Could not launch Aether runner.'; return 1; }
+    if result="$(s2_aether_wait_for_start "$log")"; then
+        s2_ok "Aether is ready ($dispatch)."
+        return 0
+    fi
+    s2_err "Aether startup ${result:-FAILED}; inspect $log"
+    return 1
+}
+
+s2_aether_signal_pid() { kill -"$1" "$2" 2>/dev/null; }
+s2_aether_wait_pid_exit() {
+    local pid="$1"
+    for _ in $(seq 1 50); do kill -0 "$pid" 2>/dev/null || return 0; sleep 0.1; done
+    return 1
 }
 
 s2_aether_stop() {
-    local pid pf="$HOME/.saman-aether/aether.pid" pids=() candidate alive=0
-    while IFS= read -r candidate; do [ -n "$candidate" ] && pids+=("$candidate"); done < <(s2_aether_core_pids)
-    if [ "${#pids[@]}" -eq 0 ]; then
-        rm -f "$pf" "$(s2_aether_probe_file)" 2>/dev/null || true
-        s2_ok "Aether is already stopped."; return 0
-    fi
-    echo "Stopping ${#pids[@]} canonical Aether Core process(es): ${pids[*]}"
-    for pid in "${pids[@]}"; do s2_aether_pid_is_core "$pid" && kill -TERM "$pid" 2>/dev/null || true; done
-    for _ in $(seq 1 50); do
-        alive=0
-        for pid in "${pids[@]}"; do s2_aether_pid_is_core "$pid" && alive=1; done
-        [ "$alive" -eq 0 ] && break
-        sleep 0.1
-    done
-    for pid in "${pids[@]}"; do
-        if s2_aether_pid_is_core "$pid"; then
-            s2_warn "Graceful stop timed out for PID $pid; forcing stop."
-            kill -KILL "$pid" 2>/dev/null || true
-        fi
-    done
-    sleep 0.1
-    for pid in "${pids[@]}"; do
-        if s2_aether_pid_is_core "$pid"; then
-            s2_err "Aether Core PID $pid survived TERM and KILL; state was retained."
+    local runner core pf="$HOME/.saman-aether/aether.pid"
+    runner="$(s2_aether_owned_runner 2>/dev/null || true)"
+    core="$(s2_aether_owned_pid 2>/dev/null || true)"
+    if [ -z "$runner" ] || [ -z "$core" ]; then
+        if [ -e "$pf" ] || [ -e "$HOME/.saman-aether/runner.lock" ] || [ -L "$HOME/.saman-aether/runner.lock" ]; then
+            s2_err 'Refusing to stop: Saman ownership proof is invalid; no process was signalled.'
             return 1
         fi
-    done
-    rm -f "$pf" "$(s2_aether_probe_file)"
-    s2_have termux-wake-unlock && termux-wake-unlock >/dev/null 2>&1 || true
-    s2_ok "Aether stopped."
+        s2_ok 'Aether is already stopped.'
+        return 0
+    fi
+    s2_aether_signal_pid TERM "$runner" || { s2_err "Could not signal owning runner PID $runner."; return 1; }
+    if ! s2_aether_wait_pid_exit "$runner"; then
+        s2_warn "Owning runner PID $runner did not exit after TERM."
+        return 1
+    fi
+    rm -f "$(s2_aether_probe_file)" 2>/dev/null || true
+    s2_ok "Aether stopped (runner $runner, core $core)."
 }
 
 s2_aether_restart() {
-    local mode="${1:-}" lock="$HOME/.saman-aether/runner.lock"
-    [ -n "$mode" ] || { s2_err "Restart requires a mode: wg, gool, h3, h2, mim"; return 2; }
+    local mode="${1:-}"
+    [ -n "$mode" ] || { s2_err "Restart requires a saved transport."; return 2; }
     s2_aether_stop || return
-    for _ in $(seq 1 50); do [ ! -e "$lock" ] && [ ! -L "$lock" ] && break; sleep 0.1; done
-    if [ -e "$lock" ] || [ -L "$lock" ]; then
-        s2_err "Previous Aether runner did not release its lifecycle lock."
-        return 1
-    fi
     s2_aether_start "$mode"
 }
 
@@ -442,8 +513,11 @@ s2_aether_logs_menu() {
         echo "2) GOOL log"
         echo "3) MASQUE H3 log"
         echo "4) MASQUE H2 log"
-        echo "5) Safe diagnostics"
-        echo "6) Full diagnostics"
+        echo "5) Tor inside transport log"
+        echo "6) Tor reverse log"
+        echo "7) Tor-only log"
+        echo "8) Safe diagnostics"
+        echo "9) Full diagnostics"
         echo "0) Back"; echo
         x="$(s2_read_choice)"
         case "$x" in
@@ -451,8 +525,11 @@ s2_aether_logs_menu() {
             2) tail -n 100 "$HOME/aether-gool.log" 2>/dev/null || echo "Log not found"; s2_pause ;;
             3) tail -n 100 "$HOME/aether-masque-h3.log" 2>/dev/null || echo "Log not found"; s2_pause ;;
             4) tail -n 100 "$HOME/aether-masque-h2.log" 2>/dev/null || echo "Log not found"; s2_pause ;;
-            5) if s2_have saman-aether-diagnostics; then saman-aether-diagnostics safe; else s2_err "Diagnostics tool not installed"; fi; s2_pause ;;
-            6) echo "Full diagnostics may contain addresses/identifiers."; read -r -p "Type FULL to continue: " c; [ "$c" = FULL ] && saman-aether-diagnostics full; s2_pause ;;
+            5) tail -n 100 "$HOME/aether-tor-inside.log" 2>/dev/null || echo "Log not found"; s2_pause ;;
+            6) tail -n 100 "$HOME/aether-tor-reverse.log" 2>/dev/null || echo "Log not found"; s2_pause ;;
+            7) tail -n 100 "$HOME/aether-tor-only.log" 2>/dev/null || echo "Log not found"; s2_pause ;;
+            8) if s2_have saman-aether-diagnostics; then saman-aether-diagnostics safe; else s2_err "Diagnostics tool not installed"; fi; s2_pause ;;
+            9) echo "Full diagnostics may contain addresses/identifiers."; read -r -p "Type FULL to continue: " c; [ "$c" = FULL ] && saman-aether-diagnostics full; s2_pause ;;
             0) return ;;
         esac
     done

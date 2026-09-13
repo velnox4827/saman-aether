@@ -14,7 +14,14 @@ else
     S2_RESET='' S2_BOLD='' S2_DIM='' S2_CYAN='' S2_GREEN='' S2_YELLOW='' S2_RED='' S2_BLUE=''
 fi
 
-s2_clear() { clear 2>/dev/null || printf '\033[2J\033[H'; }
+s2_clear() {
+    # `clear` prints diagnostics or control bytes when stdout is captured, TERM
+    # is absent, or a menu is driven by a pipe.  In those cases a redraw is only
+    # a logical operation; do not pollute command output with terminal escapes.
+    if { [ -t 1 ] || [ "${SAMAN_AETHER_TEST_TTY:-0}" = 1 ]; } && [ -n "${TERM:-}" ]; then
+        printf '\033[2J\033[H'
+    fi
+}
 s2_ok() { printf "%b✓%b %s\n" "$S2_GREEN" "$S2_RESET" "$*"; }
 s2_warn() { printf "%b!%b %s\n" "$S2_YELLOW" "$S2_RESET" "$*"; }
 s2_err() { printf "%b✗%b %s\n" "$S2_RED" "$S2_RESET" "$*"; }

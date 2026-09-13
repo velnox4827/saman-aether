@@ -41,6 +41,7 @@ export PATH="$TMP/fake-bin:$PATH"
 # RED: this intentionally fails until the panel module exists.
 source "$ROOT/saman-center-v2/lib/common.sh"
 source "$ROOT/saman-center-v2/lib/config.sh"
+source "$ROOT/saman-center-v2/lib/ui.sh"
 source "$ROOT/saman-center-v2/modules/aether-panel.sh"
 
 saman_aether_init

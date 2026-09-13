@@ -77,6 +77,15 @@ saman_aether_defaults() {
     AETHER_PANEL_NO_DATA_CHECK=0
     AETHER_PANEL_NO_PROFILE_RETRY=0
     AETHER_PANEL_H2_PEER=""
+    AETHER_PANEL_TOR_MODE="off"
+    # Preserve the official Aether default.  Argument construction suppresses
+    # HTTP CONNECT when its saved endpoint is the same listener.
+    AETHER_PANEL_TOR_BIND="127.0.0.1:1820"
+    AETHER_PANEL_TOR_DIR=""
+    AETHER_PANEL_TOR_BRIDGES="auto"
+    AETHER_PANEL_TOR_BRIDGE=""
+    AETHER_PANEL_TOR_PT=""
+    AETHER_PANEL_TOR_PT_DIR=""
 }
 
 saman_aether_save_defaults() {
@@ -90,6 +99,8 @@ saman_aether_valid_value() {
     local k="$1" v="$2"
     case "$k" in
         MODE) [[ "$v" =~ ^(masque|wg|gool|mim)$ ]] ;;
+        TOR_MODE) [[ "$v" =~ ^(off|inside|reverse|only)$ ]] ;;
+        TOR_BRIDGES) [[ "$v" =~ ^(auto|force|disabled)$ ]] ;;
         PRESET) [[ "$v" =~ ^[a-z0-9-]+$ ]] ;;
         SCAN) [[ "$v" =~ ^[a-z0-9-]+$ ]] ;;
         NOIZE|IP|ECH|PERF|LOG_LEVEL) [[ "$v" =~ ^[A-Za-z0-9_.:-]*$ ]] ;;
@@ -115,7 +126,7 @@ saman_aether_load() {
         [[ "$line" == *=* ]] || continue
         k="${line%%=*}"; v="${line#*=}"
         case "$k" in
-            MODE|PRESET|SCAN|NOIZE|IP|H2|H3|ECH|FRAGMENT|FRAGMENT_SIZE|FRAGMENT_DELAY|BIND|HTTP|UPSTREAM|DNS|ROUTE_BLOCK|ROUTE_DIRECT|ROUTES|QUICK|RECONNECT_SECS|STARTUP_SECS|VALIDATE_SECS|KEEPALIVE|PEER|WG_PEER|WIW_OUTER|WIW_INNER|WIW_PEERS|MIM_OUTER|MIM_INNER|MIM_PEERS|PERF|TLS_GROUPS|LOG_LEVEL|NO_QUIC_V2|NO_DATA_CHECK|NO_PROFILE_RETRY|H2_PEER)
+            MODE|PRESET|SCAN|NOIZE|IP|H2|H3|ECH|FRAGMENT|FRAGMENT_SIZE|FRAGMENT_DELAY|BIND|HTTP|UPSTREAM|DNS|ROUTE_BLOCK|ROUTE_DIRECT|ROUTES|QUICK|RECONNECT_SECS|STARTUP_SECS|VALIDATE_SECS|KEEPALIVE|PEER|WG_PEER|WIW_OUTER|WIW_INNER|WIW_PEERS|MIM_OUTER|MIM_INNER|MIM_PEERS|PERF|TLS_GROUPS|LOG_LEVEL|NO_QUIC_V2|NO_DATA_CHECK|NO_PROFILE_RETRY|H2_PEER|TOR_MODE|TOR_BIND|TOR_DIR|TOR_BRIDGES|TOR_BRIDGE|TOR_PT|TOR_PT_DIR)
                 saman_aether_assign "$k" "$v" || true ;;
         esac
     done < "$SAMAN_AETHER_SETTINGS"
@@ -126,7 +137,7 @@ saman_aether_save() {
     tmp="$(mktemp "$SAMAN_AETHER_SETTINGS.tmp.XXXXXX")" || return 1
     {
         printf '# Saman Aether preferences; official Aether owns identity/config files.\n'
-        for k in MODE PRESET SCAN NOIZE IP H2 H3 ECH FRAGMENT FRAGMENT_SIZE FRAGMENT_DELAY BIND HTTP UPSTREAM DNS ROUTE_BLOCK ROUTE_DIRECT ROUTES QUICK RECONNECT_SECS STARTUP_SECS VALIDATE_SECS KEEPALIVE PEER WG_PEER WIW_OUTER WIW_INNER WIW_PEERS MIM_OUTER MIM_INNER MIM_PEERS PERF TLS_GROUPS LOG_LEVEL NO_QUIC_V2 NO_DATA_CHECK NO_PROFILE_RETRY H2_PEER; do
+        for k in MODE PRESET SCAN NOIZE IP H2 H3 ECH FRAGMENT FRAGMENT_SIZE FRAGMENT_DELAY BIND HTTP UPSTREAM DNS ROUTE_BLOCK ROUTE_DIRECT ROUTES QUICK RECONNECT_SECS STARTUP_SECS VALIDATE_SECS KEEPALIVE PEER WG_PEER WIW_OUTER WIW_INNER WIW_PEERS MIM_OUTER MIM_INNER MIM_PEERS PERF TLS_GROUPS LOG_LEVEL NO_QUIC_V2 NO_DATA_CHECK NO_PROFILE_RETRY H2_PEER TOR_MODE TOR_BIND TOR_DIR TOR_BRIDGES TOR_BRIDGE TOR_PT TOR_PT_DIR; do
             var="$(saman_aether_key_var "$k")"; printf '%s=%s\n' "$k" "${!var-}"
         done
     } > "$tmp" && chmod 0600 "$tmp" && mv -f "$tmp" "$SAMAN_AETHER_SETTINGS" || { rm -f "$tmp"; return 1; }
@@ -134,7 +145,7 @@ saman_aether_save() {
 
 saman_aether_setting_label() {
     case "$1" in
-        MODE) printf 'Connection Mode';; PRESET) printf 'Preset';; SCAN) printf 'Scan Mode';; NOIZE) printf 'Obfuscation';; IP) printf 'IP Mode';; H2) printf 'MASQUE Carrier';; *) printf '%s' "$1";;
+        MODE) printf 'Connection Mode';; PRESET) printf 'Preset';; SCAN) printf 'Scan Mode';; NOIZE) printf 'Obfuscation';; IP) printf 'IP Mode';; H2) printf 'MASQUE Carrier';; TOR_MODE) printf 'Tor Routing';; TOR_BRIDGES) printf 'Tor Bridges';; *) printf '%s' "$1";;
     esac
 }
 
@@ -166,7 +177,7 @@ saman_aether_flag_supported() {
 }
 
 saman_aether_detect_capabilities() {
-    local bin version tmp
+    local bin version tmp strings_file
     bin="$(saman_aether_bin 2>/dev/null || true)"
     [ -n "$bin" ] || { printf 'ERROR: official Aether is not executable.\n' >&2; return 127; }
     tmp="$SAMAN_AETHER_CONFIG_DIR/help.txt.tmp.$$"
@@ -176,7 +187,7 @@ saman_aether_detect_capabilities() {
     version="$($bin --version 2>/dev/null || true)"
     SAMAN_AETHER_CAP_VERSION="$(printf '%s\n' "$version" | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -n1 || printf unknown)"
     SAMAN_AETHER_CAP_PATH="$bin"
-    for p in MASQUE WG GOOL MIM H2 ECH FRAGMENT DNS ROUTING PERF TOR IRONCLAD; do
+    for p in MASQUE WG GOOL MIM H2 ECH FRAGMENT DNS ROUTING PERF TOR TOR_HELP IRONCLAD; do
         eval "SAMAN_AETHER_CAP_HAS_$p=0"
     done
     saman_aether_flag_supported --masque && SAMAN_AETHER_CAP_HAS_MASQUE=1
@@ -189,7 +200,19 @@ saman_aether_detect_capabilities() {
     saman_aether_flag_supported --dns && SAMAN_AETHER_CAP_HAS_DNS=1
     saman_aether_flag_supported --route-block && SAMAN_AETHER_CAP_HAS_ROUTING=1
     saman_aether_flag_supported --perf && SAMAN_AETHER_CAP_HAS_PERF=1
-    saman_aether_flag_supported --tor && SAMAN_AETHER_CAP_HAS_TOR=1
+    if saman_aether_flag_supported --tor &&
+       saman_aether_flag_supported --tor-reverse &&
+       saman_aether_flag_supported --tor-only; then
+        SAMAN_AETHER_CAP_HAS_TOR_HELP=1
+    fi
+    # Help is not proof: non-Tor builds retain the same CLI listing.  Rust crate
+    # provenance gives us a deterministic, non-network compiled-feature probe.
+    strings_file="$SAMAN_AETHER_CONFIG_DIR/strings.tmp.$$"
+    if command -v strings >/dev/null 2>&1 && strings "$bin" > "$strings_file" 2>/dev/null &&
+       grep -Eq 'arti-client|arti_client|tor-proto|tor_proto|tor-rtcompat|tor_rtcompat' "$strings_file"; then
+        [ "$SAMAN_AETHER_CAP_HAS_TOR_HELP" -eq 1 ] && SAMAN_AETHER_CAP_HAS_TOR=1
+    fi
+    rm -f -- "$strings_file"
     SAMAN_AETHER_CAP_SCANS=""
     for x in turbo balanced thorough stealth ironclad; do grep -Eq "(^|[|[:space:]])$x([|[:space:]]|$)" "$SAMAN_AETHER_HELP_FILE" && SAMAN_AETHER_CAP_SCANS+="$x "; done
     SAMAN_AETHER_CAP_NOIZE=""
@@ -198,7 +221,7 @@ saman_aether_detect_capabilities() {
     {
         printf 'VERSION=%s\nPATH=%s\n' "$SAMAN_AETHER_CAP_VERSION" "$SAMAN_AETHER_CAP_PATH"
         printf 'SCANS=%s\nNOIZE=%s\n' "$SAMAN_AETHER_CAP_SCANS" "$SAMAN_AETHER_CAP_NOIZE"
-        for p in MASQUE WG GOOL MIM H2 ECH FRAGMENT DNS ROUTING PERF TOR IRONCLAD; do eval "printf '%s=%s\\n' HAS_$p \"\${SAMAN_AETHER_CAP_HAS_$p}\""; done
+        for p in MASQUE WG GOOL MIM H2 ECH FRAGMENT DNS ROUTING PERF TOR TOR_HELP IRONCLAD; do eval "printf '%s=%s\\n' HAS_$p \"\${SAMAN_AETHER_CAP_HAS_$p}\""; done
     } > "$SAMAN_AETHER_CAP_CACHE.tmp" && chmod 0600 "$SAMAN_AETHER_CAP_CACHE.tmp" && mv -f "$SAMAN_AETHER_CAP_CACHE.tmp" "$SAMAN_AETHER_CAP_CACHE"
     # Keep this private help snapshot for argument gating during this process.
 }
@@ -223,23 +246,64 @@ saman_aether_validate_settings() {
     return 0
 }
 
+saman_aether_validate_launch() {
+    local item path
+    case "${AETHER_PANEL_TOR_MODE:-off}" in
+        off) return 0 ;;
+        inside|reverse|only) ;;
+        *) printf 'ERROR: invalid Tor routing mode.\n' >&2; return 2 ;;
+    esac
+    [ "${SAMAN_AETHER_CAP_HAS_TOR:-0}" -eq 1 ] || {
+        printf 'ERROR: installed official Aether was not compiled with Tor support.\n' >&2
+        return 1
+    }
+    if [ "$AETHER_PANEL_TOR_BIND" = "$AETHER_PANEL_BIND" ]; then
+        printf 'ERROR: Tor proxy and main SOCKS cannot share %s.\n' "$AETHER_PANEL_BIND" >&2
+        return 1
+    fi
+    if [ "$AETHER_PANEL_TOR_MODE" = reverse ] && [ "$AETHER_PANEL_MODE" != masque ]; then
+        printf 'ERROR: Tor reverse requires MASQUE HTTP/2; WireGuard, GOOL, and MIM are incompatible.\n' >&2
+        return 1
+    fi
+    if [ -n "$AETHER_PANEL_TOR_PT" ]; then
+        while IFS= read -r item; do
+            [ -n "$item" ] || continue
+            path="${item#*=}"
+            [ -x "$path" ] || { printf 'ERROR: Tor pluggable transport is not executable.\n' >&2; return 1; }
+        done < <(printf '%s\n' "$AETHER_PANEL_TOR_PT" | tr ';' '\n')
+    fi
+    if [ -n "$AETHER_PANEL_TOR_PT_DIR" ]; then
+        while IFS= read -r item; do
+            [ -d "$item" ] || { printf 'ERROR: Tor PT directory is unavailable.\n' >&2; return 1; }
+        done < <(printf '%s\n' "$AETHER_PANEL_TOR_PT_DIR" | tr ';' '\n')
+    fi
+}
+
 saman_aether_build_args_array() {
     local mode="$1"; shift || true
-    local ip="$AETHER_PANEL_IP"
-    SAMAN_AETHER_ARGS=(--bind "$AETHER_PANEL_BIND" --http-proxy "$AETHER_PANEL_HTTP")
+    local ip="$AETHER_PANEL_IP" item
+    saman_aether_validate_launch || return
+    if [ "${AETHER_PANEL_TOR_MODE:-off}" = only ]; then
+        SAMAN_AETHER_ARGS=(--tor-only --bind "$AETHER_PANEL_TOR_BIND")
+        mode=tor-only
+    else
+        SAMAN_AETHER_ARGS=(--bind "$AETHER_PANEL_BIND")
+        [ "$AETHER_PANEL_TOR_MODE" = off ] || [ "$AETHER_PANEL_TOR_BIND" != "$AETHER_PANEL_HTTP" ] && SAMAN_AETHER_ARGS+=(--http-proxy "$AETHER_PANEL_HTTP")
+    fi
     case "$mode" in
         masque) SAMAN_AETHER_ARGS+=(--masque);;
         wg) SAMAN_AETHER_ARGS+=(--wg);;
         gool) SAMAN_AETHER_ARGS+=(--gool);;
         mim) SAMAN_AETHER_ARGS+=(--mim);;
+        tor-only) ;;
     esac
     case "$ip" in 4) SAMAN_AETHER_ARGS+=(-4);; 6) SAMAN_AETHER_ARGS+=(-6);; both) SAMAN_AETHER_ARGS+=(--dual);; esac
     [ -n "$AETHER_PANEL_SCAN" ] && saman_aether_flag_supported --scan && SAMAN_AETHER_ARGS+=(--scan "$AETHER_PANEL_SCAN")
     [ -n "$AETHER_PANEL_NOIZE" ] && saman_aether_flag_supported --noize && SAMAN_AETHER_ARGS+=(--noize "$AETHER_PANEL_NOIZE")
     [ "$AETHER_PANEL_QUICK" = 1 ] && saman_aether_flag_supported --quick-reconnect && SAMAN_AETHER_ARGS+=(--quick-reconnect)
-    [ "$mode" = masque ] && [ "$AETHER_PANEL_H2" = 1 ] && saman_aether_flag_supported --h2 && SAMAN_AETHER_ARGS+=(--h2)
+    [ "$mode" = masque ] && { [ "$AETHER_PANEL_H2" = 1 ] || [ "${AETHER_PANEL_TOR_MODE:-off}" = reverse ]; } && saman_aether_flag_supported --h2 && SAMAN_AETHER_ARGS+=(--h2)
     [ "$mode" = mim ] && [ "$AETHER_PANEL_H2" = 1 ] && saman_aether_flag_supported --h2 && SAMAN_AETHER_ARGS+=(--h2)
-    [ "$AETHER_PANEL_H3" = 1 ] && [ "$mode" = masque ] && saman_aether_flag_supported --h3 && SAMAN_AETHER_ARGS+=(--h3)
+    [ "$AETHER_PANEL_H3" = 1 ] && [ "$mode" = masque ] && [ "${AETHER_PANEL_TOR_MODE:-off}" != reverse ] && saman_aether_flag_supported --h3 && SAMAN_AETHER_ARGS+=(--h3)
     [ "$AETHER_PANEL_NO_QUIC_V2" = 1 ] && saman_aether_flag_supported --no-quic-v2 && SAMAN_AETHER_ARGS+=(--no-quic-v2)
     [ "$AETHER_PANEL_ECH" ] && saman_aether_flag_supported --ech && SAMAN_AETHER_ARGS+=(--ech "$AETHER_PANEL_ECH")
     [ "$AETHER_PANEL_FRAGMENT" = 1 ] && saman_aether_flag_supported --fragment && SAMAN_AETHER_ARGS+=(--fragment)
@@ -268,6 +332,26 @@ saman_aether_build_args_array() {
     [ "$AETHER_PANEL_LOG_LEVEL" ] && saman_aether_flag_supported --log-level && SAMAN_AETHER_ARGS+=(--log-level "$AETHER_PANEL_LOG_LEVEL")
     [ "$AETHER_PANEL_NO_DATA_CHECK" = 1 ] && saman_aether_flag_supported --no-data-check && SAMAN_AETHER_ARGS+=(--no-data-check)
     [ "$AETHER_PANEL_NO_PROFILE_RETRY" = 1 ] && { [ "$mode" = wg ] || [ "$mode" = gool ]; } && saman_aether_flag_supported --no-profile-retry && SAMAN_AETHER_ARGS+=(--no-profile-retry)
+    case "${AETHER_PANEL_TOR_MODE:-off}" in
+        inside) SAMAN_AETHER_ARGS+=(--tor --tor-bind "$AETHER_PANEL_TOR_BIND") ;;
+        reverse) SAMAN_AETHER_ARGS+=(--tor-reverse --tor-bind "$AETHER_PANEL_TOR_BIND") ;;
+    esac
+    if [ "${AETHER_PANEL_TOR_MODE:-off}" != off ]; then
+        [ -n "$AETHER_PANEL_TOR_DIR" ] && saman_aether_flag_supported --tor-dir && SAMAN_AETHER_ARGS+=(--tor-dir "$AETHER_PANEL_TOR_DIR")
+        case "$AETHER_PANEL_TOR_BRIDGES" in
+            force) saman_aether_flag_supported --tor-bridges && SAMAN_AETHER_ARGS+=(--tor-bridges) ;;
+            disabled) saman_aether_flag_supported --no-tor-bridges && SAMAN_AETHER_ARGS+=(--no-tor-bridges) ;;
+        esac
+        if [ -n "$AETHER_PANEL_TOR_BRIDGE" ] && saman_aether_flag_supported --tor-bridge; then
+            while IFS= read -r item; do [ -n "$item" ] && SAMAN_AETHER_ARGS+=(--tor-bridge "$item"); done < <(printf '%s\n' "$AETHER_PANEL_TOR_BRIDGE" | tr ';' '\n')
+        fi
+        if [ -n "$AETHER_PANEL_TOR_PT" ] && saman_aether_flag_supported --tor-pt; then
+            while IFS= read -r item; do [ -n "$item" ] && SAMAN_AETHER_ARGS+=(--tor-pt "$item"); done < <(printf '%s\n' "$AETHER_PANEL_TOR_PT" | tr ';' '\n')
+        fi
+        if [ -n "$AETHER_PANEL_TOR_PT_DIR" ] && saman_aether_flag_supported --tor-pt-dir; then
+            while IFS= read -r item; do [ -n "$item" ] && SAMAN_AETHER_ARGS+=(--tor-pt-dir "$item"); done < <(printf '%s\n' "$AETHER_PANEL_TOR_PT_DIR" | tr ';' '\n')
+        fi
+    fi
 }
 
 saman_aether_build_args() {
@@ -300,6 +384,12 @@ saman_aether_show_config() {
         "Aether Version    : ${SAMAN_AETHER_CAP_VERSION:-unknown}" \
         "Executable        : ${SAMAN_AETHER_CAP_PATH:-$(saman_aether_bin 2>/dev/null || echo unavailable)}" \
         "Connection Mode   : $AETHER_PANEL_MODE" \
+        "Tor Routing       : $AETHER_PANEL_TOR_MODE" \
+        "Tor Proxy         : $([ "$AETHER_PANEL_TOR_MODE" = only ] && printf '%s' "$AETHER_PANEL_TOR_BIND" || { [ "$AETHER_PANEL_TOR_MODE" = off ] && printf 'off' || printf '%s' "$AETHER_PANEL_TOR_BIND"; })" \
+        "Tor Bridges       : $AETHER_PANEL_TOR_BRIDGES" \
+        "Custom bridges    : $([ -n "$AETHER_PANEL_TOR_BRIDGE" ] && printf 'configured (private)' || printf 'none')" \
+        "Custom PT         : $([ -n "$AETHER_PANEL_TOR_PT" ] && printf 'configured (private)' || printf 'automatic')" \
+        "Actual Running    : $(if declare -F s2_aether_pid_running >/dev/null 2>&1 && s2_aether_pid_running; then s2_aether_mode; else printf 'stopped'; fi)" \
         "Preset            : $AETHER_PANEL_PRESET" \
         "Scan Mode         : ${AETHER_PANEL_SCAN:-upstream default}" \
         "Obfuscation       : ${AETHER_PANEL_NOIZE:-upstream default}" \
@@ -317,6 +407,13 @@ saman_aether_capabilities() {
     saman_aether_detect_capabilities || return
     printf 'Official Aether: %s\nPath: %s\n' "$SAMAN_AETHER_CAP_VERSION" "$SAMAN_AETHER_CAP_PATH"
     printf 'Modes: masque=%s wg=%s gool=%s mim=%s\n' "$SAMAN_AETHER_CAP_HAS_MASQUE" "$SAMAN_AETHER_CAP_HAS_WG" "$SAMAN_AETHER_CAP_HAS_GOOL" "$SAMAN_AETHER_CAP_HAS_MIM"
+    if [ "$SAMAN_AETHER_CAP_HAS_TOR" -eq 1 ]; then
+        printf 'Tor: available (compiled)\n'
+    elif [ "${SAMAN_AETHER_CAP_HAS_TOR_HELP:-0}" -eq 1 ]; then
+        printf 'Tor: unavailable (not compiled)\n'
+    else
+        printf 'Tor: unavailable (CLI unsupported)\n'
+    fi
     printf 'Scan modes: %s\nNoize profiles: %s\n' "$SAMAN_AETHER_CAP_SCANS" "$SAMAN_AETHER_CAP_NOIZE"
 }
 
@@ -338,12 +435,35 @@ saman_aether_reset() {
     printf 'OK: Saman Aether overrides reset; official identities and keys were kept.\n'
 }
 
-saman_aether_update() {
-    local bin arch api json tag asset checksum_url asset_url tmp new old backup expected actual
+saman_aether_archive_safe() {
+    local archive="$1" listing="$2" verbose="$3" name type
+    tar -tzf "$archive" > "$listing" 2>/dev/null || return 1
+    tar -tvzf "$archive" > "$verbose" 2>/dev/null || return 1
+    grep -Eq '^\./?aether$|^aether$' "$listing" || return 1
+    while IFS= read -r name; do
+        name="${name#./}"
+        case "$name" in
+            aether|pt|pt/) ;;
+            pt/*)
+                [[ "$name" != *'/../'* && "$name" != ../* && "$name" != */.. && "$name" != *//* ]] || return 1
+                [[ "$name" =~ ^pt/[A-Za-z0-9._+/@=-]+/?$ ]] || return 1
+                ;;
+            *) return 1 ;;
+        esac
+    done < "$listing"
+    while IFS= read -r name; do
+        type="${name:0:1}"
+        case "$type" in -|d) ;; *) return 1 ;; esac
+    done < "$verbose"
+}
+
+saman_aether_update() (
+    set -o pipefail
+    local bin arch api json tag asset checksum_url asset_url tmp new install_dir live_pt
+    local backup expected actual version staged_bin staged_pt rollback_bin rollback_pt had_pt=0
     bin="$(saman_aether_bin)" || return 127
-    arch="$(uname -m)"; case "$arch" in aarch64|arm64) arch=arm64;; armv7l|armv7|arm) arch=armv7;; x86_64|amd64) arch=x86_64;; *) printf 'ERROR: unsupported architecture: %s\n' "$arch" >&2; return 2;; esac
-    command -v curl >/dev/null 2>&1 || { printf 'ERROR: curl is required.\n' >&2; return 127; }
-    command -v jq >/dev/null 2>&1 || { printf 'ERROR: jq is required.\n' >&2; return 127; }
+    arch="${SAMAN_AETHER_ARCH:-$(uname -m)}"; case "$arch" in aarch64|arm64) arch=arm64;; armv7l|armv7|arm) arch=armv7;; x86_64|amd64) arch=x86_64;; *) printf 'ERROR: unsupported architecture: %s\n' "$arch" >&2; return 2;; esac
+    for dep in curl jq tar sha256sum readlink; do command -v "$dep" >/dev/null 2>&1 || { printf 'ERROR: %s is required.\n' "$dep" >&2; return 127; }; done
     api="https://api.github.com/repos/$SAMAN_AETHER_UPSTREAM/releases/latest"
     json="$(curl --proto '=https' --tlsv1.2 -fsSL --connect-timeout 15 --max-time 60 -H 'Accept: application/vnd.github+json' "$api")" || return 1
     tag="$(printf '%s' "$json" | jq -r 'select(.draft==false and .prerelease==false) | .tag_name')"
@@ -351,25 +471,45 @@ saman_aether_update() {
     asset_url="$(printf '%s' "$json" | jq -r --arg n "$asset" '.assets[]|select(.name==$n)|.browser_download_url')"
     checksum_url="$(printf '%s' "$json" | jq -r --arg n "$asset.sha256" '.assets[]|select(.name==$n)|.browser_download_url')"
     [ -n "$tag" ] && [ "$tag" != null ] && [ -n "$asset_url" ] && [ -n "$checksum_url" ] || { printf 'ERROR: official release lacks %s or checksum.\n' "$asset" >&2; return 1; }
-    printf 'Installed: %s\nLatest: %s (%s)\n' "$($bin --version 2>/dev/null | head -n1)" "$tag" "$arch"
+    version="$($bin --version 2>/dev/null || printf unknown)"
+    printf 'Installed: %s\nLatest: %s (%s)\n' "$version" "$tag" "$arch"
     [ "${1:-}" = --check ] && return 0
-    tmp="$(mktemp -d "$SAMAN_AETHER_CONFIG_DIR/update.XXXXXX")" || return 1
 
-    curl --proto '=https' --tlsv1.2 -fL --connect-timeout 15 --max-time 180 "$asset_url" -o "$tmp/$asset"
-    curl --proto '=https' --tlsv1.2 -fL --connect-timeout 15 --max-time 60 "$checksum_url" -o "$tmp/$asset.sha256"
+    tmp="$(mktemp -d "$SAMAN_AETHER_CONFIG_DIR/update.XXXXXX")" || return 1
+    install_dir="${bin%/*}"; live_pt="$install_dir/pt"
+    staged_bin="$install_dir/.aether.update.$$"; staged_pt="$install_dir/.pt.update.$$"
+    rollback_bin="$install_dir/.aether.rollback.$$"; rollback_pt="$install_dir/.pt.rollback.$$"
+    trap 'rm -rf -- "$tmp" "$staged_bin" "$staged_pt" "$rollback_bin" "$rollback_pt"' EXIT INT TERM
+    curl --proto '=https' --tlsv1.2 -fL --connect-timeout 15 --max-time 180 "$asset_url" -o "$tmp/$asset" || return 1
+    curl --proto '=https' --tlsv1.2 -fL --connect-timeout 15 --max-time 60 "$checksum_url" -o "$tmp/$asset.sha256" || return 1
     (cd "$tmp" && sha256sum -c "$asset.sha256") || { printf 'ERROR: checksum mismatch.\n' >&2; return 1; }
+    saman_aether_archive_safe "$tmp/$asset" "$tmp/archive.list" "$tmp/archive.verbose" || { printf 'ERROR: unsafe or incomplete official archive.\n' >&2; return 1; }
     mkdir -p "$tmp/extract"; tar -xzf "$tmp/$asset" -C "$tmp/extract" || return 1
-    new="$tmp/extract/aether"; [ -x "$new" ] || { printf 'ERROR: official archive missing aether.\n' >&2; return 1; }
-    "$new" --version >/dev/null 2>&1 && "$new" --help >/dev/null 2>&1 || { printf 'ERROR: staged binary validation failed.\n' >&2; rm -rf "$tmp"; return 1; }
-    old="$bin"; backup="$(saman_aether_backup_settings "binary-$(date +%Y%m%d-%H%M%S)")" || return 1
-    cp -p "$old" "$backup/aether" || return 1
-    install -m 0700 "$new" "$old.update.$$" && mv -f "$old.update.$$" "$old" || return 1
-    if ! "$old" --version >/dev/null 2>&1 || ! "$old" --help >/dev/null 2>&1; then cp -p "$backup/aether" "$old"; printf 'ERROR: live validation failed; rolled back.\n' >&2; return 1; fi
-    saman_aether_detect_capabilities >/dev/null 2>&1 || true
-    saman_aether_validate_settings >/dev/null 2>&1 || true
-    printf 'OK: official Aether updated to %s; settings validated.\n' "$($old --version 2>/dev/null || true)"
-    rm -rf "$tmp"
-}
+    new="$tmp/extract/aether"; [ -f "$new" ] && [ -x "$new" ] && [ -d "$tmp/extract/pt" ] || { printf 'ERROR: archive must contain executable aether and pt/.\n' >&2; return 1; }
+    "$new" --version >/dev/null 2>&1 && "$new" --help >/dev/null 2>&1 || { printf 'ERROR: staged binary validation failed.\n' >&2; return 1; }
+
+    backup="$SAMAN_AETHER_BACKUP_DIR/update-$(date +%Y%m%d-%H%M%S)-$$"
+    mkdir -p "$backup"; chmod 0700 "$backup"
+    cp -p "$bin" "$backup/aether" || return 1
+    [ ! -d "$live_pt" ] || { cp -a "$live_pt" "$backup/pt" || return 1; had_pt=1; }
+    [ ! -f "$SAMAN_AETHER_SETTINGS" ] || cp -p "$SAMAN_AETHER_SETTINGS" "$backup/settings.conf" || return 1
+
+    install -m 0700 "$new" "$staged_bin" || return 1
+    cp -a "$tmp/extract/pt" "$staged_pt" || return 1
+    mv "$bin" "$rollback_bin" || return 1
+    if [ "$had_pt" -eq 1 ]; then mv "$live_pt" "$rollback_pt" || { mv "$rollback_bin" "$bin"; return 1; }; fi
+    if ! mv "$staged_bin" "$bin" || ! mv "$staged_pt" "$live_pt" ||
+       ! "$bin" --version >/dev/null 2>&1 || ! "$bin" --help >/dev/null 2>&1; then
+        rm -rf -- "$bin" "$live_pt"
+        mv "$rollback_bin" "$bin" 2>/dev/null || true
+        [ "$had_pt" -eq 0 ] || mv "$rollback_pt" "$live_pt" 2>/dev/null || true
+        printf 'ERROR: live validation failed; binary and PT directory rolled back.\n' >&2
+        return 1
+    fi
+    rm -rf -- "$rollback_bin" "$rollback_pt"
+    version="$($bin --version 2>/dev/null || printf unknown)"
+    printf 'OK: installed %s with official pt/. Backup: %s\n' "$version" "$backup"
+)
 
 saman_aether_test_current() {
     local bin pid rc
@@ -401,35 +541,32 @@ saman_aether_prompt_set() {
 }
 
 saman_aether_mode_menu() {
-    local c i=1 option mode
-    saman_aether_detect_capabilities >/dev/null 2>&1 || true
+    local c rc current
     while :; do
-        saman_aether_load
-        printf '\nConnection Mode [%s]\n' "$AETHER_PANEL_MODE"
-        options=()
-        [ "${SAMAN_AETHER_CAP_HAS_MASQUE:-0}" -eq 1 ] && options+=("MASQUE HTTP/3")
-        [ "${SAMAN_AETHER_CAP_HAS_H2:-0}" -eq 1 ] && options+=("MASQUE HTTP/2")
-        [ "${SAMAN_AETHER_CAP_HAS_WG:-0}" -eq 1 ] && options+=("WireGuard")
-        [ "${SAMAN_AETHER_CAP_HAS_GOOL:-0}" -eq 1 ] && options+=("GOOL / WARP-in-WARP")
-        [ "${SAMAN_AETHER_CAP_HAS_MIM:-0}" -eq 1 ] && options+=("MASQUE-in-MASQUE")
-        i=1; for option in "${options[@]}"; do printf '%s) %s\n' "$i" "$option"; i=$((i+1)); done
-        printf '0) Back\n'; read -r -p 'Choice: ' c || return
-        [ "$c" = 0 ] && return
+        saman_aether_load; s2_clear
+        current="$AETHER_PANEL_MODE"
+        [ "$current" = masque ] && { [ "$AETHER_PANEL_H2" = 1 ] && current=masque-h2 || current=masque-h3; }
+        printf '%s\n' 'CONNECTION TRANSPORTS' '---------------------'
+        [ "${SAMAN_AETHER_CAP_HAS_MASQUE:-0}" -eq 1 ] && printf '1) %s MASQUE HTTP/3\n' "$(saman_aether_mark "$current" masque-h3)"
+        [ "${SAMAN_AETHER_CAP_HAS_H2:-0}" -eq 1 ] && printf '2) %s MASQUE HTTP/2\n' "$(saman_aether_mark "$current" masque-h2)"
+        [ "${SAMAN_AETHER_CAP_HAS_WG:-0}" -eq 1 ] && printf '3) %s WireGuard\n' "$(saman_aether_mark "$current" wg)"
+        [ "${SAMAN_AETHER_CAP_HAS_GOOL:-0}" -eq 1 ] && printf '4) %s GOOL\n' "$(saman_aether_mark "$current" gool)"
+        [ "${SAMAN_AETHER_CAP_HAS_MIM:-0}" -eq 1 ] && printf '5) %s MASQUE-in-MASQUE\n' "$(saman_aether_mark "$current" mim)"
+        printf '0) Back\n'
+        if saman_aether_read_number 5; then rc=0; else rc=$?; fi; c="${SAMAN_AETHER_CHOICE:-}"
+        [ "$rc" -eq 1 ] && return 0; [ "$rc" -eq 2 ] && continue; [ "$c" = 0 ] && return 0
         case "$c" in
-            1) mode=masque; next_label='MASQUE'; next_h2=0; next_h3=1;;
-            2) mode=masque; next_label='MASQUE H2'; next_h2=1; next_h3=0;;
-            3) mode=wg; next_label='WG'; next_h2=0; next_h3=0;;
-            4) mode=gool; next_label='GOOL'; next_h2=0; next_h3=0;;
-            5) mode=mim; next_label='MIM'; next_h2=0; next_h3=0;;
-            *) continue;;
+            1) [ "${SAMAN_AETHER_CAP_HAS_MASQUE:-0}" -eq 1 ] || continue; next_mode=masque; next_h2=0; next_h3=1; next_label='MASQUE H3' ;;
+            2) [ "${SAMAN_AETHER_CAP_HAS_H2:-0}" -eq 1 ] || continue; next_mode=masque; next_h2=1; next_h3=0; next_label='MASQUE H2' ;;
+            3) [ "${SAMAN_AETHER_CAP_HAS_WG:-0}" -eq 1 ] || continue; next_mode=wg; next_h2=0; next_h3=0; next_label='WG' ;;
+            4) [ "${SAMAN_AETHER_CAP_HAS_GOOL:-0}" -eq 1 ] || continue; next_mode=gool; next_h2=0; next_h3=0; next_label='GOOL' ;;
+            5) [ "${SAMAN_AETHER_CAP_HAS_MIM:-0}" -eq 1 ] || continue; next_mode=mim; next_h2=0; next_h3=0; next_label='MIM' ;;
         esac
-        case "$AETHER_PANEL_MODE" in
-            masque) current_label='MASQUE'; [ "$AETHER_PANEL_H2" = 1 ] && current_label='MASQUE H2';;
-            wg) current_label='WG';; gool) current_label='GOOL';; mim) current_label='MIM';;
-        esac
-        [ "$current_label" = "$next_label" ] && { printf 'Already selected: Connection Mode = %s\n' "$next_label"; return; }
-        AETHER_PANEL_MODE="$mode"; AETHER_PANEL_H2="$next_h2"; AETHER_PANEL_H3="$next_h3"; saman_aether_mark_custom
-        saman_aether_save; saman_aether_load
+        [ "$AETHER_PANEL_TOR_MODE" = reverse ] && [ "$next_mode" != masque ] && { printf 'Tor reverse requires MASQUE H2.\n'; saman_aether_ack; continue; }
+        next_current="$next_mode"; [ "$next_mode" = masque ] && { [ "$next_h2" = 1 ] && next_current=masque-h2 || next_current=masque-h3; }
+        [ "$current" = "$next_current" ] && { printf 'Already selected: Connection Mode = %s\n' "$next_label"; return; }
+        AETHER_PANEL_MODE="$next_mode" AETHER_PANEL_H2="$next_h2" AETHER_PANEL_H3="$next_h3"
+        saman_aether_mark_custom; saman_aether_save
         printf 'Saved: Connection Mode = %s\n' "$next_label"
         return
     done
@@ -481,10 +618,133 @@ saman_aether_gool_menu() { local c v; while :; do saman_aether_load; printf '\nG
 
 saman_aether_advanced_menu() { local c v; while :; do saman_aether_load; printf '\nAdvanced Settings\n1) Performance [%s]\n2) TLS groups [%s]\n3) Log level [%s]\n4) No QUIC v2 [%s]\n5) Skip data check [%s]\n6) Keepalive [%s]\n0) Back\n' "${AETHER_PANEL_PERF:-auto}" "${AETHER_PANEL_TLS_GROUPS:-auto}" "${AETHER_PANEL_LOG_LEVEL:-default}" "$AETHER_PANEL_NO_QUIC_V2" "$AETHER_PANEL_NO_DATA_CHECK" "${AETHER_PANEL_KEEPALIVE:-default}"; read -r -p 'Choice: ' c; case "$c" in 1) read -r -p 'Performance low/medium/high: ' v; saman_aether_set PERF "$v";; 2) read -r -p 'TLS groups: ' v; saman_aether_set TLS_GROUPS "$v";; 3) read -r -p 'Log level: ' v; saman_aether_set LOG_LEVEL "$v";; 4) [ "$AETHER_PANEL_NO_QUIC_V2" = 1 ] && saman_aether_set NO_QUIC_V2 0 || saman_aether_set NO_QUIC_V2 1;; 5) [ "$AETHER_PANEL_NO_DATA_CHECK" = 1 ] && saman_aether_set NO_DATA_CHECK 0 || saman_aether_set NO_DATA_CHECK 1;; 6) read -r -p 'Keepalive seconds: ' v; saman_aether_set KEEPALIVE "$v";; 0) return;; esac; done; }
 
+saman_aether_mark() { [ "$1" = "$2" ] && printf '[x]' || printf '[ ]'; }
+
+saman_aether_render_tor_menu() {
+    saman_aether_load
+    printf '%s\n' 'TOR ROUTING' '-----------'
+    printf '1) %s Off\n' "$(saman_aether_mark "$AETHER_PANEL_TOR_MODE" off)"
+    printf '2) %s Inside selected transport\n' "$(saman_aether_mark "$AETHER_PANEL_TOR_MODE" inside)"
+    printf '3) %s Reverse via MASQUE H2\n' "$(saman_aether_mark "$AETHER_PANEL_TOR_MODE" reverse)"
+    printf '4) %s Tor only\n' "$(saman_aether_mark "$AETHER_PANEL_TOR_MODE" only)"
+    printf '0) Back\n'
+}
+
+saman_aether_ack() {
+    local ignored
+    printf 'Press Enter to continue...' >&2
+    IFS= read -r ignored || true
+}
+
+saman_aether_read_number() {
+    local max="$1" c=''
+    printf 'Choice: ' >&2
+    IFS= read -r c || return 1
+    if [ -z "$c" ]; then
+        printf 'Please enter a number.\n'
+        saman_aether_ack
+        return 2
+    fi
+    if ! [[ "$c" =~ ^[0-9]+$ ]] || [ "$c" -gt "$max" ]; then
+        printf 'Invalid choice: %s\n' "$c"
+        saman_aether_ack
+        return 2
+    fi
+    SAMAN_AETHER_CHOICE="$c"
+}
+
+saman_aether_tor_mode_menu() {
+    local c rc
+    while :; do
+        s2_clear
+        saman_aether_render_tor_menu
+        if saman_aether_read_number 4; then rc=0; else rc=$?; fi; c="${SAMAN_AETHER_CHOICE:-}"
+        [ "$rc" -eq 1 ] && return 0
+        [ "$rc" -eq 2 ] && continue
+        [ "$c" = 0 ] && return 0
+        [ "${SAMAN_AETHER_CAP_HAS_TOR:-0}" -eq 1 ] || { printf 'Tor is unavailable in this Aether build.\n'; saman_aether_ack; continue; }
+        case "$c" in
+            1) saman_aether_set TOR_MODE off ;;
+            2) saman_aether_set TOR_MODE inside ;;
+            3)
+                saman_aether_load
+                AETHER_PANEL_TOR_MODE=reverse AETHER_PANEL_MODE=masque AETHER_PANEL_H2=1 AETHER_PANEL_H3=0
+                saman_aether_mark_custom; saman_aether_save
+                printf 'Saved: Tor Routing = reverse (MASQUE H2 forced)\n'
+                ;;
+            4) saman_aether_set TOR_MODE only ;;
+        esac
+        return 0
+    done
+}
+
+saman_aether_tor_settings_menu() {
+    local c rc v
+    while :; do
+        saman_aether_load; s2_clear
+        printf '%s\n' 'TOR SETTINGS' '------------'
+        printf '1) Bind [%s]\n2) Data dir [%s]\n3) Bridges [%s]\n4) Custom bridge [private]\n5) PT path [private]\n6) PT search dir [private]\n0) Back\n' \
+            "$AETHER_PANEL_TOR_BIND" "${AETHER_PANEL_TOR_DIR:-default}" "$AETHER_PANEL_TOR_BRIDGES"
+        if saman_aether_read_number 6; then rc=0; else rc=$?; fi; c="${SAMAN_AETHER_CHOICE:-}"
+        [ "$rc" -eq 1 ] && return 0; [ "$rc" -eq 2 ] && continue; [ "$c" = 0 ] && return 0
+        case "$c" in
+            1) read -r -p 'Tor bind: ' v || return; [ -n "$v" ] && saman_aether_set TOR_BIND "$v" ;;
+            2) read -r -p 'Tor data dir (empty clears): ' v || return; saman_aether_set TOR_DIR "$v" ;;
+            3) saman_aether_select_menu TOR_BRIDGES 'Tor bridges' 'auto force disabled' ;;
+            4) read -r -s -p 'Private bridge line(s; separated): ' v || return; printf '\n'; saman_aether_set TOR_BRIDGE "$v" ;;
+            5) read -r -s -p 'Private [name=]PT path(s;): ' v || return; printf '\n'; saman_aether_set TOR_PT "$v" ;;
+            6) read -r -s -p 'Private PT search dir(s;): ' v || return; printf '\n'; saman_aether_set TOR_PT_DIR "$v" ;;
+        esac
+        saman_aether_ack
+    done
+}
+
+saman_aether_render_main_menu() {
+    local actual='stopped' selected
+    saman_aether_load
+    selected="$AETHER_PANEL_MODE"
+    [ "$selected" = masque ] && { [ "$AETHER_PANEL_H2" = 1 ] && selected='masque-h2' || selected='masque-h3'; }
+    [ "$AETHER_PANEL_TOR_MODE" = off ] || selected="$selected + tor-$AETHER_PANEL_TOR_MODE"
+    if declare -F s2_aether_pid_running >/dev/null 2>&1 && s2_aether_pid_running; then actual="$(s2_aether_mode)"; fi
+    printf '%s\n' 'AETHER CONTROL PANEL' '--------------------' "Selected: $selected" "Running : $actual" '' \
+        '1) Start selected' \
+        '2) Stop' \
+        '3) Restart selected' \
+        '4) Status' \
+        '5) Connection transports' \
+        '6) Tor routing' \
+        '7) Tor settings' \
+        '8) Network/profiles/settings' \
+        '9) Updates' \
+        '10) Logs / help' \
+        '0) Back' \
+        '99) Exit Saman'
+}
+
 s2_aether_menu() {
-    saman_aether_init; saman_aether_load; saman_aether_detect_capabilities >/dev/null 2>&1 || true
-    local c
-    while :; do saman_aether_load; printf '\nAETHER CONTROL PANEL\n--------------------\nMode [%s]  Preset [%s]  Scan [%s]  Noize [%s]\n1) Connect / Start\n2) Connection Mode\n3) Preset\n4) Scan Mode\n5) Obfuscation / Noize\n6) Network / IP\n7) MASQUE Settings\n8) WireGuard Settings\n9) GOOL Settings\n10) DNS / Proxy / Routing\n11) Advanced Settings\n12) Show Current Configuration\n13) Test Current Configuration\n14) Update Aether\n15) Reset Aether Settings\n16) Version / Diagnostics\n0) Back\n' "$AETHER_PANEL_MODE" "$AETHER_PANEL_PRESET" "${AETHER_PANEL_SCAN:-default}" "${AETHER_PANEL_NOIZE:-default}"; read -r -p 'Choice: ' c; case "$c" in 1) s2_aether_start "$AETHER_PANEL_MODE";; 2) saman_aether_mode_menu;; 3) saman_aether_preset_menu;; 4) saman_aether_scan_menu;; 5) saman_aether_noize_menu;; 6|10) saman_aether_network_menu;; 7) saman_aether_masque_menu;; 8) saman_aether_wireguard_menu;; 9) saman_aether_gool_menu;; 11) saman_aether_advanced_menu;; 12) saman_aether_show_config; s2_pause;; 13) saman_aether_test_current; s2_pause;; 14) saman_aether_update; s2_pause;; 15) saman_aether_reset; s2_pause;; 16) saman_aether_diagnostics_panel; s2_pause;; 0) return;; esac; done
+    local c rc
+    saman_aether_init || return 1
+    saman_aether_detect_capabilities >/dev/null 2>&1 || true
+    while :; do
+        s2_clear; saman_aether_render_main_menu
+        if saman_aether_read_number 99; then rc=0; else rc=$?; fi; c="${SAMAN_AETHER_CHOICE:-}"
+        [ "$rc" -eq 1 ] && return 0; [ "$rc" -eq 2 ] && continue
+        case "$c" in
+            1) saman_aether_load; s2_aether_start "$AETHER_PANEL_MODE"; saman_aether_ack ;;
+            2) s2_aether_stop; saman_aether_ack ;;
+            3) saman_aether_load; s2_aether_restart "$AETHER_PANEL_MODE"; saman_aether_ack ;;
+            4) s2_aether_status; saman_aether_ack ;;
+            5) saman_aether_mode_menu ;;
+            6) saman_aether_tor_mode_menu ;;
+            7) saman_aether_tor_settings_menu ;;
+            8) saman_aether_network_menu ;;
+            9) saman_aether_update; saman_aether_ack ;;
+            10) saman_aether_show_config; printf '\nUse: saman aether logs\n'; saman_aether_ack ;;
+            0) return 0 ;;
+            99) S2_EXIT_REQUESTED=1; return 0 ;;
+            *) printf 'Invalid choice: %s\n' "$c"; saman_aether_ack ;;
+        esac
+    done
 }
 
 saman_aether_panel_command() {
