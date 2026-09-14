@@ -12,7 +12,7 @@ run_center() { env HOME="$TEST_TMP/home" PREFIX="${PREFIX:?}" SAMAN2_ROOT="$CENT
 mkdir -p "$TEST_TMP/home"
 
 # Read-only metadata commands must not create state, cache, or config directories.
-[ "$(run_center version)" = "2.1.0" ] || fail "modernized version"
+[ "$(run_center version)" = "2.1.1" ] || fail "modernized version"
 [ ! -e "$TEST_TMP/home/.local/state/saman-center-v2" ] || fail "version created state"
 [ ! -e "$TEST_TMP/home/.cache/saman-center-v2" ] || fail "version created cache"
 [ ! -e "$TEST_TMP/home/.config/saman-center-v2" ] || fail "version created config"

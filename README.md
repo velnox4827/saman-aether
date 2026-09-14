@@ -298,7 +298,7 @@ Battery optimization را برای Termux محدود نکنید و اجازهٔ 
 
 ## یادداشت تغییرات Termux
 
-این به‌روزرسانی:
+این به‌روزرسانی (Saman Termux 1.8.1 / Center 2.1.1):
 
 - منوهای Aether را به جریان تکرارشونده و غیرrecursive با یک مالک ورودی تبدیل می‌کند؛
 - صفحهٔ قبلی را در TTY پاک و پیام عملیات را تا تأیید کاربر حفظ می‌کند؛
@@ -308,6 +308,11 @@ Battery optimization را برای Termux محدود نکنید و اجازهٔ 
 - قابلیت‌های رسمی Tor در Aether v2.0.0، تنظیمات bridge/PT، readiness و خطاهای پورت/bootstrap را اضافه می‌کند؛
 - updater هستهٔ رسمی را برای binary و `pt/` با checksum، staging، backup، جایگزینی اتمیک و rollback سخت‌گیرانه می‌کند؛
 - تست‌های regression منو، persistence، dispatch، lifecycle، Tor و مسیرهای شکست updater را اضافه می‌کند.
+- گزینه‌های باقی‌ماندهٔ واقعی upstream مانند gateway، Zero Trust، مسیرهای identity،
+  `--no-quick-reconnect` و اسکن GOOL/MIM را فقط در صورت وجود flag زنده به آرایهٔ
+  اجرای رسمی اضافه می‌کند. ماتریس کامل در [docs/UPSTREAM_AETHER_MATRIX.md](docs/UPSTREAM_AETHER_MATRIX.md) است.
+- Psiphon در `aether 2.0.0` نصب‌شده در help و binary دیده نشد؛ بنابراین Saman آن را
+  به‌عنوان حالت جعلی نمایش نمی‌دهد و فقط unavailable را گزارش می‌کند.
 
 ## معماری و امنیت
 

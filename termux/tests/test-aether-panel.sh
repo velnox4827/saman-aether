@@ -30,6 +30,8 @@ Usage: aether [OPTIONS]
   --dns <list> --reconnect-secs <n> --startup-secs <n> --validate-secs <n>
   --keepalive <n> --perf <low|medium|high> --tls-groups <list> --log-level <level>
   --route-block <list> --route-direct <list> --routes <path> --h2-peer <ip:port>
+  --gateway --team <name> --access-id <id> --access-secret <secret> --access-email <addr> --access-token <jwt>
+  --config <path> --wg-config <path> --masque-config <path> --wiw-scan --mim-scan --no-quick-reconnect
 HELP
   ;;
   *) exit 0 ;;
@@ -54,6 +56,7 @@ saman_aether_defaults
 saman_aether_set MODE mim
 saman_aether_set SCAN ironclad
 saman_aether_set NOIZE aggressive
+saman_aether_set NO_QUICK 1
 saman_aether_save
 saman_aether_load
 [ "$AETHER_PANEL_MODE" = mim ]
@@ -64,6 +67,7 @@ args="$(saman_aether_build_args)"
 case " $args " in *' --mim '*) ;; *) exit 1 ;; esac
 case " $args " in *' --scan ironclad '*) ;; *) exit 1 ;; esac
 case " $args " in *' --noize aggressive '*) ;; *) exit 1 ;; esac
+case " $args " in *' --no-quick-reconnect '*) ;; *) exit 1 ;; esac
 
 saman_aether_apply_preset balanced
 [ "$AETHER_PANEL_PRESET" = balanced ]

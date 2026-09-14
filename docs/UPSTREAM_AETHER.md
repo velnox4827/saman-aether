@@ -1,6 +1,6 @@
 # Saman + Official Upstream Aether
 
-Starting with **Saman Termux 1.7.0**, Saman no longer installs or maintains a patched Aether core.
+Starting with **Saman Termux 1.8.1**, Saman no longer installs or maintains a patched Aether core.
 
 ## Architecture
 
@@ -16,6 +16,8 @@ Starting with **Saman Termux 1.7.0**, Saman no longer installs or maintains a pa
   - Tor alone (`--tor-only`)
 - The Aether executable is never copied, patched, overwritten, or removed by Saman.
 - `$PREFIX/bin/saman-aether-core` is only a compatibility symlink to the official `aether` command so older Saman diagnostics continue to work.
+- The installed upstream CLI does not advertise Psiphon; Saman therefore does not expose a Psiphon mode or settings menu.
+- The verified capability matrix for the current installation is maintained in `docs/UPSTREAM_AETHER_MATRIX.md`.
 
 ## Update behavior
 

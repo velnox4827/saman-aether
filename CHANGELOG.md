@@ -1,5 +1,15 @@
 # Changelog
 
+## Saman Termux v1.8.1 / Center v2.1.1 — 2026-09-14
+
+- Extended the upstream-direct adapter for the live Aether option surface,
+  including access/gateway, identity paths, reconnect disabling, and GOOL/MIM
+  scan controls, all gated by the installed binary's help output.
+- Added a verified upstream capability matrix and explicit Psiphon-unavailable
+  reporting; no fake Psiphon implementation was added.
+- Preserved non-stacking clear/redraw navigation and refreshed Persian-first
+  Termux documentation.
+
 ## Saman Termux v1.8.0 — 2026-09-13
 
 - Rebuilt the Aether menus as clear/redraw loops with safe numeric input,

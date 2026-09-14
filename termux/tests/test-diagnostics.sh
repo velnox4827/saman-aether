@@ -5,7 +5,7 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/home/bin" "$TMP/home/storage/downloads" "$TMP/prefix/bin"
 printf '#!/usr/bin/env bash\necho "aether 1.8.0"\n' > "$TMP/prefix/bin/saman-aether-core"
-printf '#!/usr/bin/env bash\necho "2.1.0"\n' > "$TMP/home/bin/saman"
+printf '#!/usr/bin/env bash\necho "2.1.1"\n' > "$TMP/home/bin/saman"
 chmod +x "$TMP/prefix/bin/saman-aether-core" "$TMP/home/bin/saman"
 printf '%s\n' \
   'Authorization: Bearer SUPERSECRET' \
