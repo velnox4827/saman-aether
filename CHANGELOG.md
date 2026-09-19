@@ -1,5 +1,12 @@
 # Changelog
 
+## Saman Termux v1.8.2 / Center v2.1.2 — 2026-09-19
+
+- Added a separate, official Psiphon Console Client adapter with safe config validation, owned-process lifecycle, source verification, and independent update/build actions.
+- Added an explicit Psiphon-via-Aether loopback chain that derives a private config without altering the supplied official client JSON.
+- Kept Aether v2.0.0 direct and unmodified; confirmed AetherST has no Psiphon core to reuse.
+- Added Psiphon controls to the Aether panel and Update Center, plus regression coverage and Persian-first/English documentation.
+
 ## Saman Termux v1.8.1 / Center v2.1.1 — 2026-09-14
 
 - Extended the upstream-direct adapter for the live Aether option surface,

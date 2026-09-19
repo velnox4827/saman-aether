@@ -98,6 +98,27 @@ saman_aether_defaults() {
     AETHER_PANEL_TOR_BRIDGE=""
     AETHER_PANEL_TOR_PT=""
     AETHER_PANEL_TOR_PT_DIR=""
+    # Aether settings which are intentionally environment-only in v2.0.0.
+    AETHER_PANEL_MARK=""
+    AETHER_PANEL_TOR_DIRECT_SECS=""
+    AETHER_PANEL_TOR_STALL_SECS=""
+    AETHER_PANEL_TOR_BRIDGE_SECS=""
+    AETHER_PANEL_TOR_COUNTRY=""
+    AETHER_PANEL_TOR_CHECK=""
+    AETHER_PANEL_TOR_LOG=""
+    AETHER_PANEL_ROUTE_SNIFF=""
+    AETHER_PANEL_ROUTE_SNIFF_MS=""
+    AETHER_PANEL_WG_ENDPOINT_COOLDOWN_SECS=""
+    AETHER_PANEL_WG_STALE_SECS=""
+    AETHER_PANEL_MASQUE_H2_KEEPALIVE_SECS=""
+    AETHER_PANEL_MASQUE_H2_KEEPALIVE_TIMEOUT_SECS=""
+    AETHER_PANEL_IRONCLAD_PORT=""
+    AETHER_PANEL_MAX_CLIENTS=""
+    AETHER_PANEL_HALF_CLOSE_SECS=""
+    AETHER_PANEL_TCP_KEEPALIVE_SECS=""
+    AETHER_PANEL_TCP_CONNECT_SECS=""
+    AETHER_PANEL_REPROVISION=""
+    AETHER_PANEL_VERBOSE=0
 }
 
 saman_aether_save_defaults() {
@@ -138,7 +159,7 @@ saman_aether_load() {
         [[ "$line" == *=* ]] || continue
         k="${line%%=*}"; v="${line#*=}"
         case "$k" in
-            MODE|PRESET|SCAN|NOIZE|IP|H2|H3|ECH|FRAGMENT|FRAGMENT_SIZE|FRAGMENT_DELAY|BIND|HTTP|UPSTREAM|DNS|ROUTE_BLOCK|ROUTE_DIRECT|ROUTES|QUICK|NO_QUICK|GATEWAY|TEAM|ACCESS_ID|ACCESS_SECRET|ACCESS_EMAIL|ACCESS_TOKEN|CONFIG|WG_CONFIG|MASQUE_CONFIG|WIW_SCAN|MIM_SCAN|RECONNECT_SECS|STARTUP_SECS|VALIDATE_SECS|KEEPALIVE|PEER|WG_PEER|WIW_OUTER|WIW_INNER|WIW_PEERS|MIM_OUTER|MIM_INNER|MIM_PEERS|PERF|TLS_GROUPS|LOG_LEVEL|NO_QUIC_V2|NO_DATA_CHECK|NO_PROFILE_RETRY|H2_PEER|TOR_MODE|TOR_BIND|TOR_DIR|TOR_BRIDGES|TOR_BRIDGE|TOR_PT|TOR_PT_DIR)
+            MODE|PRESET|SCAN|NOIZE|IP|H2|H3|ECH|FRAGMENT|FRAGMENT_SIZE|FRAGMENT_DELAY|BIND|HTTP|UPSTREAM|DNS|ROUTE_BLOCK|ROUTE_DIRECT|ROUTES|QUICK|NO_QUICK|GATEWAY|TEAM|ACCESS_ID|ACCESS_SECRET|ACCESS_EMAIL|ACCESS_TOKEN|CONFIG|WG_CONFIG|MASQUE_CONFIG|WIW_SCAN|MIM_SCAN|RECONNECT_SECS|STARTUP_SECS|VALIDATE_SECS|KEEPALIVE|PEER|WG_PEER|WIW_OUTER|WIW_INNER|WIW_PEERS|MIM_OUTER|MIM_INNER|MIM_PEERS|PERF|TLS_GROUPS|LOG_LEVEL|NO_QUIC_V2|NO_DATA_CHECK|NO_PROFILE_RETRY|H2_PEER|TOR_MODE|TOR_BIND|TOR_DIR|TOR_BRIDGES|TOR_BRIDGE|TOR_PT|TOR_PT_DIR|MARK|TOR_DIRECT_SECS|TOR_STALL_SECS|TOR_BRIDGE_SECS|TOR_COUNTRY|TOR_CHECK|TOR_LOG|ROUTE_SNIFF|ROUTE_SNIFF_MS|WG_ENDPOINT_COOLDOWN_SECS|WG_STALE_SECS|MASQUE_H2_KEEPALIVE_SECS|MASQUE_H2_KEEPALIVE_TIMEOUT_SECS|IRONCLAD_PORT|MAX_CLIENTS|HALF_CLOSE_SECS|TCP_KEEPALIVE_SECS|TCP_CONNECT_SECS|REPROVISION|VERBOSE)
                 saman_aether_assign "$k" "$v" || true ;;
         esac
     done < "$SAMAN_AETHER_SETTINGS"
@@ -149,7 +170,7 @@ saman_aether_save() {
     tmp="$(mktemp "$SAMAN_AETHER_SETTINGS.tmp.XXXXXX")" || return 1
     {
         printf '# Saman Aether preferences; official Aether owns identity/config files.\n'
-        for k in MODE PRESET SCAN NOIZE IP H2 H3 ECH FRAGMENT FRAGMENT_SIZE FRAGMENT_DELAY BIND HTTP UPSTREAM DNS ROUTE_BLOCK ROUTE_DIRECT ROUTES QUICK NO_QUICK GATEWAY TEAM ACCESS_ID ACCESS_SECRET ACCESS_EMAIL ACCESS_TOKEN CONFIG WG_CONFIG MASQUE_CONFIG WIW_SCAN MIM_SCAN RECONNECT_SECS STARTUP_SECS VALIDATE_SECS KEEPALIVE PEER WG_PEER WIW_OUTER WIW_INNER WIW_PEERS MIM_OUTER MIM_INNER MIM_PEERS PERF TLS_GROUPS LOG_LEVEL NO_QUIC_V2 NO_DATA_CHECK NO_PROFILE_RETRY H2_PEER TOR_MODE TOR_BIND TOR_DIR TOR_BRIDGES TOR_BRIDGE TOR_PT TOR_PT_DIR; do
+        for k in MODE PRESET SCAN NOIZE IP H2 H3 ECH FRAGMENT FRAGMENT_SIZE FRAGMENT_DELAY BIND HTTP UPSTREAM DNS ROUTE_BLOCK ROUTE_DIRECT ROUTES QUICK NO_QUICK GATEWAY TEAM ACCESS_ID ACCESS_SECRET ACCESS_EMAIL ACCESS_TOKEN CONFIG WG_CONFIG MASQUE_CONFIG WIW_SCAN MIM_SCAN RECONNECT_SECS STARTUP_SECS VALIDATE_SECS KEEPALIVE PEER WG_PEER WIW_OUTER WIW_INNER WIW_PEERS MIM_OUTER MIM_INNER MIM_PEERS PERF TLS_GROUPS LOG_LEVEL NO_QUIC_V2 NO_DATA_CHECK NO_PROFILE_RETRY H2_PEER TOR_MODE TOR_BIND TOR_DIR TOR_BRIDGES TOR_BRIDGE TOR_PT TOR_PT_DIR MARK TOR_DIRECT_SECS TOR_STALL_SECS TOR_BRIDGE_SECS TOR_COUNTRY TOR_CHECK TOR_LOG ROUTE_SNIFF ROUTE_SNIFF_MS WG_ENDPOINT_COOLDOWN_SECS WG_STALE_SECS MASQUE_H2_KEEPALIVE_SECS MASQUE_H2_KEEPALIVE_TIMEOUT_SECS IRONCLAD_PORT MAX_CLIENTS HALF_CLOSE_SECS TCP_KEEPALIVE_SECS TCP_CONNECT_SECS REPROVISION VERBOSE; do
             var="$(saman_aether_key_var "$k")"; printf '%s=%s\n' "$k" "${!var-}"
         done
     } > "$tmp" && chmod 0600 "$tmp" && mv -f "$tmp" "$SAMAN_AETHER_SETTINGS" || { rm -f "$tmp"; return 1; }
@@ -186,6 +207,61 @@ saman_aether_mark_custom() {
 saman_aether_flag_supported() {
     local flag="$1"
     [ -r "${SAMAN_AETHER_HELP_FILE:-}" ] && grep -Fq -- "$flag" "$SAMAN_AETHER_HELP_FILE"
+}
+
+# Central registry: flags are either emitted as CLI arguments or represented by
+# the environment-only settings below.  This is also the source for parity.
+saman_aether_registry_flags() {
+    printf '%s\n' --bind --http-proxy --upstream --mark --quick-reconnect --no-quick-reconnect \
+        -4 -6 --dual --ip --peer --wg-peer --masque --wg --wireguard --warp --gool --wiw \
+        --mim --masque-in-masque --protocol --wiw-outer --wiw-inner --wiw-peers --wiw-scan \
+        --mim-outer --mim-inner --mim-peers --mim-scan --scan --turbo --balanced --thorough \
+        --stealth --ironclad --noize --h2 --http2 --h3 --quic --no-quic-v2 --h2-peer --ech \
+        --no-data-check --validate-secs --startup-secs --reconnect-secs --dns --fragment \
+        --fragment-size --fragment-delay --keepalive --no-profile-retry --tor --tor-reverse \
+        --tor-only --tor-bind --tor-dir --tor-bridges --no-tor-bridges --tor-bridge --tor-pt \
+        --tor-pt-dir --team --access-id --access-secret --access-email --access-token --gateway \
+        --route-block --route-direct --routes --config --wg-config --masque-config --tls-groups \
+        --perf --log-level --verbose
+}
+
+saman_aether_registry_envs() {
+    printf '%s\n' AETHER_SOCKS AETHER_HTTP_PROXY AETHER_UPSTREAM AETHER_MARK AETHER_TOR \
+        AETHER_TOR_BRIDGES AETHER_TOR_PT AETHER_TOR_PT_DIR AETHER_TOR_BIND AETHER_TOR_DIR \
+        AETHER_TOR_DIRECT_SECS AETHER_TOR_STALL_SECS AETHER_TOR_BRIDGE_SECS AETHER_TOR_COUNTRY \
+        AETHER_TOR_CHECK AETHER_TOR_LOG AETHER_QUICK_RECONNECT AETHER_IP AETHER_PEER AETHER_WG_PEER \
+        AETHER_PROTOCOL AETHER_WIW_OUTER_PEER AETHER_WIW_INNER_PEER AETHER_WIW_PEERS \
+        AETHER_MIM_OUTER_PEER AETHER_MIM_INNER_PEER AETHER_MIM_PEERS AETHER_SCAN AETHER_NOIZE \
+        AETHER_MASQUE_HTTP2 AETHER_QUIC_V2 AETHER_MASQUE_H2_PEER AETHER_ECH \
+        AETHER_MASQUE_NO_DATA_CHECK AETHER_WG_NO_DATA_CHECK AETHER_MASQUE_VALIDATE_SECS \
+        AETHER_WG_VALIDATE_SECS AETHER_MASQUE_STARTUP_SECS AETHER_MASQUE_RECONNECT_SECS \
+        AETHER_WG_RECONNECT_SECS AETHER_DNS AETHER_MASQUE_H2_FRAGMENT AETHER_MASQUE_H2_FRAGMENT_SIZE \
+        AETHER_MASQUE_H2_FRAGMENT_DELAY AETHER_WG_KEEPALIVE AETHER_WG_NO_PROFILE_RETRY AETHER_TEAM \
+        AETHER_ACCESS_CLIENT_ID AETHER_ACCESS_CLIENT_SECRET AETHER_ACCESS_TOKEN AETHER_ACCESS_EMAIL \
+        AETHER_GATEWAY AETHER_ROUTE_BLOCK AETHER_ROUTE_DIRECT AETHER_ROUTES_FILE AETHER_CONFIG \
+        AETHER_WG_CONFIG AETHER_MASQUE_CONFIG AETHER_TLS_GROUPS AETHER_PERF_PROFILE AETHER_LOG_LEVEL \
+        AETHER_ROUTE_SNIFF AETHER_ROUTE_SNIFF_MS AETHER_WG_ENDPOINT_COOLDOWN_SECS AETHER_WG_STALE_SECS \
+        AETHER_MASQUE_H2_KEEPALIVE_SECS AETHER_MASQUE_H2_KEEPALIVE_TIMEOUT_SECS AETHER_IRONCLAD_PORT \
+        AETHER_MAX_CLIENTS AETHER_HALF_CLOSE_SECS AETHER_TCP_KEEPALIVE_SECS AETHER_TCP_CONNECT_SECS \
+        AETHER_REPROVISION RUST_LOG
+}
+
+saman_aether_parity_report() {
+    local missing_flags missing_envs flag env
+    missing_flags=""
+    while IFS= read -r flag; do
+        [ -n "$flag" ] || continue
+        saman_aether_flag_supported "$flag" || missing_flags+="$flag "
+    done < <(saman_aether_registry_flags)
+    missing_envs=""
+    while IFS= read -r env; do
+        [ -n "$env" ] || continue
+        grep -Eq "(^|[[:space:]])$env([[:space:]]|$)" "$SAMAN_AETHER_HELP_FILE" || missing_envs+="$env "
+    done < <(saman_aether_registry_envs)
+    printf 'MISSING_FLAGS=%s\n' "$(wc -w <<< "$missing_flags" | tr -d ' ')"
+    printf 'MISSING_ENVS=%s\n' "$(wc -w <<< "$missing_envs" | tr -d ' ')"
+    [ -z "$missing_flags" ] || printf 'UNMAPPED_FLAGS=%s\n' "${missing_flags% }"
+    [ -z "$missing_envs" ] || printf 'UNMAPPED_ENVS=%s\n' "${missing_envs% }"
 }
 
 saman_aether_detect_capabilities() {
@@ -779,11 +855,47 @@ saman_aether_render_main_menu() {
         '5) Connection transports' \
         "$([ "${SAMAN_AETHER_CAP_HAS_TOR:-0}" -eq 1 ] && printf '%s' '6) Tor routing' || printf '%s' '6) Tor routing [unavailable in this upstream build]')" \
         "$([ "${SAMAN_AETHER_CAP_HAS_TOR:-0}" -eq 1 ] && printf '%s' '7) Tor settings' || printf '%s' '7) Tor settings [unavailable in this upstream build]')" \
-        '8) Network/profiles/settings' \
-        '9) Updates' \
-        '10) Logs / help' \
+        '8) Psiphon' \
+        '9) Network/profiles/settings' \
+        '10) Update Center' \
+        '11) Logs / help' \
         '0) Back' \
         '99) Exit Saman'
+}
+
+saman_aether_psiphon_menu() {
+    local c config
+    while :; do
+        s2_clear; saman_psiphon_status
+        printf '\n1) Set official client JSON\n2) Start standalone Psiphon\n3) Stop Psiphon\n4) Prepare Psiphon via Aether SOCKS chain\n5) Check Psiphon source\n0) Back\n'
+        if saman_aether_read_number 5; then c="$SAMAN_AETHER_CHOICE"; else [ "$?" -eq 1 ] && return; continue; fi
+        case "$c" in
+            1) read -r -p 'Official Psiphon client JSON path: ' config; [ -n "$config" ] && saman_psiphon_set_config "$config" ;;
+            2) saman_psiphon_start ;;
+            3) saman_psiphon_stop ;;
+            4) saman_psiphon_prepare_aether_chain "socks5://${AETHER_PANEL_BIND:-127.0.0.1:1819}" ;;
+            5) saman_psiphon_update --check ;;
+            0) return ;;
+        esac
+        saman_aether_ack
+    done
+}
+
+saman_aether_update_menu() {
+    local c
+    while :; do
+        s2_clear
+        printf 'UPDATE CENTER\n-------------\n1) Check official Aether release\n2) Update official Aether\n3) Check Psiphon source\n4) Build/update Psiphon Console Client\n0) Back\n'
+        if saman_aether_read_number 4; then c="$SAMAN_AETHER_CHOICE"; else [ "$?" -eq 1 ] && return; continue; fi
+        case "$c" in
+            1) saman_aether_update --check ;;
+            2) saman_aether_update ;;
+            3) saman_psiphon_update --check ;;
+            4) saman_psiphon_update ;;
+            0) return ;;
+        esac
+        saman_aether_ack
+    done
 }
 
 s2_aether_menu() {
@@ -802,9 +914,10 @@ s2_aether_menu() {
             5) saman_aether_mode_menu ;;
             6) [ "${SAMAN_AETHER_CAP_HAS_TOR:-0}" -eq 1 ] && saman_aether_tor_mode_menu || printf 'Tor is unavailable in this upstream Aether build.\n'; [ "${SAMAN_AETHER_CAP_HAS_TOR:-0}" -eq 1 ] || saman_aether_ack ;;
             7) [ "${SAMAN_AETHER_CAP_HAS_TOR:-0}" -eq 1 ] && saman_aether_tor_settings_menu || printf 'Tor is unavailable in this upstream Aether build.\n'; [ "${SAMAN_AETHER_CAP_HAS_TOR:-0}" -eq 1 ] || saman_aether_ack ;;
-            8) saman_aether_network_menu ;;
-            9) saman_aether_update; saman_aether_ack ;;
-            10) saman_aether_show_config; printf '\nUse: saman aether logs\n'; saman_aether_ack ;;
+            8) saman_aether_psiphon_menu ;;
+            9) saman_aether_network_menu ;;
+            10) saman_aether_update_menu ;;
+            11) saman_aether_show_config; printf '\nUse: saman aether logs\n'; saman_aether_ack ;;
             0) return 0 ;;
             99) S2_EXIT_REQUESTED=1; return 0 ;;
             *) printf 'Invalid choice: %s\n' "$c"; saman_aether_ack ;;

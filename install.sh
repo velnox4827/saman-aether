@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -Eeuo pipefail
 
-SAMAN_TERMUX_VERSION="1.8.1"
+SAMAN_TERMUX_VERSION="1.8.2"
 SAMAN_TUNNEL_VERSION="1.6.0"
 REPO="velnox4827/saman-aether"
 SOURCE_REF="${SAMAN_SOURCE_REF:-main}"
@@ -313,7 +313,7 @@ verify_install() {
     alias_real="$(readlink -f "$CORE_ALIAS" 2>/dev/null || true)"
     [ "$alias_real" = "$AETHER_REAL" ] || die "compatibility alias does not resolve to official Aether."
     bash -n "$RUNNER" "$BASE_RUNNER" "$CENTER_ROOT/saman2" "$CENTER_ROOT/lib/"*.sh "$CENTER_ROOT/modules/"*.sh
-    [ "$("$SAMAN_BIN" version)" = "2.1.1" ] || die "Saman Center version check failed."
+    [ "$("$SAMAN_BIN" version)" = "2.1.2" ] || die "Saman Center version check failed."
     [ "$(<"$VERSION_FILE")" = "$SAMAN_TERMUX_VERSION" ] || die "Saman Termux version verification failed."
     [ -n "$(upstream_aether_version)" ] || die "official Aether version check failed."
     INSTALL_STARTED=0; log "[5/5] Install verified."

@@ -36,6 +36,7 @@ Usage:
   saman aether restart MODE
   saman aether stop|test|exit
   saman aether diagnostics [safe|full]
+  saman psiphon status|config PATH|start [PATH]|stop|chain [LOOPBACK_URL]|update [--check]
   saman about                   Versions and canonical paths
   saman version                 Print Saman Center version
 HELP
@@ -196,6 +197,7 @@ case "${1:-}" in
             *) s2_help; exit 2 ;;
         esac
         ;;
+    psiphon) s2_load_aether; saman_psiphon_command "${2:-status}" "${3:-}" ;;
     '') s2_load_aether; s2_main_menu ;;
     *) s2_help >&2; exit 2 ;;
 esac

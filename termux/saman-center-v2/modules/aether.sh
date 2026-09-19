@@ -567,3 +567,6 @@ s2_aether_menu() {
 # Optional panel layer: all arguments remain capability-gated official Aether flags.
 # shellcheck source=modules/aether-panel.sh
 source "$SAMAN2_ROOT/modules/aether-panel.sh"
+# Optional Psiphon integration remains a separate official Console Client.
+# shellcheck source=modules/psiphon.sh
+source "$SAMAN2_ROOT/modules/psiphon.sh"

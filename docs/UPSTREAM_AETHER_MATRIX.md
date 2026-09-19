@@ -24,7 +24,7 @@
 | Tor reverse | `--tor-reverse`, `--tor-bind` | Tor Routing / Tor Settings | constraint MASQUE H2 تأیید شد |
 | Tor only | `--tor-only`, `--bind` | Tor Routing / Tor Settings | argument constraint تأیید شد |
 | Tor bridges/PT | `--tor-bridges`, `--no-tor-bridges`, `--tor-bridge`, `--tor-pt`, `--tor-pt-dir` | Tor Settings | validation و redaction تست شد |
-| Psiphon | —؛ در help و binary نصب‌شده نشانه‌ای پیدا نشد | نمایش به‌صورت unavailable؛ بدون menu جعلی | تأیید منفی از help/strings |
+| Psiphon | separate official `psiphon-tunnel-core` Console Client; not an Aether flag | Psiphon integration / Update Center | fixture validates config and private Aether-chain derivation |
 
 ## قواعد نگهداری
 

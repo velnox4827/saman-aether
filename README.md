@@ -86,6 +86,7 @@ saman
 - توقف، راه‌اندازی مجدد و وضعیت؛
 - انتخاب transportهای پشتیبانی‌شده؛
 - حالت‌ها و تنظیمات Tor؛
+- Psiphon اختیاری و جدا از هستهٔ Aether؛
 - preset، scan، obfuscation، IP، DNS، proxy و routing؛
 - به‌روزرسانی Saman و هستهٔ رسمی Aether؛
 - لاگ، راهنما و diagnostics.
@@ -235,6 +236,32 @@ saman aether update
 
 برای جلوگیری از خراب‌شدن سرویس، هنگام اجرای واقعی update ابتدا اتصال متعلق به سامان را با `saman aether stop` متوقف کنید. هرگز برای به‌روزرسانی از `force-push`، release ناشناس یا binary بدون checksum استفاده نکنید.
 
+### Psiphon رسمی، جدا از Aether
+
+Psiphon قابلیت داخلی `aether 2.0.0` نیست. بررسی source فعلی AetherST نیز هیچ وابستگی یا هستهٔ Psiphon نشان نداد؛ AetherST فقط Aether Core رسمی را اجرا می‌کند. بنابراین سامان Psiphon را به‌درستی به‌عنوان یک integration مستقل از [Psiphon-Labs/psiphon-tunnel-core](https://github.com/Psiphon-Labs/psiphon-tunnel-core) مدیریت می‌کند، نه یک «حالت Aether».
+
+```bash
+# وضعیت و بررسی source رسمیِ موجود
+saman psiphon status
+saman psiphon update --check
+
+# build/update از checkout رسمی تمیزِ ~/psiphon-tunnel-core
+saman psiphon update
+
+# پس از دریافت JSON رسمی client (شامل SponsorId و PropagationChannelId)
+saman psiphon config /path/to/official-client.json
+saman psiphon start
+```
+
+Console Client رسمی بدون config/Server Entry معتبر نمی‌تواند به شبکهٔ Psiphon وصل شود؛ سامان credential، server list یا config ساختگی تولید نمی‌کند. برای زنجیرهٔ ترکیبی، **Psiphon از طریق Aether** ساخته می‌شود: config مشتق‌شدهٔ خصوصی با `UpstreamProxyURL=socks5://127.0.0.1:1819` ایجاد می‌شود، بدون تغییر فایل اصلی شما:
+
+```bash
+saman psiphon chain
+saman psiphon start ~/.config/saman/psiphon/aether-chain.json
+```
+
+مسیر ترافیک در این حالت `app → Psiphon local proxy → Aether SOCKS → Internet` است. این زنجیره فقط وقتی قابل‌اجراست که Aether متعلق به سامان روی SOCKS loopback آماده و config رسمی Psiphon فراهم باشد. Psiphon و Aether جداگانه update می‌شوند.
+
 ## رفع اشکال
 
 ### منو پاک نمی‌شود یا کاراکترها خراب‌اند
@@ -298,7 +325,7 @@ Battery optimization را برای Termux محدود نکنید و اجازهٔ 
 
 ## یادداشت تغییرات Termux
 
-این به‌روزرسانی (Saman Termux 1.8.1 / Center 2.1.1):
+این به‌روزرسانی (Saman Termux 1.8.2 / Center 2.1.2):
 
 - منوهای Aether را به جریان تکرارشونده و غیرrecursive با یک مالک ورودی تبدیل می‌کند؛
 - صفحهٔ قبلی را در TTY پاک و پیام عملیات را تا تأیید کاربر حفظ می‌کند؛
@@ -311,8 +338,8 @@ Battery optimization را برای Termux محدود نکنید و اجازهٔ 
 - گزینه‌های باقی‌ماندهٔ واقعی upstream مانند gateway، Zero Trust، مسیرهای identity،
   `--no-quick-reconnect` و اسکن GOOL/MIM را فقط در صورت وجود flag زنده به آرایهٔ
   اجرای رسمی اضافه می‌کند. ماتریس کامل در [docs/UPSTREAM_AETHER_MATRIX.md](docs/UPSTREAM_AETHER_MATRIX.md) است.
-- Psiphon در `aether 2.0.0` نصب‌شده در help و binary دیده نشد؛ بنابراین Saman آن را
-  به‌عنوان حالت جعلی نمایش نمی‌دهد و فقط unavailable را گزارش می‌کند.
+- Psiphon به‌عنوان adapter جداگانهٔ official Console Client اضافه شده است؛ Aether core
+  patch نمی‌شود و config/credential ساختگی تولید نمی‌شود.
 
 ## معماری و امنیت
 
@@ -373,5 +400,19 @@ The normal endpoints are SOCKS5 `127.0.0.1:1819` and HTTP CONNECT `127.0.0.1:182
 - `--tor-only`: plain Tor SOCKS on the configured main bind (1819 by default).
 
 Use `socks5h`/proxy-side hostname resolution for Tor. Tor carries TCP, not UDP. Selecting Tor does not route all Android traffic and is not an anonymity guarantee. Saman never kills unrelated processes, never patches the upstream core, and keeps detailed service output in bounded logs.
+
+### Psiphon (separate official integration)
+
+Psiphon is not an Aether v2.0.0 mode, and the inspected AetherST source contains no Psiphon core. Saman therefore controls the official [Psiphon Tunnel Core Console Client](https://github.com/Psiphon-Labs/psiphon-tunnel-core) separately:
+
+```bash
+saman psiphon status
+saman psiphon update --check
+saman psiphon update
+saman psiphon config /path/to/official-client.json
+saman psiphon start
+```
+
+The official client needs a real client JSON with `SponsorId` and `PropagationChannelId`; Saman never invents a server list or credentials. `saman psiphon chain` derives a private config with Aether's loopback SOCKS endpoint as Psiphon's upstream, leaving the original JSON untouched. The resulting path is `app → Psiphon → Aether → Internet`. Psiphon updates and Aether updates remain independent.
 
 License: [GNU AGPL-3.0](LICENSE).
