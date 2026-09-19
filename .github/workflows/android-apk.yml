@@ -1,5 +1,5 @@
 name: Build Saman Tunnel APKs
-run-name: "Saman Tunnel v1.7.6 • ${{ github.ref_name }}"
+run-name: "Saman Tunnel v1.8.0 • ${{ github.ref_name }}"
 
 on:
   workflow_dispatch:
@@ -18,7 +18,7 @@ permissions:
   contents: read
 
 env:
-  AETHER_COMMIT: "311b573352bb67e494895ff67d20b002d075116a"
+  AETHER_COMMIT: "0e6f6a5218e65ed4cddc68d1a71d9b9633f89e3f"
   CARGO_NDK_VERSION: "4.1.2"
   RELEASE_CERT_SHA256: "03233edadf89ed27c7cf80452916a7bd25e8c74abe0f12d2eefcb8b290b48805"
 
@@ -41,11 +41,11 @@ jobs:
       - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a
       - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
         with:
-          toolchain: "1.91.0"
+          toolchain: "1.98.0"
           targets: aarch64-linux-android,armv7-linux-androideabi
       - name: Install pinned cargo-ndk
         run: cargo install cargo-ndk --version "$CARGO_NDK_VERSION" --locked
-      - name: Checkout pinned Aether Core
+      - name: Checkout official Aether Core v2.0.0
         run: |
           set -euxo pipefail
           git init "$RUNNER_TEMP/Aether"
@@ -53,20 +53,8 @@ jobs:
           git -C "$RUNNER_TEMP/Aether" fetch --depth 1 origin "$AETHER_COMMIT"
           git -C "$RUNNER_TEMP/Aether" checkout --detach FETCH_HEAD
           test "$(git -C "$RUNNER_TEMP/Aether" rev-parse HEAD)" = "$AETHER_COMMIT"
-          grep -q '^version = "1.9.0"$' "$RUNNER_TEMP/Aether/aether/Cargo.toml"
-      - name: Apply verified Saman patches
-        run: |
-          set -euxo pipefail
-          for PATCH in android-app/aether-patches/smart-reconnect-all-modes.patch android-app/aether-patches/local-proxy-reuseaddr.patch android-app/aether-patches/gool-cancel-owned-tasks.patch; do
-            test -s "$PATCH"
-            git -C "$RUNNER_TEMP/Aether" apply --check "$GITHUB_WORKSPACE/$PATCH"
-            git -C "$RUNNER_TEMP/Aether" apply "$GITHUB_WORKSPACE/$PATCH"
-          done
-          grep -q 'smart reconnect WG' "$RUNNER_TEMP/Aether/aether/src/lib.rs"
-          grep -q 'smart reconnect MASQUE' "$RUNNER_TEMP/Aether/aether/src/lib.rs"
-          grep -q 'smart reconnect GOOL' "$RUNNER_TEMP/Aether/aether/src/lib.rs"
-          grep -q 'bind_reusable_tcp_listener' "$RUNNER_TEMP/Aether/aether/src/socks.rs"
-          grep -q 'set_reuseaddr(true)' "$RUNNER_TEMP/Aether/aether/src/socks.rs"
+          grep -q '^version = "2.0.0"$' "$RUNNER_TEMP/Aether/aether/Cargo.toml"
+          grep -q '^rust-version = "1.98"$' "$RUNNER_TEMP/Aether/aether/Cargo.toml"
       - name: Build native libraries
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/26.3.11579264
@@ -74,7 +62,7 @@ jobs:
         run: |
           set -euxo pipefail
           cd "$RUNNER_TEMP/Aether/aether"
-          cargo ndk -t arm64-v8a -t armeabi-v7a --platform 24 build --release --lib
+          cargo ndk -t arm64-v8a -t armeabi-v7a --platform 24 build --release --lib --features tor
           install -Dm755 target/aarch64-linux-android/release/libaether.so "$GITHUB_WORKSPACE/android-app/app/src/main/jniLibs/arm64-v8a/libaether.so"
           install -Dm755 target/armv7-linux-androideabi/release/libaether.so "$GITHUB_WORKSPACE/android-app/app/src/main/jniLibs/armeabi-v7a/libaether.so"
       - name: Build pinned HEV tun2socks
@@ -145,7 +133,7 @@ jobs:
           for APK in "$A64" "$A32" "$UNI"; do
             "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$APK"
             B="$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK")"
-            grep -q "package: name='com.saman.tunnel.debug' versionCode='176' versionName='1.7.6'" <<<"$B"
+            grep -q "package: name='com.saman.tunnel.debug' versionCode='180' versionName='1.8.0'" <<<"$B"
           done
           python3 - "$A64" "$A32" "$UNI" <<'PYVERIFY'
           import sys, zipfile
@@ -156,13 +144,13 @@ jobs:
                           assert archive.getinfo(f"lib/{abi}/{lib}").file_size > 0, (apk, abi, lib)
           PYVERIFY
           mkdir -p dist
-          cp "$A64" dist/Saman-Tunnel-v1.7.6-arm64-v8a-debug.apk
-          cp "$A32" dist/Saman-Tunnel-v1.7.6-armeabi-v7a-debug.apk
-          cp "$UNI" dist/Saman-Tunnel-v1.7.6-universal-arm-debug.apk
+          cp "$A64" dist/Saman-Tunnel-v1.8.0-arm64-v8a-debug.apk
+          cp "$A32" dist/Saman-Tunnel-v1.8.0-armeabi-v7a-debug.apk
+          cp "$UNI" dist/Saman-Tunnel-v1.8.0-universal-arm-debug.apk
           (cd dist && sha256sum ./*.apk > SHA256SUMS)
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: saman-tunnel-v1.7.6-debug
+          name: saman-tunnel-v1.8.0-debug
           path: dist/*
           if-no-files-found: error
           retention-days: 30
@@ -198,7 +186,7 @@ jobs:
             CERTS="$("$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK")"
             grep -q "certificate SHA-256 digest: $RELEASE_CERT_SHA256" <<<"$CERTS"
             B="$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK")"
-            grep -q "package: name='com.saman.tunnel' versionCode='176' versionName='1.7.6'" <<<"$B"
+            grep -q "package: name='com.saman.tunnel' versionCode='180' versionName='1.8.0'" <<<"$B"
           done
           unzip -l "$A64" | grep -q 'lib/arm64-v8a/libaether.so'
           unzip -l "$A64" | grep -q 'lib/arm64-v8a/libsamanbridge.so'
@@ -206,14 +194,14 @@ jobs:
           unzip -l "$A32" | grep -q 'lib/armeabi-v7a/libsamanbridge.so'
           unzip -l "$UNI" | grep -q 'lib/arm64-v8a/libaether.so'
           unzip -l "$UNI" | grep -q 'lib/armeabi-v7a/libaether.so'
-          cp "$A64" dist-release/Saman-Tunnel-v1.7.6-arm64-v8a.apk
-          cp "$A32" dist-release/Saman-Tunnel-v1.7.6-armeabi-v7a.apk
-          cp "$UNI" dist-release/Saman-Tunnel-v1.7.6-universal-arm.apk
+          cp "$A64" dist-release/Saman-Tunnel-v1.8.0-arm64-v8a.apk
+          cp "$A32" dist-release/Saman-Tunnel-v1.8.0-armeabi-v7a.apk
+          cp "$UNI" dist-release/Saman-Tunnel-v1.8.0-universal-arm.apk
           (cd dist-release && sha256sum ./*.apk > SHA256SUMS)
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: github.event_name == 'workflow_dispatch' && inputs.build_release
         with:
-          name: saman-tunnel-v1.7.6-release
+          name: saman-tunnel-v1.8.0-release
           path: dist-release/*
           if-no-files-found: error
           retention-days: 30
@@ -221,7 +209,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: saman-tunnel-v1.7.6-checks
+          name: saman-tunnel-v1.8.0-checks
           path: |
             android-app/app/build/reports/
             android-app/app/build/test-results/

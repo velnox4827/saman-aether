@@ -344,6 +344,9 @@ class MainActivity : Activity() {
         modeRow.addView(modeTile("◉", "GOOL", purple, tinted(purple)) {
             start("GOOL")
         })
+        modeRow.addView(modeTile("◌", "Tor", orange, tinted(orange)) {
+            chooseTorMode()
+        })
         root.addView(modeRow)
 
         // VPN_MODE_UI_V1
@@ -722,13 +725,47 @@ class MainActivity : Activity() {
             .setItems(
                 arrayOf(
                     "HTTP/3 (QUIC) — default",
-                    "HTTP/2 — alternative network mode"
+                    "HTTP/2 — alternative network mode",
+                    "MASQUE-in-MASQUE"
                 )
             ) { _, which ->
                 when (which) {
                     0 -> start("MASQUE_H3")
                     1 -> start("MASQUE_H2")
+                    2 -> start("MIM")
                 }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun chooseTorMode() {
+        if (isBusy()) {
+            Toast.makeText(this, "Please wait for the current action to finish", Toast.LENGTH_SHORT).show()
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Tor routing (official Aether)")
+            .setItems(
+                arrayOf(
+                    "Tor only",
+                    "MASQUE HTTP/3 → Tor",
+                    "MASQUE HTTP/2 → Tor",
+                    "WireGuard → Tor",
+                    "GOOL → Tor",
+                    "Tor → MASQUE HTTP/2"
+                )
+            ) { _, which ->
+                start(
+                    arrayOf(
+                        "TOR_ONLY",
+                        "TOR_INSIDE_MASQUE_H3",
+                        "TOR_INSIDE_MASQUE_H2",
+                        "TOR_INSIDE_WG",
+                        "TOR_INSIDE_GOOL",
+                        "TOR_REVERSE"
+                    )[which]
+                )
             }
             .setNegativeButton("Cancel", null)
             .show()

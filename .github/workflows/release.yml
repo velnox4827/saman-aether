@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 env:
-  AETHER_COMMIT: "311b573352bb67e494895ff67d20b002d075116a"
+  AETHER_COMMIT: "0e6f6a5218e65ed4cddc68d1a71d9b9633f89e3f"
   CARGO_NDK_VERSION: "4.1.2"
   RELEASE_CERT_SHA256: "03233edadf89ed27c7cf80452916a7bd25e8c74abe0f12d2eefcb8b290b48805"
 
@@ -55,13 +55,13 @@ jobs:
       - name: Rust ARM targets
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: "1.91.0"
+          toolchain: "1.98.0"
           targets: aarch64-linux-android,armv7-linux-androideabi
 
       - name: cargo-ndk
         run: cargo install cargo-ndk --version "$CARGO_NDK_VERSION" --locked
 
-      - name: Checkout pinned Aether Core
+      - name: Checkout official Aether Core v2.0.0
         run: |
           set -euxo pipefail
           mkdir -p "$RUNNER_TEMP/Aether"
@@ -70,25 +70,8 @@ jobs:
           git -C "$RUNNER_TEMP/Aether" fetch --depth 1 origin "$AETHER_COMMIT"
           git -C "$RUNNER_TEMP/Aether" checkout --detach FETCH_HEAD
           test "$(git -C "$RUNNER_TEMP/Aether" rev-parse HEAD)" = "$AETHER_COMMIT"
-          grep -q '^version = "1.9.0"$' "$RUNNER_TEMP/Aether/aether/Cargo.toml"
-
-      - name: Apply verified Saman patches
-        run: |
-          set -euxo pipefail
-          for PATCH in \
-            android-app/aether-patches/smart-reconnect-all-modes.patch \
-            android-app/aether-patches/local-proxy-reuseaddr.patch \
-            android-app/aether-patches/gool-cancel-owned-tasks.patch
-          do
-            test -s "$PATCH"
-            git -C "$RUNNER_TEMP/Aether" apply --check "$GITHUB_WORKSPACE/$PATCH"
-            git -C "$RUNNER_TEMP/Aether" apply "$GITHUB_WORKSPACE/$PATCH"
-          done
-          grep -q 'smart reconnect WG' "$RUNNER_TEMP/Aether/aether/src/lib.rs"
-          grep -q 'smart reconnect MASQUE' "$RUNNER_TEMP/Aether/aether/src/lib.rs"
-          grep -q 'smart reconnect GOOL' "$RUNNER_TEMP/Aether/aether/src/lib.rs"
-          grep -q 'bind_reusable_tcp_listener' "$RUNNER_TEMP/Aether/aether/src/socks.rs"
-          grep -q 'set_reuseaddr(true)' "$RUNNER_TEMP/Aether/aether/src/socks.rs"
+          grep -q '^version = "2.0.0"$' "$RUNNER_TEMP/Aether/aether/Cargo.toml"
+          grep -q '^rust-version = "1.98"$' "$RUNNER_TEMP/Aether/aether/Cargo.toml"
 
       - name: Build Aether ARM libraries
         env:
@@ -101,7 +84,7 @@ jobs:
             -t arm64-v8a \
             -t armeabi-v7a \
             --platform 24 \
-            build --release --lib
+            build --release --lib --features tor
 
           install -Dm755 \
             target/aarch64-linux-android/release/libaether.so \

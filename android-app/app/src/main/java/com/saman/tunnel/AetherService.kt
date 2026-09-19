@@ -465,53 +465,7 @@ class AetherService : Service() {
         }, "saman-core-stop").start()
     }
 
-    private fun argumentsFor(mode: String): List<String> {
-        val commonProxyArgs = listOf(
-            "--bind", "127.0.0.1:$SOCKS_PORT",
-            "--http-proxy", "127.0.0.1:$HTTP_PORT",
-            "--reconnect-secs", "1"
-        )
-
-        return when (mode.uppercase()) {
-            "MASQUE_H2" ->
-                listOf("--masque", "--h2", "-4") +
-                    commonProxyArgs +
-                    listOf(
-                        "--scan", "balanced",
-                        "--noize", "firewall",
-                        "--quick-reconnect"
-                    )
-
-            "MASQUE_H3", "MASQUE" ->
-                listOf("--masque", "-4") +
-                    commonProxyArgs +
-                    listOf(
-                        "--scan", "balanced",
-                        "--noize", "firewall",
-                        "--quick-reconnect"
-                    )
-
-            "GOOL" ->
-                listOf("--gool", "-4") +
-                    commonProxyArgs +
-                    listOf(
-                        "--scan", "balanced",
-                        "--noize", "balanced",
-                        "--keepalive", "5",
-                        "--quick-reconnect"
-                    )
-
-            else ->
-                listOf("--wg", "-4") +
-                    commonProxyArgs +
-                    listOf(
-                        "--scan", "balanced",
-                        "--noize", "balanced",
-                        "--keepalive", "5",
-                        "--quick-reconnect"
-                    )
-        }
-    }
+    private fun argumentsFor(mode: String): List<String> = AetherArguments.forMode(mode)
 
     private fun modeLabel(mode: String): String =
         when (mode.uppercase()) {
@@ -519,6 +473,13 @@ class AetherService : Service() {
             "MASQUE_H3", "MASQUE" -> "MASQUE H3"
             "WG" -> "WG"
             "GOOL" -> "GOOL"
+            "MIM" -> "MASQUE-in-MASQUE"
+            "TOR_ONLY" -> "Tor only"
+            "TOR_REVERSE" -> "Tor → MASQUE H2"
+            "TOR_INSIDE_WG" -> "WireGuard → Tor"
+            "TOR_INSIDE_GOOL" -> "GOOL → Tor"
+            "TOR_INSIDE_MASQUE_H2" -> "MASQUE H2 → Tor"
+            "TOR_INSIDE_MASQUE", "TOR_INSIDE_MASQUE_H3" -> "MASQUE H3 → Tor"
             else -> mode.ifBlank { "core" }
         }
 

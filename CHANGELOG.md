@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.8.0
+
+- Android APKs now build unmodified official Aether v2.0.0 with the official Tor feature enabled for ARM64, ARMv7, and Universal ARM artifacts.
+- Removed all Saman Aether core patches and their smart-reconnect environment settings; the APK consumes the upstream FFI directly.
+- Added MASQUE-in-MASQUE plus official Tor-only, transport-to-Tor, and Tor-to-MASQUE H2 mode selections.
+- Psiphon remains unavailable in the APK: official Psiphon configuration and distribution approval are required, and it cannot honestly be presented as an Aether core mode.
+
 ## Saman Termux v1.8.2 / Center v2.1.2 — 2026-09-19
 
 - Added a separate, official Psiphon Console Client adapter with safe config validation, owned-process lifecycle, source verification, and independent update/build actions.
