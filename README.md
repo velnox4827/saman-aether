@@ -356,9 +356,14 @@ saman / Termux:Widget
 
 پروکسی‌ها authentication ندارند؛ bind را روی loopback نگه دارید. آن‌ها را بدون firewall و درک ریسک روی `0.0.0.0` منتشر نکنید. کلیدها، tokenها، bridge خصوصی، فایل identity، config شخصی و لاگ runtime را commit نکنید.
 
-## برنامهٔ اندروید (بخش ثانویه/قدیمی)
+## برنامهٔ اندروید
 
-این مخزن برنامهٔ جداگانهٔ Saman Tunnel برای Android را نیز نگه می‌دارد. آن برنامه معماری، release و چرخهٔ ساخت مستقل دارد و با wrapper upstream-only در Termux یکی نیست. برای جزئیات به [ANDROID_APP_README.md](ANDROID_APP_README.md)، [CHANGELOG.md](CHANGELOG.md) و [Releases](https://github.com/velnox4827/saman-aether/releases) مراجعه کنید.
+این مخزن برنامهٔ جداگانهٔ Saman Tunnel برای Android را نیز نگه می‌دارد. انتشار پایدار فعلی **v1.8.0** است و APKهای آن در [Releases](https://github.com/velnox4827/saman-aether/releases/tag/v1.8.0) قرار دارند:
+
+- هستهٔ رسمی و بدون‌تغییر **Aether v2.0.0** با feature رسمی Tor در build گنجانده شده است.
+- حالت‌های MASQUE H3/H2، WireGuard، GOOL، MASQUE-in-MASQUE، Tor-only، transport→Tor و Tor→MASQUE H2 در رابط برنامه موجودند.
+- Psiphon در برنامهٔ اندروید فعال نیست؛ سرویس رسمی Psiphon به پیکربندی و مجوز توزیع اختصاصی Psiphon نیاز دارد و نمی‌توان آن را به‌عنوان حالت هستهٔ Aether نمایش داد.
+- برای انتخاب APK مناسب و بررسی امضا به [ANDROID_APP_README.md](ANDROID_APP_README.md) مراجعه کنید.
 
 </div>
 
@@ -367,7 +372,7 @@ saman / Termux:Widget
 <a id="english"></a>
 ## English (short reference)
 
-Saman for Termux is a menu, configuration, logging, update, and lifecycle wrapper around the unmodified official [Aether](https://github.com/CluvexStudio/Aether) executable. Termux is the primary workflow documented here; the separate legacy Android application is documented in [ANDROID_APP_README.md](ANDROID_APP_README.md).
+Saman for Termux is a menu, configuration, logging, update, and lifecycle wrapper around the unmodified official [Aether](https://github.com/CluvexStudio/Aether) executable. Termux is the primary workflow documented here; the separate Android application is documented in [ANDROID_APP_README.md](ANDROID_APP_README.md) and its current stable release is [Saman Tunnel v1.8.0](https://github.com/velnox4827/saman-aether/releases/tag/v1.8.0), built directly from unmodified official Aether v2.0.0 with Tor enabled.
 
 Quick start:
 
