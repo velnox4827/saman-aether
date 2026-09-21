@@ -1,7 +1,3 @@
-[proxychains] DLL init: proxychains-ng 4.17
-[proxychains] DLL init: proxychains-ng 4.17
-[proxychains] DLL init: proxychains-ng 4.17
-[proxychains] DLL init: proxychains-ng 4.17
 package com.saman.tunnel
 
 import android.app.Notification
@@ -394,7 +390,3 @@ class SamanVpnService : VpnService() {
         }
     }
 }
-[proxychains] DLL init: proxychains-ng 4.17
-[proxychains] DLL init: proxychains-ng 4.17
-[proxychains] DLL init: proxychains-ng 4.17
-[proxychains] DLL init: proxychains-ng 4.17
