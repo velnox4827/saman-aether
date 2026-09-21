@@ -105,6 +105,12 @@ jobs:
         run: |
           set -euxo pipefail
           zig build android -Doptimize=ReleaseSmall
+          CPP="$GITHUB_WORKSPACE/android-app/app/src/main/cpp"
+          rm -rf "$CPP/zeptun-libs" "$CPP/zeptun-include"
+          mkdir -p "$CPP/zeptun-libs/arm64-v8a" "$CPP/zeptun-libs/armeabi-v7a" "$CPP/zeptun-include"
+          cp zig-out/android/prebuilt/arm64-v8a/libzeptun.a "$CPP/zeptun-libs/arm64-v8a/"
+          cp zig-out/android/prebuilt/armeabi-v7a/libzeptun.a "$CPP/zeptun-libs/armeabi-v7a/"
+          cp include/zeptun.h "$CPP/zeptun-include/"
           "$ANDROID_NDK_HOME/ndk-build" \
             NDK_PROJECT_PATH="$GITHUB_WORKSPACE/android-app/app/src/main/cpp" \
             APP_BUILD_SCRIPT="$GITHUB_WORKSPACE/android-app/app/src/main/cpp/Android.mk" \
