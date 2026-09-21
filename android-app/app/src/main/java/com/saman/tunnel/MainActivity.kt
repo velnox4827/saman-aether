@@ -1,3 +1,4 @@
+[proxychains] DLL init: proxychains-ng 4.17
 package com.saman.tunnel
 
 import android.Manifest
@@ -50,6 +51,8 @@ class MainActivity : Activity() {
         private const val REQUEST_APP_ROUTING = 2004
         private const val RELEASES_API =
             "https://api.github.com/repos/velnox4827/saman-aether/releases?per_page=10"
+        private const val PROJECT_CHANNEL = "https://t.me/SamanTunnelOfficial"
+        private const val PROJECT_GROUP = "https://t.me/SamanTunnel"
     }
 
     private lateinit var modeView: TextView
@@ -498,6 +501,18 @@ class MainActivity : Activity() {
 
         root.addView(utilityRow)
 
+        val supportRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(46)
+            ).apply { bottomMargin = dp(7) }
+        }
+        supportRow.addView(actionTile("📢 Channel", blue, card) { openProjectLink(PROJECT_CHANNEL) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f).apply { marginEnd = dp(5) })
+        supportRow.addView(actionTile("👥 Group", purple, card) { openProjectLink(PROJECT_GROUP) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f).apply { marginStart = dp(5) })
+        root.addView(supportRow)
+
         // SOCKS
         val socksCard = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -696,6 +711,11 @@ class MainActivity : Activity() {
             isFocusable = true
             setOnClickListener { action() }
         }
+
+    private fun openProjectLink(url: String) {
+        runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+            .onFailure { Toast.makeText(this, "No browser found", Toast.LENGTH_SHORT).show() }
+    }
 
     private fun withAlpha(color: Int, alpha: Int): Int =
         Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color))
@@ -2178,3 +2198,4 @@ class MainActivity : Activity() {
         }
     }
 }
+[proxychains] DLL init: proxychains-ng 4.17
