@@ -1,3 +1,3 @@
-[submodule "android-app/third_party/hev-socks5-tunnel"]
-	path = android-app/third_party/hev-socks5-tunnel
-	url = https://github.com/heiher/hev-socks5-tunnel.git
+[submodule "android-app/third_party/zeptun"]
+	path = android-app/third_party/zeptun
+	url = https://github.com/Noisemux/zeptun.git

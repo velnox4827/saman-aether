@@ -421,3 +421,15 @@ saman psiphon start
 The official client needs a real client JSON with `SponsorId` and `PropagationChannelId`; Saman never invents a server list or credentials. `saman psiphon chain` derives a private config with Aether's loopback SOCKS endpoint as Psiphon's upstream, leaving the original JSON untouched. The resulting path is `app → Psiphon → Aether → Internet`. Psiphon updates and Aether updates remain independent.
 
 License: [GNU AGPL-3.0](LICENSE).
+
+## نسخهٔ Android و کانال رسمی
+
+نسخهٔ Android فعلی **Saman Tunnel v1.9.0** است. APK از هستهٔ رسمی Aether v2.0.0 متعلق به CluvexStudio و هستهٔ رسمی Zeptun v1.1.1 برای مسیر TUN اندروید استفاده می‌کند. برای پروتکل شبکه هیچ هستهٔ دیگری به APK اضافه نشده است.
+
+کانال رسمی تلگرام: https://t.me/SamanTunnelOfficial
+
+## Android release and official channel
+
+The current Android release is **Saman Tunnel v1.9.0**. It uses the official CluvexStudio Aether v2.0.0 core and the official Zeptun v1.1.1 engine for Android TUN forwarding. No other protocol core is added to the APK.
+
+Official Telegram channel: https://t.me/SamanTunnelOfficial

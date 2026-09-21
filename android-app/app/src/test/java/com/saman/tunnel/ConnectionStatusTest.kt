@@ -16,8 +16,8 @@ class ConnectionStatusTest {
     }
 
     @Test fun failedOrRevokedVpnRemainsVisibleWithAHealthyProxy() {
-        assertEquals("Error: HEV worker exited", ConnectionStatus.display(proxy, true, false, "Error: HEV worker exited"))
-        assertEquals("Error: HEV worker exited", ConnectionStatus.display("Stopped", true, false, "Error: HEV worker exited"))
+        assertEquals("Error: Zeptun worker exited", ConnectionStatus.display(proxy, true, false, "Error: Zeptun worker exited"))
+        assertEquals("Error: Zeptun worker exited", ConnectionStatus.display("Stopped", true, false, "Error: Zeptun worker exited"))
         assertEquals(TunnelPhase.FAILED, TunnelPhase.fromStatus(
             ConnectionStatus.display(proxy, true, false, "Permission revoked")))
         assertEquals(TunnelPhase.FAILED, TunnelPhase.fromStatus(
