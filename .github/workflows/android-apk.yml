@@ -79,9 +79,12 @@ jobs:
       - name: Build Zeptun 1.1.1
         working-directory: android-app/third_party/zeptun
         run: zig build android -Doptimize=ReleaseSmall
-      - name: Unit tests and lint
+      - name: Android unit tests
         working-directory: android-app
-        run: ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug --stacktrace --console=plain
+        run: ./gradlew --no-daemon :app:testDebugUnitTest --stacktrace --console=plain
+      - name: Android lint
+        working-directory: android-app
+        run: ./gradlew --no-daemon :app:lintDebug --stacktrace --console=plain
       - name: Build debug APKs
         working-directory: android-app
         run: ./gradlew --no-daemon :app:assembleDebug
