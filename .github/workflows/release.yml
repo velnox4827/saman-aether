@@ -104,22 +104,12 @@ jobs:
           ANDROID_NDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}/ndk/26.3.11579264
         run: |
           set -euxo pipefail
-          zig build android -Doptimize=ReleaseSmall
-          CPP="$GITHUB_WORKSPACE/android-app/app/src/main/cpp"
-          rm -rf "$CPP/zeptun-libs" "$CPP/zeptun-include"
-          mkdir -p "$CPP/zeptun-libs/arm64-v8a" "$CPP/zeptun-libs/armeabi-v7a" "$CPP/zeptun-include"
-          cp zig-out/android/prebuilt/arm64-v8a/libzeptun.a "$CPP/zeptun-libs/arm64-v8a/"
-          cp zig-out/android/prebuilt/armeabi-v7a/libzeptun.a "$CPP/zeptun-libs/armeabi-v7a/"
-          cp include/zeptun.h "$CPP/zeptun-include/"
-          "$ANDROID_NDK_HOME/ndk-build" \
-            NDK_PROJECT_PATH="$GITHUB_WORKSPACE/android-app/app/src/main/cpp" \
-            APP_BUILD_SCRIPT="$GITHUB_WORKSPACE/android-app/app/src/main/cpp/Android.mk" \
-            NDK_LIBS_OUT="$GITHUB_WORKSPACE/android-app/app/src/main/jniLibs" \
-            NDK_OUT="$RUNNER_TEMP/zeptun-ndk-obj" \
-            APP_ABI="arm64-v8a armeabi-v7a" \
-            APP_PLATFORM="android-24"
-          test -s "$GITHUB_WORKSPACE/android-app/app/src/main/jniLibs/arm64-v8a/libzeptun-jni.so"
-          test -s "$GITHUB_WORKSPACE/android-app/app/src/main/jniLibs/armeabi-v7a/libzeptun-jni.so"
+          cp "$GITHUB_WORKSPACE/android-app/app/src/main/cpp/zeptun_jni.c" src/jni/zeptun_jni.c
+          sh scripts/build_android.sh
+          install -Dm755 zig-out/android/jniLibs/arm64-v8a/libzeptun-jni.so \
+            "$GITHUB_WORKSPACE/android-app/app/src/main/jniLibs/arm64-v8a/libzeptun-jni.so"
+          install -Dm755 zig-out/android/jniLibs/armeabi-v7a/libzeptun-jni.so \
+            "$GITHUB_WORKSPACE/android-app/app/src/main/jniLibs/armeabi-v7a/libzeptun-jni.so"
       - name: Unit tests and lint
         working-directory: android-app
         run: |
