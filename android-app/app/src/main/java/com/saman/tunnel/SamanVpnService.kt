@@ -214,27 +214,29 @@ class SamanVpnService : VpnService() {
         tunInterface = established
         if (!isCurrent(ticket)) return
         LogStore.append(this, "TUN_CREATED", "mode=${request.mode} routing=${request.routing} mtu=$TUN_MTU")
-        val config = """
-            preset = "mobile"
-
-            [handler]
-            kind = "socks5"
-
-            [handler.socks5]
-            server = "127.0.0.1:$SOCKS_PORT"
-            udp = true
-            udp_mode = "udp"
-
-            [dns]
-            hijack = false
-        """.trimIndent()
-        check(ZeptunBridge.version().isNotBlank()) { "Zeptun unavailable" }
+        val config = File(cacheDir, "hev-saman-vpn.yml")
+        config.writeText("""
+            misc:
+              task-stack-size: 24576
+              tcp-read-write-timeout: 300000
+              udp-read-write-timeout: 60000
+              log-level: warn
+            tunnel:
+              mtu: $TUN_MTU
+              icmp: 'reply'
+            socks5:
+              port: $SOCKS_PORT
+              address: '127.0.0.1'
+              udp: 'udp'
+        """.trimIndent())
+        check(HevBridge.isLoaded()) { "HEV unavailable: ${HevBridge.getLoadError()}" }
         if (!isCurrent(ticket)) return
-        check(ZeptunBridge.start(this, established.fd, config) == 0) {
-            "Zeptun start failed"
+        check(HevBridge.start(config.absolutePath, established.fd)) {
+            "HEV start failed: ${HevBridge.getLoadError()}"
         }
         Thread.sleep(300)
         if (!isCurrent(ticket)) return
+        check(HevBridge.isRunning()) { "HEV worker exited" }
         vpnRunning = true
         val text = "${ConnectionStatus.modeLabel(request.mode)} VPN connected"
         saveState(true, text)
@@ -245,12 +247,12 @@ class SamanVpnService : VpnService() {
         monitor = executor.scheduleWithFixedDelay({
             if (isCurrent(ticket)) {
                 val coreAlive = coreBinder?.isBinderAlive == true
-                val workerAlive = ZeptunBridge.isRunning()
+                val workerAlive = HevBridge.isRunning()
                 val proxyReady = coreAlive && workerAlive &&
                     ProxyHealth.probeSocks5("127.0.0.1", SOCKS_PORT, 600)
                 if (!isCurrent(ticket)) return@scheduleWithFixedDelay
                 // Aether intentionally closes/reopens SOCKS5 while selecting a
-                // new endpoint. Keep TUN/Zeptun alive while the core process lives.
+                // new endpoint. Keep TUN/HEV alive while the core process lives.
                 when (health.observe(coreAlive, workerAlive, proxyReady)) {
                     VpnHealthPolicy.State.CORE_STOPPED -> requestStop("Stopped")
                     VpnHealthPolicy.State.WORKER_STOPPED ->
@@ -306,7 +308,7 @@ class SamanVpnService : VpnService() {
         monitor?.cancel(false)
         monitor = null
         // Join even if isRunning is false: a finished worker can still be joinable.
-        runCatching { ZeptunBridge.stop() }
+        runCatching { HevBridge.stop() }
         runCatching { tunInterface?.close() }
         tunInterface = null
         vpnRunning = false
@@ -339,7 +341,7 @@ class SamanVpnService : VpnService() {
             cleanupNative()
             cleanupComplete.set(true)
             saveState(false, status)
-            LogStore.append(this, "VPN_STOP", "Zeptun and TUN closed: $status")
+            LogStore.append(this, "VPN_STOP", "HEV and TUN closed: $status")
             mainHandler.post {
                 unbindCore()
                 stopForeground(STOP_FOREGROUND_REMOVE)

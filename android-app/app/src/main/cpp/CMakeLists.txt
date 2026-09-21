@@ -8,4 +8,9 @@ set_target_properties(aether PROPERTIES
 )
 
 add_library(samanbridge SHARED native_bridge.c)
-target_link_libraries(samanbridge aether log)
+
+target_link_libraries(
+    samanbridge
+    aether
+    log
+)
