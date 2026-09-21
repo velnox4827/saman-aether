@@ -1,4 +1,3 @@
-[proxychains] DLL init: proxychains-ng 4.17
 package com.saman.tunnel
 
 import android.Manifest
@@ -513,6 +512,14 @@ class MainActivity : Activity() {
         supportRow.addView(actionTile("👥 Group", purple, card) { openProjectLink(PROJECT_GROUP) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f).apply { marginStart = dp(5) })
         root.addView(supportRow)
 
+        root.addView(
+            actionTile("⚙  Settings & help", ink, card) { showSettingsMenu() },
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(44)
+            ).apply { bottomMargin = dp(7) }
+        )
+
         // SOCKS
         val socksCard = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -711,6 +718,40 @@ class MainActivity : Activity() {
             isFocusable = true
             setOnClickListener { action() }
         }
+
+    private fun showSettingsMenu() {
+        AlertDialog.Builder(this)
+            .setTitle("Settings & help")
+            .setItems(
+                arrayOf(
+                    "App routing",
+                    "Diagnostics and logs",
+                    "Battery optimization",
+                    "Check for updates",
+                    "About Saman Tunnel"
+                )
+            ) { _, which ->
+                when (which) {
+                    0 -> startActivityForResult(Intent(this, AppRoutingActivity::class.java), REQUEST_APP_ROUTING)
+                    1 -> chooseDiagnosticsExport()
+                    2 -> openBatterySettings()
+                    3 -> checkForUpdates()
+                    4 -> AlertDialog.Builder(this)
+                        .setTitle("Saman Tunnel 1.9.1")
+                        .setMessage(
+                            "Official Aether core v2.0.0\n" +
+                                "Android VPN path: HEV tun2socks\n\n" +
+                                "Channel: $PROJECT_CHANNEL\nGroup: $PROJECT_GROUP"
+                        )
+                        .setPositiveButton("Channel") { _, _ -> openProjectLink(PROJECT_CHANNEL) }
+                        .setNeutralButton("Group") { _, _ -> openProjectLink(PROJECT_GROUP) }
+                        .setNegativeButton("Close", null)
+                        .show()
+                }
+            }
+            .setNegativeButton("Close", null)
+            .show()
+    }
 
     private fun openProjectLink(url: String) {
         runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
@@ -2198,4 +2239,3 @@ class MainActivity : Activity() {
         }
     }
 }
-[proxychains] DLL init: proxychains-ng 4.17
