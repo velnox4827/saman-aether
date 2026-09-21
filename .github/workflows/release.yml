@@ -101,22 +101,53 @@ jobs:
             target/armv7-linux-androideabi/release/libaether.so \
             "$GITHUB_WORKSPACE/android-app/app/src/main/jniLibs/armeabi-v7a/libaether.so"
 
-      - uses: mlugg/setup-zig@v2
-        with:
-          version: 0.16.0
-      - name: Build Zeptun 1.1.1
-        working-directory: android-app/third_party/zeptun
+      - name: Build pinned HEV tun2socks
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/26.3.11579264
           ANDROID_NDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}/ndk/26.3.11579264
         run: |
           set -euxo pipefail
-          cp "$GITHUB_WORKSPACE/android-app/app/src/main/cpp/zeptun_jni.c" src/jni/zeptun_jni.c
-          sh scripts/build_android.sh
-          install -Dm755 zig-out/android/jniLibs/arm64-v8a/libzeptun-jni.so \
-            "$GITHUB_WORKSPACE/android-app/app/src/main/jniLibs/arm64-v8a/libzeptun-jni.so"
-          install -Dm755 zig-out/android/jniLibs/armeabi-v7a/libzeptun-jni.so \
-            "$GITHUB_WORKSPACE/android-app/app/src/main/jniLibs/armeabi-v7a/libzeptun-jni.so"
+          HEV="$GITHUB_WORKSPACE/android-app/third_party/hev-socks5-tunnel"
+          HEV_OUT="$RUNNER_TEMP/hev-libs"
+          APP_LIBS="$GITHUB_WORKSPACE/android-app/app/src/main/jniLibs"
+          OBJ="$RUNNER_TEMP/hev-obj"
+          test "$(git -C "$HEV" rev-parse HEAD)" = "d1178b52fccd8659201e1e3f83030f298c998865"
+          "$ANDROID_NDK_HOME/ndk-build" \
+            -C "$HEV" \
+            NDK_PROJECT_PATH="$HEV" \
+            APP_BUILD_SCRIPT="$HEV/Android.mk" \
+            NDK_APPLICATION_MK="$HEV/Application.mk" \
+            NDK_LIBS_OUT="$HEV_OUT" \
+            NDK_OUT="$OBJ" \
+            APP_ABI="arm64-v8a armeabi-v7a" \
+            APP_PLATFORM="android-24" \
+            APP_CFLAGS="-O3 -DANDROID -DPKGNAME=com/saman/tunnel -DCLSNAME=HevBridge"
+          test -s "$HEV_OUT/arm64-v8a/libhev-socks5-tunnel.so"
+          test -s "$HEV_OUT/armeabi-v7a/libhev-socks5-tunnel.so"
+
+          # Preserve Aether: build HEV outside app/src/main/jniLibs.
+          test -s "$APP_LIBS/arm64-v8a/libaether.so"
+          test -s "$APP_LIBS/armeabi-v7a/libaether.so"
+
+          install -Dm755 "$HEV_OUT/arm64-v8a/libhev-socks5-tunnel.so" "$APP_LIBS/arm64-v8a/libhev-socks5-tunnel.so"
+          install -Dm755 "$HEV_OUT/armeabi-v7a/libhev-socks5-tunnel.so" "$APP_LIBS/armeabi-v7a/libhev-socks5-tunnel.so"
+
+          # Both native engines must coexist before Gradle/CMake starts.
+          test -s "$APP_LIBS/arm64-v8a/libaether.so"
+          test -s "$APP_LIBS/arm64-v8a/libhev-socks5-tunnel.so"
+          test -s "$APP_LIBS/armeabi-v7a/libaether.so"
+          test -s "$APP_LIBS/armeabi-v7a/libhev-socks5-tunnel.so"
+
+          echo "ARM64 native libs:"
+          ls -lh "$APP_LIBS/arm64-v8a/libaether.so" "$APP_LIBS/arm64-v8a/libhev-socks5-tunnel.so"
+          echo "ARMv7 native libs:"
+          ls -lh "$APP_LIBS/armeabi-v7a/libaether.so" "$APP_LIBS/armeabi-v7a/libhev-socks5-tunnel.so"
+
+          sha256sum \
+            "$APP_LIBS/arm64-v8a/libaether.so" \
+            "$APP_LIBS/arm64-v8a/libhev-socks5-tunnel.so" \
+            "$APP_LIBS/armeabi-v7a/libaether.so" \
+            "$APP_LIBS/armeabi-v7a/libhev-socks5-tunnel.so"
       - name: Unit tests and lint
         working-directory: android-app
         run: |
@@ -176,7 +207,7 @@ jobs:
                       for lib in (
                           "libaether.so",
                           "libsamanbridge.so",
-                          "libzeptun-jni.so",
+                          "libhev-socks5-tunnel.so",
                       ):
                           info = z.getinfo(f"lib/{abi}/{lib}")
                           assert info.file_size > 0, (apk, abi, lib)
@@ -250,7 +281,7 @@ jobs:
           - ARMv7
           - Universal ARM
 
-          This release includes the Android VPN/Zeptun tunnel path used by the tested v1.9.0 build.
+          This release includes the Android VPN/HEV tunnel path used by the tested v1.9.1 build.
 
           Verify APK SHA-256 hashes and signing-certificate continuity before installation.
           NOTES

@@ -559,7 +559,7 @@ class MainActivity : Activity() {
             text = if (packageName.endsWith(".beta")) {
                 "β  Beta — do not run Stable and Beta at the same time."
             } else {
-                "♢  Built-in VPN: Android TUN → Zeptun → Aether SOCKS5 :1819"
+                "♢  Built-in VPN: Android TUN → HEV → Aether SOCKS5 :1819"
             }
             textSize = 10.8f
             setTextColor(muted)

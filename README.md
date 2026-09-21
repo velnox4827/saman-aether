@@ -424,12 +424,12 @@ License: [GNU AGPL-3.0](LICENSE).
 
 ## نسخهٔ Android و کانال رسمی
 
-نسخهٔ Android فعلی **Saman Tunnel v1.9.0** است. APK از هستهٔ رسمی Aether v2.0.0 متعلق به CluvexStudio و هستهٔ رسمی Zeptun v1.1.1 برای مسیر TUN اندروید استفاده می‌کند. برای پروتکل شبکه هیچ هستهٔ دیگری به APK اضافه نشده است.
+نسخهٔ Android فعلی **Saman Tunnel v1.9.1** است. APK از هستهٔ رسمی Aether v2.0.0 متعلق به CluvexStudio و هستهٔ رسمی HEV tun2socks برای مسیر TUN اندروید استفاده می‌کند. برای پروتکل شبکه هیچ هستهٔ دیگری به APK اضافه نشده است.
 
 کانال رسمی تلگرام: https://t.me/SamanTunnelOfficial
 
 ## Android release and official channel
 
-The current Android release is **Saman Tunnel v1.9.0**. It uses the official CluvexStudio Aether v2.0.0 core and the official Zeptun v1.1.1 engine for Android TUN forwarding. No other protocol core is added to the APK.
+The current Android release is **Saman Tunnel v1.9.1**. It uses the official CluvexStudio Aether v2.0.0 core and the official HEV tun2socks engine for Android TUN forwarding. No other protocol core is added to the APK.
 
 Official Telegram channel: https://t.me/SamanTunnelOfficial
