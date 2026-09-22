@@ -11,6 +11,14 @@ The Android app provides:
 - Per-app routing, diagnostics, connection health, dark/light UI, and quick-connect widget.
 - No Psiphon, Xray, SSTP, or other protocol implementation in the APK.
 
+## قابلیت‌ها
+
+- پنل اتصال با نمایش روشن حالت، مرحله و سلامت ارتباط؛
+- منوی تنظیمات و راهنما برای مسیریابی برنامه‌ها، Diagnostics، باتری، آپدیت و About؛
+- خروجی‌گرفتن از لاگ‌ها و گزارش عیب‌یابی؛
+- ویجت اتصال سریع، حالت روشن/تاریک و لینک مستقیم گروه و کانال؛
+- مسیر Android TUN با HEV tun2socks و حالت‌های proxy با Aether رسمی v2.0.0.
+
 ## Download
 
 Download the latest ABI APKs from the GitHub Releases page. Use `arm64-v8a` for most modern Android phones; use `armeabi-v7a` only for older 32-bit devices. Verify `SHA256SUMS` before installation.

@@ -372,7 +372,7 @@ saman / Termux:Widget
 <a id="english"></a>
 ## English (short reference)
 
-Saman for Termux is a menu, configuration, logging, update, and lifecycle wrapper around the unmodified official [Aether](https://github.com/CluvexStudio/Aether) executable. Termux is the primary workflow documented here; the separate Android application is documented in [ANDROID_APP_README.md](ANDROID_APP_README.md) and its current stable release is [Saman Tunnel v1.8.0](https://github.com/velnox4827/saman-aether/releases/tag/v1.8.0), built directly from unmodified official Aether v2.0.0 with Tor enabled.
+Saman for Termux is a menu, configuration, logging, update, and lifecycle wrapper around the unmodified official [Aether](https://github.com/CluvexStudio/Aether) executable. Termux is the primary workflow documented here; the separate Android application is documented in [ANDROID_APP_README.md](ANDROID_APP_README.md) and its current stable release is [Saman Tunnel v1.9.1](https://github.com/velnox4827/saman-aether/releases/tag/v1.9.1), built directly from unmodified official Aether v2.0.0 with Tor enabled.
 
 Quick start:
 
@@ -427,6 +427,19 @@ License: [GNU AGPL-3.0](LICENSE).
 نسخهٔ Android فعلی **Saman Tunnel v1.9.1** است. APK از هستهٔ رسمی Aether v2.0.0 متعلق به CluvexStudio و هستهٔ رسمی HEV tun2socks برای مسیر TUN اندروید استفاده می‌کند. برای پروتکل شبکه هیچ هستهٔ دیگری به APK اضافه نشده است.
 
 کانال رسمی تلگرام: https://t.me/SamanTunnelOfficial
+
+## قابلیت‌های رابط Android در نسخهٔ 1.9.1
+
+نسخهٔ Android یک پنل کنترل ساده و قابل‌فهم دارد:
+
+- دکمه‌های واضح برای MASQUE، WireGuard، GOOL و Tor و نمایش مرحلهٔ اتصال؛
+- منوی **Settings & help** برای مسیریابی برنامه‌ها، Diagnostics، تنظیمات باتری، بررسی آپدیت و About؛
+- نمایش زندهٔ وضعیت اتصال، پایداری ارتباط و آدرس‌های proxy محلی؛
+- ذخیره و خروجی‌گرفتن از لاگ‌ها برای عیب‌یابی؛
+- مسیریابی per-app با حالت‌های همهٔ برنامه‌ها، فقط برنامه‌های انتخاب‌شده یا دورزدن برنامه‌های انتخاب‌شده؛
+- ویجت اتصال سریع، حالت روشن/تاریک و لینک مستقیم گروه و کانال پروژه؛
+- استفاده از Aether رسمی v2.0.0 برای حالت‌های proxy و HEV tun2socks برای مسیر Android TUN؛
+- هیچ هستهٔ پروتکل دیگری به APK اضافه نشده است.
 
 ## Android release and official channel
 
