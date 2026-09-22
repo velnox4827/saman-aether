@@ -436,42 +436,6 @@ class MainActivity : Activity() {
         )
         root.addView(actionRow)
 
-        // Diagnostics
-        val diagnosticsCard = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            background = rounded(card, 18, line)
-            setPadding(dp(9), dp(7), dp(9), dp(8))
-            elevation = dp(1).toFloat()
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(108)
-            ).apply { bottomMargin = dp(7) }
-        }
-
-        diagnosticsCard.addView(TextView(this).apply {
-            text = "Diagnostics"
-            textSize = 14.2f
-            setTextColor(ink)
-            setTypeface(typeface, Typeface.BOLD)
-            includeFontPadding = false
-            setPadding(dp(2), 0, 0, dp(6))
-        })
-
-        val diagnosticsRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                0,
-                1f
-            )
-        }
-
-        diagnosticsRow.addView(diagTile("≡", "Logs", blue) { showQuickLog(40) })
-        diagnosticsRow.addView(diagTile("⇩", "Save TXT", green) { chooseDiagnosticsExport() })
-        diagnosticsCard.addView(diagnosticsRow)
-        root.addView(diagnosticsCard)
-
         // Utilities: battery + updater
         val utilityRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -665,46 +629,6 @@ class MainActivity : Activity() {
         setOnClickListener { action() }
     }
 
-    private fun diagTile(
-        symbol: String,
-        label: String,
-        accent: Int,
-        action: () -> Unit
-    ): View = LinearLayout(this).apply {
-        orientation = LinearLayout.VERTICAL
-        gravity = Gravity.CENTER
-        background = rounded(cardSoft, 14, line)
-        isClickable = true
-        isFocusable = true
-        setOnClickListener { action() }
-        layoutParams = LinearLayout.LayoutParams(
-            0,
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            1f
-        ).apply {
-            marginStart = dp(3)
-            marginEnd = dp(3)
-        }
-
-        addView(TextView(this@MainActivity).apply {
-            text = symbol
-            textSize = if (symbol.length <= 2 && symbol.all { it.isDigit() }) 15f else 19f
-            gravity = Gravity.CENTER
-            setTextColor(accent)
-            setTypeface(typeface, Typeface.BOLD)
-            includeFontPadding = false
-        })
-
-        addView(TextView(this@MainActivity).apply {
-            text = label
-            textSize = 10.8f
-            gravity = Gravity.CENTER
-            setTextColor(ink)
-            setTypeface(typeface, Typeface.BOLD)
-            includeFontPadding = false
-            setPadding(0, dp(3), 0, 0)
-        })
-    }
 
     private fun utilityTile(label: String, action: () -> Unit): TextView =
         TextView(this).apply {
@@ -733,7 +657,7 @@ class MainActivity : Activity() {
             ) { _, which ->
                 when (which) {
                     0 -> startActivityForResult(Intent(this, AppRoutingActivity::class.java), REQUEST_APP_ROUTING)
-                    1 -> chooseDiagnosticsExport()
+                    1 -> showDiagnosticsMenu()
                     2 -> openBatterySettings()
                     3 -> checkForUpdates()
                     4 -> AlertDialog.Builder(this)
@@ -747,6 +671,19 @@ class MainActivity : Activity() {
                         .setNeutralButton("Group") { _, _ -> openProjectLink(PROJECT_GROUP) }
                         .setNegativeButton("Close", null)
                         .show()
+                }
+            }
+            .setNegativeButton("Close", null)
+            .show()
+    }
+
+    private fun showDiagnosticsMenu() {
+        AlertDialog.Builder(this)
+            .setTitle("Diagnostics and logs")
+            .setItems(arrayOf("View logs", "Save diagnostics TXT")) { _, which ->
+                when (which) {
+                    0 -> showQuickLog(40)
+                    1 -> chooseDiagnosticsExport()
                 }
             }
             .setNegativeButton("Close", null)
