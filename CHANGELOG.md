@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.9.2
+
+- Android APK only; Termux scripts and runtime remain unchanged.
+- Bundle unmodified official Aether v2.1.0 and HEV tun2socks 2.18.0.
+- Expose separate MASQUE-in-MASQUE HTTP/2 and HTTP/3 choices, preserving legacy MIM as HTTP/3.
+- Download the latest stable Universal ARM APK directly from Settings via Android Download Manager; keep GitHub as fallback and reject unrelated/preview releases.
+- Include the settings/help menu, diagnostics submenu, and project links previously available in debug builds.
+- Preserve production package identity and signing certificate for updates over existing stable installations.
+
 ## v1.8.0
 
 - Android APKs now build unmodified official Aether v2.0.0 with the official Tor feature enabled for ARM64, ARMv7, and Universal ARM artifacts.

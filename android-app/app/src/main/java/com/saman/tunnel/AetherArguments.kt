@@ -15,7 +15,8 @@ object AetherArguments {
         "MASQUE_H2" -> listOf("--masque", "--h2", "-4", "--bind", socks, "--http-proxy", http, "--scan", "balanced", "--noize", "firewall", "--quick-reconnect")
         "MASQUE_H3", "MASQUE" -> listOf("--masque", "-4", "--bind", socks, "--http-proxy", http, "--scan", "balanced", "--noize", "firewall", "--quick-reconnect")
         "GOOL" -> listOf("--gool", "-4", "--bind", socks, "--http-proxy", http, "--scan", "balanced", "--noize", "balanced", "--keepalive", "5", "--quick-reconnect")
-        "MIM" -> listOf("--mim", "-4", "--bind", socks, "--http-proxy", http, "--scan", "balanced", "--noize", "firewall", "--quick-reconnect")
+        "MIM_H2" -> forMode("MIM_H3") + "--h2"
+        "MIM_H3", "MIM" -> listOf("--mim", "-4", "--bind", socks, "--http-proxy", http, "--scan", "balanced", "--noize", "firewall", "--quick-reconnect")
         else -> listOf("--wg", "-4", "--bind", socks, "--http-proxy", http, "--scan", "balanced", "--noize", "balanced", "--keepalive", "5", "--quick-reconnect")
     }
 }

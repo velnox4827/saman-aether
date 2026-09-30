@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 env:
-  AETHER_COMMIT: "0e6f6a5218e65ed4cddc68d1a71d9b9633f89e3f"
+  AETHER_COMMIT: "6398931aeaa551248530cc164aea6d5f2c5fe4a2"
   CARGO_NDK_VERSION: "4.1.2"
   RELEASE_CERT_SHA256: "03233edadf89ed27c7cf80452916a7bd25e8c74abe0f12d2eefcb8b290b48805"
 
@@ -68,7 +68,7 @@ jobs:
       - name: cargo-ndk
         run: cargo install cargo-ndk --version "$CARGO_NDK_VERSION" --locked
 
-      - name: Checkout official Aether Core v2.0.0
+      - name: Checkout official Aether Core v2.1.0
         run: |
           set -euxo pipefail
           mkdir -p "$RUNNER_TEMP/Aether"
@@ -77,7 +77,7 @@ jobs:
           git -C "$RUNNER_TEMP/Aether" fetch --depth 1 origin "$AETHER_COMMIT"
           git -C "$RUNNER_TEMP/Aether" checkout --detach FETCH_HEAD
           test "$(git -C "$RUNNER_TEMP/Aether" rev-parse HEAD)" = "$AETHER_COMMIT"
-          grep -q '^version = "2.0.0"$' "$RUNNER_TEMP/Aether/aether/Cargo.toml"
+          grep -q '^version = "2.1.0"$' "$RUNNER_TEMP/Aether/aether/Cargo.toml"
           grep -q '^rust-version = "1.98"$' "$RUNNER_TEMP/Aether/aether/Cargo.toml"
 
       - name: Build Aether ARM libraries
@@ -111,7 +111,7 @@ jobs:
           HEV_OUT="$RUNNER_TEMP/hev-libs"
           APP_LIBS="$GITHUB_WORKSPACE/android-app/app/src/main/jniLibs"
           OBJ="$RUNNER_TEMP/hev-obj"
-          test "$(git -C "$HEV" rev-parse HEAD)" = "d1178b52fccd8659201e1e3f83030f298c998865"
+          test "$(git -C "$HEV" rev-parse HEAD)" = "d9dca26c7ad0e494492244f0309e80ee583e739e"
           "$ANDROID_NDK_HOME/ndk-build" \
             -C "$HEV" \
             NDK_PROJECT_PATH="$HEV" \
@@ -281,7 +281,7 @@ jobs:
           - ARMv7
           - Universal ARM
 
-          This release includes the Android VPN/HEV tunnel path used by the tested v1.9.1 build.
+          This Android-only release bundles official Aether v2.1.0 and HEV 2.18.0.
 
           Verify APK SHA-256 hashes and signing-certificate continuity before installation.
           NOTES

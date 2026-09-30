@@ -6,6 +6,9 @@ import org.junit.Test
 
 class AetherArgumentsTest {
     @Test
+    fun androidReleaseModesAndDownloadUrls() = runAndroidReleaseCheck()
+
+    @Test
     fun torModesUseOnlyOfficialV2Flags() {
         assertEquals(
             listOf("--tor-only", "--bind", "127.0.0.1:1819"),

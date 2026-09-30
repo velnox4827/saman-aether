@@ -661,9 +661,9 @@ class MainActivity : Activity() {
                     2 -> openBatterySettings()
                     3 -> checkForUpdates()
                     4 -> AlertDialog.Builder(this)
-                        .setTitle("Saman Tunnel 1.9.1")
+                        .setTitle("Saman Tunnel 1.9.2")
                         .setMessage(
-                            "Official Aether core v2.0.0\n" +
+                            "Official Aether core v2.1.0\n" +
                                 "Android VPN path: HEV tun2socks\n\n" +
                                 "Channel: $PROJECT_CHANNEL\nGroup: $PROJECT_GROUP"
                         )
@@ -724,13 +724,15 @@ class MainActivity : Activity() {
                 arrayOf(
                     "HTTP/3 (QUIC) — default",
                     "HTTP/2 — alternative network mode",
-                    "MASQUE-in-MASQUE"
+                    "MASQUE-in-MASQUE HTTP/3 (QUIC)",
+                    "MASQUE-in-MASQUE HTTP/2"
                 )
             ) { _, which ->
                 when (which) {
                     0 -> start("MASQUE_H3")
                     1 -> start("MASQUE_H2")
-                    2 -> start("MIM")
+                    2 -> start("MIM_H3")
+                    3 -> start("MIM_H2")
                 }
             }
             .setNegativeButton("Cancel", null)
@@ -1892,9 +1894,27 @@ class MainActivity : Activity() {
                         AlertDialog.Builder(this)
                             .setTitle("Update available")
                             .setMessage("Installed: v$current\nLatest: v$latest")
-                            .setPositiveButton("Open GitHub") { _, _ ->
-                                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(release.second)))
+                            .setPositiveButton("Download APK") { _, _ ->
+                                runCatching {
+                                    val request = android.app.DownloadManager.Request(Uri.parse(release.third))
+                                        .setTitle("Saman Tunnel v$latest")
+                                        .setMimeType("application/vnd.android.package-archive")
+                                        .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                        request.setDestinationInExternalPublicDir(
+                                            Environment.DIRECTORY_DOWNLOADS,
+                                            "Saman-Tunnel-v$latest-universal-arm-${System.currentTimeMillis()}.apk"
+                                        )
+                                    }
+                                    val id = getSystemService(android.app.DownloadManager::class.java).enqueue(request)
+                                    LogStore.append(this, "UPDATE", "APK download queued id=$id version=$latest")
+                                    Toast.makeText(this, "Downloading APK — see Downloads notification", Toast.LENGTH_LONG).show()
+                                }.onFailure {
+                                    LogStore.append(this, "UPDATE", "Download failed: ${it.message}")
+                                    Toast.makeText(this, "Could not start download; use GitHub", Toast.LENGTH_LONG).show()
+                                }
                             }
+                            .setNeutralButton("Open GitHub") { _, _ -> openProjectLink(release.second) }
                             .setNegativeButton("Later", null)
                             .show()
                     } else {
@@ -1918,7 +1938,7 @@ class MainActivity : Activity() {
         }.start()
     }
 
-    private fun fetchLatestRelease(): Pair<String, String> {
+    private fun fetchLatestRelease(): Triple<String, String, String> {
         val connected = getSharedPreferences(AetherService.PREFS, MODE_PRIVATE)
             .getString(AetherService.KEY_STATUS, "")
             ?.startsWith("Connected", true) == true
@@ -1961,16 +1981,28 @@ class MainActivity : Activity() {
                 connection.disconnect()
 
                 val releases = JSONArray(body)
+                var newest: Triple<String, String, String>? = null
                 for (index in 0 until releases.length()) {
                     val release = releases.optJSONObject(index) ?: continue
                     if (release.optBoolean("draft") || release.optBoolean("prerelease")) continue
                     val tag = release.optString("tag_name")
                     val url = release.optString("html_url")
-                    if (!ReleaseVersion.isAndroidReleaseTag(tag)) continue
+                    if (!ReleaseVersion.isAndroidReleaseTag(tag) || tag.contains("-rc.")) continue
                     if (!ReleaseVersion.isTrustedReleaseUrl(url)) continue
-                    return tag to url
+                    val expectedName = "Saman-Tunnel-$tag-universal-arm.apk"
+                    val expectedUrl = "https://github.com/velnox4827/saman-aether/releases/download/$tag/$expectedName"
+                    val assets = release.optJSONArray("assets") ?: continue
+                    for (assetIndex in 0 until assets.length()) {
+                        val asset = assets.optJSONObject(assetIndex) ?: continue
+                        val download = asset.optString("browser_download_url")
+                        if (asset.optString("name") != expectedName || asset.optLong("size") <= 0) continue
+                        if (download != expectedUrl || !ReleaseVersion.isTrustedReleaseUrl(download)) continue
+                        if (newest == null || ReleaseVersion.compare(tag, newest.first) > 0) {
+                            newest = Triple(tag, url, download)
+                        }
+                    }
                 }
-                error("No trusted stable Android release was found.")
+                return newest ?: error("No trusted stable Android APK was found.")
             } catch (t: Throwable) {
                 lastError = t
             }
@@ -1986,6 +2018,8 @@ class MainActivity : Activity() {
 
     private fun prettyMode(mode: String): String = when (mode.uppercase()) {
         "MASQUE_H3", "MASQUE" -> "MASQUE H3"
+        "MIM_H2" -> "MASQUE-in-MASQUE H2"
+        "MIM_H3", "MIM" -> "MASQUE-in-MASQUE H3"
         "MASQUE_H2" -> "MASQUE H2"
         "WG" -> "WG"
         "GOOL" -> "GOOL"
