@@ -18,6 +18,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.net.InetSocketAddress
 import java.net.ServerSocket
+import java.io.File
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -184,7 +185,16 @@ class AetherService : Service() {
     }
 
     private fun launchCore(mode: String, myGeneration: Long) {
-        val modeArguments = argumentsFor(mode)
+        val psiphonBinary = if (AetherArguments.needsPsiphonBinary(mode)) {
+            val installed = File(applicationInfo.nativeLibraryDir, PsiphonBinaryPolicy.PACKAGED_NAME)
+            val abi = if (android.os.Process.is64Bit()) "arm64-v8a" else "armeabi-v7a"
+            if (!PsiphonBinaryPolicy.isValid(installed, abi)) {
+                fail("Official Psiphon binary missing or invalid for $abi", mode)
+                return
+            }
+            installed.absolutePath
+        } else null
+        val modeArguments = AetherArguments.forMode(mode, psiphonBinary)
         val args = JSONArray(modeArguments).toString()
         LogStore.append(this, "CORE", "Starting mode=$mode argumentCount=${modeArguments.size}")
 
@@ -473,11 +483,14 @@ class AetherService : Service() {
             "MASQUE_H2" -> "MASQUE H2"
             "MASQUE_H3", "MASQUE" -> "MASQUE H3"
             "WG" -> "WG"
+            "GOOL" -> "GOOL"
+            "PSIPHON_ONLY" -> "Psiphon"
             "MIM_H2" -> "MASQUE-in-MASQUE H2"
             "MIM_H3", "MIM" -> "MASQUE-in-MASQUE H3"
             "TOR_ONLY" -> "Tor only"
             "TOR_REVERSE" -> "Tor → MASQUE H2"
             "TOR_INSIDE_WG" -> "WireGuard → Tor"
+            "TOR_INSIDE_GOOL" -> "GOOL → Tor"
             "TOR_INSIDE_MASQUE_H2" -> "MASQUE H2 → Tor"
             "TOR_INSIDE_MASQUE", "TOR_INSIDE_MASQUE_H3" -> "MASQUE H3 → Tor"
             else -> mode.ifBlank { "core" }

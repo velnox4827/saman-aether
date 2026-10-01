@@ -1,5 +1,5 @@
 name: Build Saman Tunnel APKs
-run-name: "Saman Tunnel v1.10.0 • ${{ github.ref_name }}"
+run-name: "Saman Tunnel v2.0.0 • ${{ github.ref_name }}"
 
 on:
   workflow_dispatch:
@@ -19,6 +19,10 @@ permissions:
 
 env:
   AETHER_COMMIT: "6398931aeaa551248530cc164aea6d5f2c5fe4a2"
+  AETHER_ANDROID_ARM64_SHA256: "797cda06f5d651603b3b0c0cb8de7a5832d69e62241b3396b289d8bb0fca5374"
+  AETHER_ANDROID_ARMV7_SHA256: "2816df2a7cd7db675e73111e1131ec469afe252a35e4d3ac9bd226d479b5abf2"
+  PSIPHON_ANDROID_ARM64_SHA256: "7cab04ebf82ceed76ae53b99c306db26233b80825b930e2e7288f07a4087387a"
+  PSIPHON_ANDROID_ARMV7_SHA256: "719bf754d197ecb2b320e6251ace79109dc1972c6675206950bf8cb5a55f03ca"
   CARGO_NDK_VERSION: "4.1.2"
   RELEASE_CERT_SHA256: "03233edadf89ed27c7cf80452916a7bd25e8c74abe0f12d2eefcb8b290b48805"
 
@@ -63,7 +67,7 @@ jobs:
           test "$(git -C "$RUNNER_TEMP/Aether" rev-parse HEAD)" = "$AETHER_COMMIT"
           grep -q '^version = "2.1.0"$' "$RUNNER_TEMP/Aether/aether/Cargo.toml"
           grep -q '^rust-version = "1.98"$' "$RUNNER_TEMP/Aether/aether/Cargo.toml"
-      - name: Build native libraries
+      - name: Build official Aether core
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/26.3.11579264
           ANDROID_NDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}/ndk/26.3.11579264
@@ -73,6 +77,29 @@ jobs:
           cargo ndk -t arm64-v8a -t armeabi-v7a --platform 24 build --release --lib --features tor
           install -Dm755 target/aarch64-linux-android/release/libaether.so "$GITHUB_WORKSPACE/android-app/app/src/main/jniLibs/arm64-v8a/libaether.so"
           install -Dm755 target/armv7-linux-androideabi/release/libaether.so "$GITHUB_WORKSPACE/android-app/app/src/main/jniLibs/armeabi-v7a/libaether.so"
+      - name: Verify and stage official Aether Psiphon clients
+        run: |
+          set -euo pipefail
+          TEMP="$RUNNER_TEMP/aether-psiphon"
+          LIBS="$GITHUB_WORKSPACE/android-app/app/src/main/jniLibs"
+          mkdir -p "$TEMP" "$LIBS/arm64-v8a" "$LIBS/armeabi-v7a"
+          for abi in arm64 armv7; do
+            case "$abi" in
+              arm64) expected_archive="$AETHER_ANDROID_ARM64_SHA256"; expected_binary="$PSIPHON_ANDROID_ARM64_SHA256"; gradle_abi=arm64-v8a ;;
+              armv7) expected_archive="$AETHER_ANDROID_ARMV7_SHA256"; expected_binary="$PSIPHON_ANDROID_ARMV7_SHA256"; gradle_abi=armeabi-v7a ;;
+            esac
+            archive="$TEMP/aether-android-$abi.tar.gz"
+            curl --fail --location --retry 3 --connect-timeout 20 \
+              "https://github.com/CluvexStudio/Aether/releases/download/v2.1.0/aether-android-$abi.tar.gz" -o "$archive"
+            printf '%s  %s\n' "$expected_archive" "$archive" | sha256sum --check --strict
+            tar -xOzf "$archive" pt/psiphon-tunnel-core > "$TEMP/psiphon-$abi"
+            printf '%s  %s\n' "$expected_binary" "$TEMP/psiphon-$abi" | sha256sum --check --strict
+            file "$TEMP/psiphon-$abi"
+            if [ "$abi" = arm64 ]; then file "$TEMP/psiphon-$abi" | grep -q 'ELF 64-bit.*ARM aarch64'; else file "$TEMP/psiphon-$abi" | grep -q 'ELF 32-bit.*ARM'; fi
+            # Android extracts packaged JNI libraries to nativeLibraryDir with executable permissions.
+            install -Dm755 "$TEMP/psiphon-$abi" "$LIBS/$gradle_abi/libpsiphon-tunnel-core.so"
+          done
+
       - name: Build pinned HEV tun2socks
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/26.3.11579264
@@ -138,30 +165,34 @@ jobs:
           UNI="$(find "$O" -type f -name '*universal*debug*.apk' -print -quit)"
           test -f "$A64"; test -f "$A32"; test -f "$UNI"
           unzip -l "$A64" | grep -q 'lib/arm64-v8a/libhev-socks5-tunnel.so'
+          unzip -l "$A64" | grep -q 'lib/arm64-v8a/libpsiphon-tunnel-core.so'
           unzip -l "$A32" | grep -q 'lib/armeabi-v7a/libhev-socks5-tunnel.so'
+          unzip -l "$A32" | grep -q 'lib/armeabi-v7a/libpsiphon-tunnel-core.so'
           unzip -l "$UNI" | grep -q 'lib/arm64-v8a/libhev-socks5-tunnel.so'
+          unzip -l "$UNI" | grep -q 'lib/arm64-v8a/libpsiphon-tunnel-core.so'
           unzip -l "$UNI" | grep -q 'lib/armeabi-v7a/libhev-socks5-tunnel.so'
+          unzip -l "$UNI" | grep -q 'lib/armeabi-v7a/libpsiphon-tunnel-core.so'
           for APK in "$A64" "$A32" "$UNI"; do
             "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$APK"
             B="$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK")"
-            grep -q "package: name='com.saman.tunnel.debug' versionCode='200' versionName='1.10.0'" <<<"$B"
+            grep -q "package: name='com.saman.tunnel.debug' versionCode='20000' versionName='2.0.0'" <<<"$B"
           done
           python3 - "$A64" "$A32" "$UNI" <<'PYVERIFY'
           import sys, zipfile
           for apk, abis in zip(sys.argv[1:], [("arm64-v8a",), ("armeabi-v7a",), ("arm64-v8a", "armeabi-v7a")]):
               with zipfile.ZipFile(apk) as archive:
                   for abi in abis:
-                      for lib in ("libaether.so", "libsamanbridge.so", "libhev-socks5-tunnel.so"):
+                      for lib in ("libaether.so", "libsamanbridge.so", "libhev-socks5-tunnel.so", "libpsiphon-tunnel-core.so"):
                           assert archive.getinfo(f"lib/{abi}/{lib}").file_size > 0, (apk, abi, lib)
           PYVERIFY
           mkdir -p dist
-          cp "$A64" dist/Saman-Tunnel-v1.10.0-arm64-v8a-debug.apk
-          cp "$A32" dist/Saman-Tunnel-v1.10.0-armeabi-v7a-debug.apk
-          cp "$UNI" dist/Saman-Tunnel-v1.10.0-universal-arm-debug.apk
+          cp "$A64" dist/Saman-Tunnel-v2.0.0-arm64-v8a-debug.apk
+          cp "$A32" dist/Saman-Tunnel-v2.0.0-armeabi-v7a-debug.apk
+          cp "$UNI" dist/Saman-Tunnel-v2.0.0-universal-arm-debug.apk
           (cd dist && sha256sum ./*.apk > SHA256SUMS)
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: saman-tunnel-v1.10.0-debug
+          name: saman-tunnel-v2.0.0-debug
           path: dist/*
           if-no-files-found: error
           retention-days: 30
@@ -197,7 +228,7 @@ jobs:
             CERTS="$("$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK")"
             grep -q "certificate SHA-256 digest: $RELEASE_CERT_SHA256" <<<"$CERTS"
             B="$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK")"
-            grep -q "package: name='com.saman.tunnel' versionCode='200' versionName='1.10.0'" <<<"$B"
+            grep -q "package: name='com.saman.tunnel' versionCode='20000' versionName='2.0.0'" <<<"$B"
           done
           unzip -l "$A64" | grep -q 'lib/arm64-v8a/libaether.so'
           unzip -l "$A64" | grep -q 'lib/arm64-v8a/libsamanbridge.so'
@@ -205,14 +236,14 @@ jobs:
           unzip -l "$A32" | grep -q 'lib/armeabi-v7a/libsamanbridge.so'
           unzip -l "$UNI" | grep -q 'lib/arm64-v8a/libaether.so'
           unzip -l "$UNI" | grep -q 'lib/armeabi-v7a/libaether.so'
-          cp "$A64" dist-release/Saman-Tunnel-v1.10.0-arm64-v8a.apk
-          cp "$A32" dist-release/Saman-Tunnel-v1.10.0-armeabi-v7a.apk
-          cp "$UNI" dist-release/Saman-Tunnel-v1.10.0-universal-arm.apk
+          cp "$A64" dist-release/Saman-Tunnel-v2.0.0-arm64-v8a.apk
+          cp "$A32" dist-release/Saman-Tunnel-v2.0.0-armeabi-v7a.apk
+          cp "$UNI" dist-release/Saman-Tunnel-v2.0.0-universal-arm.apk
           (cd dist-release && sha256sum ./*.apk > SHA256SUMS)
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: github.event_name == 'workflow_dispatch' && inputs.build_release
         with:
-          name: saman-tunnel-v1.10.0-release
+          name: saman-tunnel-v2.0.0-release
           path: dist-release/*
           if-no-files-found: error
           retention-days: 30
@@ -220,7 +251,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: saman-tunnel-v1.10.0-checks
+          name: saman-tunnel-v2.0.0-checks
           path: |
             android-app/app/build/reports/
             android-app/app/build/test-results/

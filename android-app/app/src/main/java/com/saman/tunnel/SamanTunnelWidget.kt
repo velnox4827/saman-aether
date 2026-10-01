@@ -137,6 +137,8 @@ class SamanTunnelWidget : AppWidgetProvider() {
             val displayMode = when (mode.uppercase()) {
                 "MASQUE_H2" -> "H2"
                 "MASQUE_H3", "MASQUE" -> "H3"
+                "GOOL" -> "GOOL"
+                "PSIPHON_ONLY" -> "PSI"
                 else -> "WG"
             }
 

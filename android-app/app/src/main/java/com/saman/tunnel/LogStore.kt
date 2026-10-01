@@ -292,6 +292,8 @@ object LogStore {
         }
 
         return when (mode.uppercase(Locale.US)) {
+            "GOOL" -> "Preparing GOOL pair"
+            "PSIPHON_ONLY" -> "Starting Psiphon through Aether"
             "MASQUE_H2" -> "Preparing MASQUE H2"
             "MASQUE_H3", "MASQUE" -> "Preparing MASQUE H3"
             else -> "Preparing WireGuard"

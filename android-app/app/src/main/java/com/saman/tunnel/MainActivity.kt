@@ -111,20 +111,30 @@ class MainActivity : Activity() {
         deferredVpnMode = savedInstanceState?.getString("deferred_vpn")
         pendingVpnMode = savedInstanceState?.getString("pending_vpn")
 
-        // One-time persisted migration: legacy GOOL values become WireGuard so
-        // saved state can never restart --gool.
+        // v1.10.0 mapped legacy GOOL choices to WG, losing the user's choice.
+        // Version gate keeps intentional v1.9.2 WG selections unchanged.
         getSharedPreferences(AetherService.PREFS, MODE_PRIVATE).let { prefs ->
-            var edit = prefs.edit()
-            var changed = false
-            for (key in listOf(AetherService.KEY_LAST_MODE, AetherService.KEY_MODE)) {
-                val stored = prefs.getString(key, "") ?: ""
-                val canonical = AetherArguments.canonicalMode(stored)
-                if (stored != canonical) {
-                    edit = edit.putString(key, canonical)
-                    changed = true
+            val migrationKey = "gool_restored_from_v110"
+            if (!prefs.getBoolean(migrationKey, false)) {
+                val previousVersion = runCatching {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        packageManager.getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(0)).versionName
+                    } else {
+                        @Suppress("DEPRECATION")
+                        packageManager.getPackageInfo(packageName, 0).versionName
+                    }
+                }.getOrNull()
+                if (previousVersion == "1.10.0") {
+                    val edit = prefs.edit()
+                    if (prefs.getString(AetherService.KEY_LAST_MODE, "") == "WG") {
+                        edit.putString(AetherService.KEY_LAST_MODE, "GOOL")
+                    }
+                    if (prefs.getString(AetherService.KEY_MODE, "") == "WG") {
+                        edit.putString(AetherService.KEY_MODE, "GOOL")
+                    }
+                    edit.putBoolean(migrationKey, true).apply()
                 }
             }
-            if (changed) edit.apply()
         }
 
         window.statusBarColor = canvas
@@ -359,7 +369,10 @@ class MainActivity : Activity() {
             chooseMasqueMode()
         })
         modeRow.addView(modeTile("◇", "WireGuard", green, tinted(green)) {
-            start("WG")
+            chooseWireGuardMode()
+        })
+        modeRow.addView(modeTile("◉", "Psiphon", purple, tinted(purple)) {
+            start("PSIPHON_ONLY")
         })
         modeRow.addView(modeTile("◌", "Tor", orange, tinted(orange)) {
             chooseTorMode()
@@ -618,7 +631,7 @@ class MainActivity : Activity() {
 
         addView(TextView(this@MainActivity).apply {
             text = label
-            textSize = if (label == "WireGuard") 13.2f else 13.8f
+            textSize = if (label == "WireGuard" || label == "Psiphon") 12.5f else 13.8f
             gravity = Gravity.CENTER
             setTextColor(accent)
             setTypeface(typeface, Typeface.BOLD)
@@ -767,6 +780,7 @@ class MainActivity : Activity() {
                     "MASQUE HTTP/3 → Tor",
                     "MASQUE HTTP/2 → Tor",
                     "WireGuard → Tor",
+                    "GOOL → Tor",
                     "Tor → MASQUE HTTP/2"
                 )
             ) { _, which ->
@@ -776,9 +790,24 @@ class MainActivity : Activity() {
                         "TOR_INSIDE_MASQUE_H3",
                         "TOR_INSIDE_MASQUE_H2",
                         "TOR_INSIDE_WG",
+                        "TOR_INSIDE_GOOL",
                         "TOR_REVERSE"
                     )[which]
                 )
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun chooseWireGuardMode() {
+        if (isBusy()) {
+            Toast.makeText(this, "Please wait for the current action to finish", Toast.LENGTH_SHORT).show()
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle("WireGuard mode")
+            .setItems(arrayOf("WireGuard", "GOOL — WARP-in-WARP")) { _, which ->
+                start(if (which == 0) "WG" else "GOOL")
             }
             .setNegativeButton("Cancel", null)
             .show()
@@ -1031,7 +1060,7 @@ class MainActivity : Activity() {
                         if (TunnelPhase.fromStatus(status).isActive) deferredVpnMode = runningMode
                         Toast.makeText(
                             this,
-                            "VPN selected — choose WireGuard or MASQUE to connect",
+                            "VPN selected — choose WireGuard, MASQUE or Psiphon to connect",
                             Toast.LENGTH_LONG
                         ).show()
                     }
@@ -2036,6 +2065,8 @@ class MainActivity : Activity() {
         "MIM_H3", "MIM" -> "MASQUE-in-MASQUE H3"
         "MASQUE_H2" -> "MASQUE H2"
         "WG" -> "WG"
+        "GOOL" -> "GOOL"
+        "PSIPHON_ONLY" -> "Psiphon"
         else -> mode.ifBlank { "—" }
     }
 
