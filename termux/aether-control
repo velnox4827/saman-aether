@@ -23,7 +23,7 @@ case "$command_name" in
         ;;
     start|restart)
         [ "$#" -eq 2 ] || fail_usage "$command_name requires exactly one mode"
-        case "$2" in wg|gool|h3|h2) ;; *) fail_usage "invalid Aether mode: $2" ;; esac
+        case "$2" in wg|gool|h3|h2|mim) ;; *) fail_usage "invalid Aether mode: $2" ;; esac
         ;;
     diagnostics)
         [ "$#" -le 2 ] || fail_usage "diagnostics accepts at most one mode"

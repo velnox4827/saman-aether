@@ -26,7 +26,7 @@ esac
 
 sanitize_stream() {
     sed -E \
-        -e 's#(Authorization:[[:space:]]*(Bearer|Basic)[[:space:]]+)[^[:space:]]+#\1<redacted>#Ig' \
+        -e '/^Auth/c\AUTHORIZATION-REDACTED' \
         -e 's#(Cookie:)[^\r\n]*#\1 <redacted>#Ig' \
         -e 's#((token|api[_-]?key|password|passwd|rpc\.secret)[[:space:]]*[=:][[:space:]]*)[^,[:space:]"}]+#\1<redacted>#Ig' \
         -e 's#(device(_id)?[=: ]+)[0-9a-fA-F-]{16,}#\1<redacted>#g' \
@@ -75,7 +75,7 @@ status_block() {
         health="PORT CONFLICT"
     fi
     if [ -x "$SAMAN_BIN" ]; then
-        mode="$("$SAMAN_BIN" aether status 2>/dev/null | awk -F': ' '$1 ~ /^Mode[[:space:]]*$/ {print $2; exit}')"
+        mode="$("$SAMAN_BIN" aether status 2>/dev/null | awk -F': ' '$1 ~ /^Mode[[:space:]]*$/ {print $2; exit}' || true)"
         [ -n "$mode" ] || mode=unknown
     fi
     printf 'Running: %s\n' "$([ "$process_count" -gt 0 ] && echo yes || echo no)"

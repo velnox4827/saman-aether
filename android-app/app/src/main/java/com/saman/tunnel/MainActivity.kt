@@ -50,6 +50,8 @@ class MainActivity : Activity() {
         private const val REQUEST_APP_ROUTING = 2004
         private const val RELEASES_API =
             "https://api.github.com/repos/velnox4827/saman-aether/releases?per_page=10"
+        private const val PROJECT_CHANNEL = "https://t.me/SamanTunnelOfficial"
+        private const val PROJECT_GROUP = "https://t.me/SamanTunnel"
     }
 
     private lateinit var modeView: TextView
@@ -109,6 +111,22 @@ class MainActivity : Activity() {
         deferredVpnMode = savedInstanceState?.getString("deferred_vpn")
         pendingVpnMode = savedInstanceState?.getString("pending_vpn")
 
+        // One-time persisted migration: legacy GOOL values become WireGuard so
+        // saved state can never restart --gool.
+        getSharedPreferences(AetherService.PREFS, MODE_PRIVATE).let { prefs ->
+            var edit = prefs.edit()
+            var changed = false
+            for (key in listOf(AetherService.KEY_LAST_MODE, AetherService.KEY_MODE)) {
+                val stored = prefs.getString(key, "") ?: ""
+                val canonical = AetherArguments.canonicalMode(stored)
+                if (stored != canonical) {
+                    edit = edit.putString(key, canonical)
+                    changed = true
+                }
+            }
+            if (changed) edit.apply()
+        }
+
         window.statusBarColor = canvas
         window.navigationBarColor = canvas
 
@@ -125,8 +143,10 @@ class MainActivity : Activity() {
         handler.post(refresh)
         if (intent?.action == "com.saman.tunnel.QUICK_CONNECT") {
             intent.action = Intent.ACTION_MAIN
-            val mode = getSharedPreferences(AetherService.PREFS, MODE_PRIVATE)
-                .getString(AetherService.KEY_LAST_MODE, "WG").orEmpty().ifBlank { "WG" }
+            val mode = AetherArguments.canonicalMode(
+                getSharedPreferences(AetherService.PREFS, MODE_PRIVATE)
+                    .getString(AetherService.KEY_LAST_MODE, "WG").orEmpty().ifBlank { "WG" }
+            )
             start(mode)
         }
         if (getSharedPreferences(SamanVpnService.PREFS, MODE_PRIVATE)
@@ -341,8 +361,8 @@ class MainActivity : Activity() {
         modeRow.addView(modeTile("◇", "WireGuard", green, tinted(green)) {
             start("WG")
         })
-        modeRow.addView(modeTile("◉", "GOOL", purple, tinted(purple)) {
-            start("GOOL")
+        modeRow.addView(modeTile("◌", "Tor", orange, tinted(orange)) {
+            chooseTorMode()
         })
         root.addView(modeRow)
 
@@ -431,42 +451,6 @@ class MainActivity : Activity() {
         )
         root.addView(actionRow)
 
-        // Diagnostics
-        val diagnosticsCard = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            background = rounded(card, 18, line)
-            setPadding(dp(9), dp(7), dp(9), dp(8))
-            elevation = dp(1).toFloat()
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(108)
-            ).apply { bottomMargin = dp(7) }
-        }
-
-        diagnosticsCard.addView(TextView(this).apply {
-            text = "Diagnostics"
-            textSize = 14.2f
-            setTextColor(ink)
-            setTypeface(typeface, Typeface.BOLD)
-            includeFontPadding = false
-            setPadding(dp(2), 0, 0, dp(6))
-        })
-
-        val diagnosticsRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                0,
-                1f
-            )
-        }
-
-        diagnosticsRow.addView(diagTile("≡", "Logs", blue) { showQuickLog(40) })
-        diagnosticsRow.addView(diagTile("⇩", "Save TXT", green) { chooseDiagnosticsExport() })
-        diagnosticsCard.addView(diagnosticsRow)
-        root.addView(diagnosticsCard)
-
         // Utilities: battery + updater
         val utilityRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -494,6 +478,26 @@ class MainActivity : Activity() {
         )
 
         root.addView(utilityRow)
+
+        val supportRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(46)
+            ).apply { bottomMargin = dp(7) }
+        }
+        supportRow.addView(actionTile("📢 Channel", blue, card) { openProjectLink(PROJECT_CHANNEL) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f).apply { marginEnd = dp(5) })
+        supportRow.addView(actionTile("👥 Group", purple, card) { openProjectLink(PROJECT_GROUP) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f).apply { marginStart = dp(5) })
+        root.addView(supportRow)
+
+        root.addView(
+            actionTile("⚙  Settings & help", ink, card) { showSettingsMenu() },
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(44)
+            ).apply { bottomMargin = dp(7) }
+        )
 
         // SOCKS
         val socksCard = LinearLayout(this).apply {
@@ -640,46 +644,6 @@ class MainActivity : Activity() {
         setOnClickListener { action() }
     }
 
-    private fun diagTile(
-        symbol: String,
-        label: String,
-        accent: Int,
-        action: () -> Unit
-    ): View = LinearLayout(this).apply {
-        orientation = LinearLayout.VERTICAL
-        gravity = Gravity.CENTER
-        background = rounded(cardSoft, 14, line)
-        isClickable = true
-        isFocusable = true
-        setOnClickListener { action() }
-        layoutParams = LinearLayout.LayoutParams(
-            0,
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            1f
-        ).apply {
-            marginStart = dp(3)
-            marginEnd = dp(3)
-        }
-
-        addView(TextView(this@MainActivity).apply {
-            text = symbol
-            textSize = if (symbol.length <= 2 && symbol.all { it.isDigit() }) 15f else 19f
-            gravity = Gravity.CENTER
-            setTextColor(accent)
-            setTypeface(typeface, Typeface.BOLD)
-            includeFontPadding = false
-        })
-
-        addView(TextView(this@MainActivity).apply {
-            text = label
-            textSize = 10.8f
-            gravity = Gravity.CENTER
-            setTextColor(ink)
-            setTypeface(typeface, Typeface.BOLD)
-            includeFontPadding = false
-            setPadding(0, dp(3), 0, 0)
-        })
-    }
 
     private fun utilityTile(label: String, action: () -> Unit): TextView =
         TextView(this).apply {
@@ -693,6 +657,58 @@ class MainActivity : Activity() {
             isFocusable = true
             setOnClickListener { action() }
         }
+
+    private fun showSettingsMenu() {
+        AlertDialog.Builder(this)
+            .setTitle("Settings & help")
+            .setItems(
+                arrayOf(
+                    "App routing",
+                    "Diagnostics and logs",
+                    "Battery optimization",
+                    "Check for updates",
+                    "About Saman Tunnel"
+                )
+            ) { _, which ->
+                when (which) {
+                    0 -> startActivityForResult(Intent(this, AppRoutingActivity::class.java), REQUEST_APP_ROUTING)
+                    1 -> showDiagnosticsMenu()
+                    2 -> openBatterySettings()
+                    3 -> checkForUpdates()
+                    4 -> AlertDialog.Builder(this)
+                        .setTitle("Saman Tunnel 1.10.0")
+                        .setMessage(
+                            "Official Aether core v2.1.0\n" +
+                                "Android VPN path: HEV tun2socks\n\n" +
+                                "Channel: $PROJECT_CHANNEL\nGroup: $PROJECT_GROUP"
+                        )
+                        .setPositiveButton("Channel") { _, _ -> openProjectLink(PROJECT_CHANNEL) }
+                        .setNeutralButton("Group") { _, _ -> openProjectLink(PROJECT_GROUP) }
+                        .setNegativeButton("Close", null)
+                        .show()
+                }
+            }
+            .setNegativeButton("Close", null)
+            .show()
+    }
+
+    private fun showDiagnosticsMenu() {
+        AlertDialog.Builder(this)
+            .setTitle("Diagnostics and logs")
+            .setItems(arrayOf("View logs", "Save diagnostics TXT")) { _, which ->
+                when (which) {
+                    0 -> showQuickLog(40)
+                    1 -> chooseDiagnosticsExport()
+                }
+            }
+            .setNegativeButton("Close", null)
+            .show()
+    }
+
+    private fun openProjectLink(url: String) {
+        runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+            .onFailure { Toast.makeText(this, "No browser found", Toast.LENGTH_SHORT).show() }
+    }
 
     private fun withAlpha(color: Int, alpha: Int): Int =
         Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color))
@@ -722,13 +738,47 @@ class MainActivity : Activity() {
             .setItems(
                 arrayOf(
                     "HTTP/3 (QUIC) — default",
-                    "HTTP/2 — alternative network mode"
+                    "HTTP/2 — alternative network mode",
+                    "MASQUE-in-MASQUE HTTP/3 (QUIC)",
+                    "MASQUE-in-MASQUE HTTP/2"
                 )
             ) { _, which ->
                 when (which) {
                     0 -> start("MASQUE_H3")
                     1 -> start("MASQUE_H2")
+                    2 -> start("MIM_H3")
+                    3 -> start("MIM_H2")
                 }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun chooseTorMode() {
+        if (isBusy()) {
+            Toast.makeText(this, "Please wait for the current action to finish", Toast.LENGTH_SHORT).show()
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Tor routing (official Aether)")
+            .setItems(
+                arrayOf(
+                    "Tor only",
+                    "MASQUE HTTP/3 → Tor",
+                    "MASQUE HTTP/2 → Tor",
+                    "WireGuard → Tor",
+                    "Tor → MASQUE HTTP/2"
+                )
+            ) { _, which ->
+                start(
+                    arrayOf(
+                        "TOR_ONLY",
+                        "TOR_INSIDE_MASQUE_H3",
+                        "TOR_INSIDE_MASQUE_H2",
+                        "TOR_INSIDE_WG",
+                        "TOR_REVERSE"
+                    )[which]
+                )
             }
             .setNegativeButton("Cancel", null)
             .show()
@@ -743,6 +793,7 @@ class MainActivity : Activity() {
     }
 
     private fun start(mode: String) {
+        val mode = AetherArguments.canonicalMode(mode)
         if (isBusy()) {
             Toast.makeText(
                 this,
@@ -980,7 +1031,7 @@ class MainActivity : Activity() {
                         if (TunnelPhase.fromStatus(status).isActive) deferredVpnMode = runningMode
                         Toast.makeText(
                             this,
-                            "VPN selected — choose WG, MASQUE or GOOL to connect",
+                            "VPN selected — choose WireGuard or MASQUE to connect",
                             Toast.LENGTH_LONG
                         ).show()
                     }
@@ -1857,9 +1908,27 @@ class MainActivity : Activity() {
                         AlertDialog.Builder(this)
                             .setTitle("Update available")
                             .setMessage("Installed: v$current\nLatest: v$latest")
-                            .setPositiveButton("Open GitHub") { _, _ ->
-                                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(release.second)))
+                            .setPositiveButton("Download APK") { _, _ ->
+                                runCatching {
+                                    val request = android.app.DownloadManager.Request(Uri.parse(release.third))
+                                        .setTitle("Saman Tunnel v$latest")
+                                        .setMimeType("application/vnd.android.package-archive")
+                                        .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                        request.setDestinationInExternalPublicDir(
+                                            Environment.DIRECTORY_DOWNLOADS,
+                                            "Saman-Tunnel-v$latest-universal-arm-${System.currentTimeMillis()}.apk"
+                                        )
+                                    }
+                                    val id = getSystemService(android.app.DownloadManager::class.java).enqueue(request)
+                                    LogStore.append(this, "UPDATE", "APK download queued id=$id version=$latest")
+                                    Toast.makeText(this, "Downloading APK — see Downloads notification", Toast.LENGTH_LONG).show()
+                                }.onFailure {
+                                    LogStore.append(this, "UPDATE", "Download failed: ${it.message}")
+                                    Toast.makeText(this, "Could not start download; use GitHub", Toast.LENGTH_LONG).show()
+                                }
                             }
+                            .setNeutralButton("Open GitHub") { _, _ -> openProjectLink(release.second) }
                             .setNegativeButton("Later", null)
                             .show()
                     } else {
@@ -1883,7 +1952,7 @@ class MainActivity : Activity() {
         }.start()
     }
 
-    private fun fetchLatestRelease(): Pair<String, String> {
+    private fun fetchLatestRelease(): Triple<String, String, String> {
         val connected = getSharedPreferences(AetherService.PREFS, MODE_PRIVATE)
             .getString(AetherService.KEY_STATUS, "")
             ?.startsWith("Connected", true) == true
@@ -1926,16 +1995,28 @@ class MainActivity : Activity() {
                 connection.disconnect()
 
                 val releases = JSONArray(body)
+                var newest: Triple<String, String, String>? = null
                 for (index in 0 until releases.length()) {
                     val release = releases.optJSONObject(index) ?: continue
                     if (release.optBoolean("draft") || release.optBoolean("prerelease")) continue
                     val tag = release.optString("tag_name")
                     val url = release.optString("html_url")
-                    if (!ReleaseVersion.isAndroidReleaseTag(tag)) continue
+                    if (!ReleaseVersion.isAndroidReleaseTag(tag) || tag.contains("-rc.")) continue
                     if (!ReleaseVersion.isTrustedReleaseUrl(url)) continue
-                    return tag to url
+                    val expectedName = "Saman-Tunnel-$tag-universal-arm.apk"
+                    val expectedUrl = "https://github.com/velnox4827/saman-aether/releases/download/$tag/$expectedName"
+                    val assets = release.optJSONArray("assets") ?: continue
+                    for (assetIndex in 0 until assets.length()) {
+                        val asset = assets.optJSONObject(assetIndex) ?: continue
+                        val download = asset.optString("browser_download_url")
+                        if (asset.optString("name") != expectedName || asset.optLong("size") <= 0) continue
+                        if (download != expectedUrl || !ReleaseVersion.isTrustedReleaseUrl(download)) continue
+                        if (newest == null || ReleaseVersion.compare(tag, newest.first) > 0) {
+                            newest = Triple(tag, url, download)
+                        }
+                    }
                 }
-                error("No trusted stable Android release was found.")
+                return newest ?: error("No trusted stable Android APK was found.")
             } catch (t: Throwable) {
                 lastError = t
             }
@@ -1951,9 +2032,10 @@ class MainActivity : Activity() {
 
     private fun prettyMode(mode: String): String = when (mode.uppercase()) {
         "MASQUE_H3", "MASQUE" -> "MASQUE H3"
+        "MIM_H2" -> "MASQUE-in-MASQUE H2"
+        "MIM_H3", "MIM" -> "MASQUE-in-MASQUE H3"
         "MASQUE_H2" -> "MASQUE H2"
         "WG" -> "WG"
-        "GOOL" -> "GOOL"
         else -> mode.ifBlank { "—" }
     }
 

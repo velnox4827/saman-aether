@@ -1,5 +1,68 @@
 # Changelog
 
+## v1.10.0
+
+- Android APK only; Termux scripts and runtime remain unchanged.
+- Remove GOOL from all user-selectable Android surfaces (main mode row, Tor menu, widget label, VPN hint). WireGuard remains the primary selectable mode and maps to the official Aether `--wg` flag.
+- Migrate legacy saved GOOL / Tor-through-GOOL preferences to WireGuard / Tor-through-WireGuard at startup so old state can never restart `--gool`; no GOOL start path remains in the UI.
+- Psiphon: not yet available in the Android APK. Upstream Aether v2.1.0 exposes `--psiphon*` flags, but they require an external `psiphon-tunnel-core` binary at runtime; this build does not package one, so no Psiphon mode is shown or claimed. Activation waits for a packaged, licensed Psiphon client in the Aether build pipeline.
+- Aether Core stays pinned at official v2.1.0 commit `6398931aeaa551248530cc164aea6d5f2c5fe4a2` (latest stable upstream); HEV tun2socks stays pinned at `d9dca26c7ad0e494492244f0309e80ee583e739e` (2.18.0). No protocol or reachability logic exists outside Aether Core; local health checks only probe the local SOCKS/HTTP listeners.
+- Release pipeline: unit tests and lint now run before native core builds so failures surface earlier. Version: versionCode `200`, versionName `1.10.0`.
+
+## v1.9.2
+
+- Android APK only; Termux scripts and runtime remain unchanged.
+- Bundle unmodified official Aether v2.1.0 and HEV tun2socks 2.18.0.
+- Expose separate MASQUE-in-MASQUE HTTP/2 and HTTP/3 choices, preserving legacy MIM as HTTP/3.
+- Download the latest stable Universal ARM APK directly from Settings via Android Download Manager; keep GitHub as fallback and reject unrelated/preview releases.
+- Include the settings/help menu, diagnostics submenu, and project links previously available in debug builds.
+- Preserve production package identity and signing certificate for updates over existing stable installations.
+
+## v1.8.0
+
+- Android APKs now build unmodified official Aether v2.0.0 with the official Tor feature enabled for ARM64, ARMv7, and Universal ARM artifacts.
+- Removed all Saman Aether core patches and their smart-reconnect environment settings; the APK consumes the upstream FFI directly.
+- Added MASQUE-in-MASQUE plus official Tor-only, transport-to-Tor, and Tor-to-MASQUE H2 mode selections.
+- Psiphon remains unavailable in the APK: official Psiphon configuration and distribution approval are required, and it cannot honestly be presented as an Aether core mode.
+
+## Saman Termux v1.8.2 / Center v2.1.2 — 2026-09-19
+
+- Added a separate, official Psiphon Console Client adapter with safe config validation, owned-process lifecycle, source verification, and independent update/build actions.
+- Added an explicit Psiphon-via-Aether loopback chain that derives a private config without altering the supplied official client JSON.
+- Kept Aether v2.0.0 direct and unmodified; confirmed AetherST has no Psiphon core to reuse.
+- Added Psiphon controls to the Aether panel and Update Center, plus regression coverage and Persian-first/English documentation.
+
+## Saman Termux v1.8.1 / Center v2.1.1 — 2026-09-14
+
+- Extended the upstream-direct adapter for the live Aether option surface,
+  including access/gateway, identity paths, reconnect disabling, and GOOL/MIM
+  scan controls, all gated by the installed binary's help output.
+- Added a verified upstream capability matrix and explicit Psiphon-unavailable
+  reporting; no fake Psiphon implementation was added.
+- Preserved non-stacking clear/redraw navigation and refreshed Persian-first
+  Termux documentation.
+
+## Saman Termux v1.8.0 — 2026-09-13
+
+- Rebuilt the Aether menus as clear/redraw loops with safe numeric input,
+  persistent `[x]` selections, separate selected/running state, and distinct
+  Back, Exit, and Stop actions.
+- Added capability-gated integration for official upstream Aether v2.0 Tor:
+  Tor inside the selected tunnel, MASQUE/H2 through Tor, and Tor-only, plus
+  supported bridge and pluggable-transport settings without exposing private
+  bridge lines.
+- Detached the owned service output from the menu, tightened runner/core
+  ownership checks, prevented duplicate starts, and retained detailed bounded
+  logs and readiness/error progress.
+- Hardened official Aether release updates with mandatory checksums, safe archive
+  validation, staged binary/PT installation, private backups, atomic replacement,
+  and rollback.
+- Added shell and pseudo-terminal regressions for menu rendering/input,
+  navigation, persistence, lifecycle dispatch, Tor availability/readiness,
+  port conflicts, and updater failures.
+- Rewrote the root README as a Persian-first, Termux-first installation and
+  operations guide; the Android application documentation is now secondary.
+
 ## v1.7.6
 
 Stable release — 2026-09-08

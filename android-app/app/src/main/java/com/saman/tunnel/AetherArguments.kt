@@ -1,0 +1,30 @@
+package com.saman.tunnel
+
+/** Official Aether v2 command lines only; no Saman-specific core flags. */
+object AetherArguments {
+    private const val socks = "127.0.0.1:1819"
+    private const val http = "127.0.0.1:1820"
+
+    /**
+     * GOOL is no longer user-selectable. Legacy saved modes migrate to the
+     * safe WireGuard path so old SharedPreferences never restart --gool.
+     */
+    fun canonicalMode(mode: String): String = when (mode.uppercase()) {
+        "GOOL" -> "WG"
+        "TOR_INSIDE_GOOL" -> "TOR_INSIDE_WG"
+        else -> mode.uppercase()
+    }
+
+    fun forMode(mode: String): List<String> = when (canonicalMode(mode)) {
+        "TOR_ONLY" -> listOf("--tor-only", "--bind", socks)
+        "TOR_REVERSE" -> listOf("--masque", "--h2", "-4", "--bind", socks, "--tor-reverse", "--tor-bind", http)
+        "TOR_INSIDE_WG" -> listOf("--wg", "-4", "--bind", socks, "--scan", "balanced", "--noize", "balanced", "--keepalive", "5", "--quick-reconnect", "--tor", "--tor-bind", http)
+        "TOR_INSIDE_MASQUE_H2" -> listOf("--masque", "--h2", "-4", "--bind", socks, "--scan", "balanced", "--noize", "firewall", "--quick-reconnect", "--tor", "--tor-bind", http)
+        "TOR_INSIDE_MASQUE", "TOR_INSIDE_MASQUE_H3" -> listOf("--masque", "-4", "--bind", socks, "--scan", "balanced", "--noize", "firewall", "--quick-reconnect", "--tor", "--tor-bind", http)
+        "MASQUE_H2" -> listOf("--masque", "--h2", "-4", "--bind", socks, "--http-proxy", http, "--scan", "balanced", "--noize", "firewall", "--quick-reconnect")
+        "MASQUE_H3", "MASQUE" -> listOf("--masque", "-4", "--bind", socks, "--http-proxy", http, "--scan", "balanced", "--noize", "firewall", "--quick-reconnect")
+        "MIM_H2" -> forMode("MIM_H3") + "--h2"
+        "MIM_H3", "MIM" -> listOf("--mim", "-4", "--bind", socks, "--http-proxy", http, "--scan", "balanced", "--noize", "firewall", "--quick-reconnect")
+        else -> listOf("--wg", "-4", "--bind", socks, "--http-proxy", http, "--scan", "balanced", "--noize", "balanced", "--keepalive", "5", "--quick-reconnect")
+    }
+}

@@ -82,9 +82,9 @@ s2_doctor() {
     echo
     echo "Aether integration:"
     if [ -x "$PREFIX/bin/saman-aether-core" ]; then
-        printf '  OK      patched core: %s\n' "$(timeout 3 "$PREFIX/bin/saman-aether-core" --version 2>/dev/null | head -n1)"
+        printf '  OK      official upstream core: %s\n' "$(timeout 3 "$PREFIX/bin/saman-aether-core" --version 2>/dev/null | head -n1)"
     else
-        printf '  ERROR   patched core missing\n'; bad=$((bad+1))
+        printf '  ERROR   official upstream core missing\n'; bad=$((bad+1))
     fi
     [ -x "$HOME/.aether-shortcut-runner" ] && printf '  OK      runner executable\n' || { printf '  ERROR   runner missing/not executable\n'; bad=$((bad+1)); }
 

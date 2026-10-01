@@ -35,6 +35,9 @@ jobs:
         run: |
           bash termux/tests/test-termux.sh
           bash termux/tests/test-center.sh
+          bash termux/tests/test-aether-panel.sh
+          bash termux/tests/test-aether-tor-menu.sh
+          bash termux/tests/test-aether-updater.sh
           bash termux/tests/test-safety.sh
           bash termux/tests/test-backup.sh
           bash termux/tests/test-diagnostics.sh

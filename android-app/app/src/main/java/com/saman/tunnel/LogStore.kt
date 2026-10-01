@@ -292,7 +292,6 @@ object LogStore {
         }
 
         return when (mode.uppercase(Locale.US)) {
-            "GOOL" -> "Preparing dual tunnel"
             "MASQUE_H2" -> "Preparing MASQUE H2"
             "MASQUE_H3", "MASQUE" -> "Preparing MASQUE H3"
             else -> "Preparing WireGuard"

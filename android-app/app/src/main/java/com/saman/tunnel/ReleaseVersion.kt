@@ -11,7 +11,10 @@ object ReleaseVersion {
         val uri = URI(raw)
         uri.scheme == "https" &&
             uri.host.equals("github.com", ignoreCase = true) &&
-            uri.path.startsWith("/velnox4827/saman-aether/releases/")
+            uri.rawUserInfo == null && uri.port == -1 &&
+            uri.rawQuery == null && uri.rawFragment == null &&
+            Regex("""^/velnox4827/saman-aether/releases/(?:tag/v\d+\.\d+\.\d+(?:-rc\.\d+)?|download/v\d+\.\d+\.\d+/Saman-Tunnel-v\d+\.\d+\.\d+-(?:arm64-v8a|armeabi-v7a|universal-arm)\.apk)$""")
+                .matches(uri.rawPath)
     }.getOrDefault(false)
 
     fun compare(left: String, right: String): Int {

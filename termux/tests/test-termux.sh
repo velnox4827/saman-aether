@@ -29,8 +29,8 @@ fi
 export PREFIX="$TEST_TMP/prefix"
 export HOME="$TEST_TMP/home"
 mkdir -p "$PREFIX/bin" "$PREFIX/etc" "$HOME"
-cat > "$PREFIX/bin/aether" <<'AETHER'
-#!/usr/bin/env bash
+printf '#!%s\n' "$(command -v bash)" > "$PREFIX/bin/aether"
+cat >> "$PREFIX/bin/aether" <<'AETHER'
 if [ "${1:-}" = --version ]; then printf 'Aether 9.9.9\n'; exit 0; fi
 sleep 30
 AETHER
@@ -44,14 +44,15 @@ resolve_upstream_aether
 [ "$(upstream_aether_version)" = 'Aether 9.9.9' ] || fail "dynamic Aether version"
 pass "official upstream Aether discovery"
 
-# v1.7.0 must not contain a patched-core download/build/release path.
-grep -q 'SAMAN_TERMUX_VERSION="1.7.0"' "$ROOT/install.sh" || fail "Termux integration version"
+# v1.8.2 must not contain a patched-core download/build/release path.
+grep -q 'SAMAN_TERMUX_VERSION="1.8.2"' "$ROOT/install.sh" || fail "Termux integration version"
 if grep -q 'download_core' "$ROOT/install.sh"; then fail "installer still downloads a Saman Aether core"; fi
 if grep -Eq 'saman-aether-termux-.*tar\.gz|PINNED_TERMUX_TAG' "$ROOT/install.sh"; then
     fail "installer still pins or downloads a separate Aether core"
 fi
 grep -q 'official upstream (unmodified)' "$ROOT/install.sh" || fail "upstream-only architecture is not explicit"
 grep -q 'aether-shortcut-runner-base' "$ROOT/install.sh" || fail "tested Saman runner is not retained as an adapter base"
+grep -q '\[ "$("$SAMAN_BIN" version)" = "2.1.2" \]' "$ROOT/install.sh" || fail "installer verifies current Center version"
 pass "installer is upstream-only"
 
 # Compatibility path must be a symlink to the same official Aether executable,
