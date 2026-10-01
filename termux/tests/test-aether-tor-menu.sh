@@ -16,8 +16,8 @@ mkdir -p "$HOME" "$PREFIX/bin" "$TMP/bin"
 
 make_aether() {
     local compiled="$1"
-    cat > "$SAMAN_AETHER_BIN" <<'FAKE'
-#!/data/data/com.termux/files/usr/bin/bash
+    printf '#!%s\n' "$(command -v bash)" > "$SAMAN_AETHER_BIN"
+    cat >> "$SAMAN_AETHER_BIN" <<'FAKE'
 case "${1:-}" in
  --version) printf 'aether 2.0.0\n' ;;
  --help) printf '%s\n' 'Usage: aether --masque --wg --gool --mim --h2 --h3 --bind --http-proxy --tor --tor-reverse --tor-only --tor-bind --tor-dir --tor-bridges --no-tor-bridges --tor-bridge --tor-pt --tor-pt-dir' ;;
@@ -136,12 +136,12 @@ result="$(SAMAN_AETHER_START_WAIT_SECS=1 s2_aether_wait_for_start "$TMP/stale-st
 pass 'startup readiness is generation-scoped'
 
 # Installed adapters exec the managed base runner; either exact path is valid.
-cat > "$TMP/runner-base" <<'RUN'
-#!/data/data/com.termux/files/usr/bin/bash
+printf '#!%s\n' "$(command -v bash)" > "$TMP/runner-base"
+cat >> "$TMP/runner-base" <<'RUN'
 sleep 5
 RUN
-cat > "$TMP/runner-adapter" <<RUN
-#!/data/data/com.termux/files/usr/bin/bash
+printf '#!%s\n' "$(command -v bash)" > "$TMP/runner-adapter"
+cat >> "$TMP/runner-adapter" <<RUN
 exec "$TMP/runner-base" "\$@"
 RUN
 chmod 700 "$TMP/runner-base" "$TMP/runner-adapter"

@@ -12,8 +12,8 @@ mkdir -p "$HOME" "$PREFIX/bin" "$TMP/install/pt" "$TMP/mockbin" "$TMP/assets"
 printf 'old-binary\n' > "$SAMAN_AETHER_BIN"; chmod 700 "$SAMAN_AETHER_BIN"
 printf 'old-pt\n' > "$TMP/install/pt/lyrebird"; chmod 700 "$TMP/install/pt/lyrebird"
 
-cat > "$TMP/mockbin/curl" <<'SH'
-#!/data/data/com.termux/files/usr/bin/bash
+printf '#!%s\n' "$(command -v bash)" > "$TMP/mockbin/curl"
+cat >> "$TMP/mockbin/curl" <<'SH'
 set -u
 url=''; out=''
 for ((i=1;i<=$#;i++)); do
@@ -51,7 +51,7 @@ make_good_archive() {
   local behavior="${1:-good}" stage="$TMP/stage"
   rm -rf "$stage"; mkdir -p "$stage/pt"
   cat > "$stage/aether" <<SH
-#!/data/data/com.termux/files/usr/bin/bash
+#!$(command -v bash)
 if [ "$behavior" = rollback ] && [ "\$(readlink -f "\$0")" = "$(readlink -f "$SAMAN_AETHER_BIN")" ]; then exit 9; fi
 case "\${1:-}" in --version) printf 'aether 2.0.0\\n';; --help) printf '%s\\n' 'Usage --masque --tor';; *) :;; esac
 SH
