@@ -75,10 +75,12 @@ class SamanTunnelWidget : AppWidgetProvider() {
 
                 serviceIntent.action = AetherService.ACTION_STOP
             } else {
-                val lastMode = prefs.getString(
-                    AetherService.KEY_LAST_MODE,
-                    "WG"
-                ).orEmpty().ifBlank { "WG" }
+                val lastMode = AetherArguments.canonicalMode(
+                    prefs.getString(
+                        AetherService.KEY_LAST_MODE,
+                        "WG"
+                    ).orEmpty().ifBlank { "WG" }
+                )
 
                 prefs.edit()
                     .putString(AetherService.KEY_STATUS, "Starting…")
@@ -122,10 +124,12 @@ class SamanTunnelWidget : AppWidgetProvider() {
                 ""
             ).orEmpty()
 
-            val lastMode = prefs.getString(
-                AetherService.KEY_LAST_MODE,
-                "WG"
-            ).orEmpty().ifBlank { "WG" }
+            val lastMode = AetherArguments.canonicalMode(
+                prefs.getString(
+                    AetherService.KEY_LAST_MODE,
+                    "WG"
+                ).orEmpty().ifBlank { "WG" }
+            )
 
             val mode =
                 if (currentMode.isNotBlank()) currentMode else lastMode
@@ -133,7 +137,6 @@ class SamanTunnelWidget : AppWidgetProvider() {
             val displayMode = when (mode.uppercase()) {
                 "MASQUE_H2" -> "H2"
                 "MASQUE_H3", "MASQUE" -> "H3"
-                "GOOL" -> "GOOL"
                 else -> "WG"
             }
 

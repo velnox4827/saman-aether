@@ -40,8 +40,8 @@ android {
         applicationId = "com.saman.tunnel"
         minSdk = 24
         targetSdk = 35
-        versionCode = 192
-        versionName = "1.9.2"
+        versionCode = 200
+        versionName = "1.10.0"
         manifestPlaceholders["appLabel"] = "Saman Tunnel"
 
         ndk {

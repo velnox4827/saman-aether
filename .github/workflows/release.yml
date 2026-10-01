@@ -59,6 +59,15 @@ jobs:
         with:
           gradle-version: "8.13"
 
+      - name: Unit tests and lint
+        working-directory: android-app
+        run: |
+          ./gradlew --no-daemon \
+            :app:testDebugUnitTest \
+            :app:lintDebug \
+            --stacktrace \
+            --console=plain
+
       - name: Rust ARM targets
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -148,15 +157,6 @@ jobs:
             "$APP_LIBS/arm64-v8a/libhev-socks5-tunnel.so" \
             "$APP_LIBS/armeabi-v7a/libaether.so" \
             "$APP_LIBS/armeabi-v7a/libhev-socks5-tunnel.so"
-      - name: Unit tests and lint
-        working-directory: android-app
-        run: |
-          ./gradlew --no-daemon \
-            :app:testDebugUnitTest \
-            :app:lintDebug \
-            --stacktrace \
-            --console=plain
-
       - name: Restore signing key
         env:
           KEYSTORE_B64: ${{ secrets.SAMAN_RELEASE_KEYSTORE_B64 }}

@@ -9,6 +9,21 @@ class AetherArgumentsTest {
     fun androidReleaseModesAndDownloadUrls() = runAndroidReleaseCheck()
 
     @Test
+    fun legacyGoolModesMigrateToWireGuardWithoutGoolArguments() {
+        assertEquals("WG", AetherArguments.canonicalMode("GOOL"))
+        assertEquals("TOR_INSIDE_WG", AetherArguments.canonicalMode("TOR_INSIDE_GOOL"))
+        assertTrue(AetherArguments.forMode("GOOL").contains("--wg"))
+        assertTrue(AetherArguments.forMode("TOR_INSIDE_GOOL").containsAll(listOf("--wg", "--tor")))
+        assertTrue(AetherArguments.forMode("GOOL").none { it == "--gool" })
+    }
+
+    @Test
+    fun wireGuardModeUsesOfficialAetherFlag() {
+        assertTrue(AetherArguments.forMode("WG").contains("--wg"))
+        assertTrue(AetherArguments.forMode("WG").none { it == "--gool" })
+    }
+
+    @Test
     fun torModesUseOnlyOfficialV2Flags() {
         assertEquals(
             listOf("--tor-only", "--bind", "127.0.0.1:1819"),

@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.10.0
+
+- Android APK only; Termux scripts and runtime remain unchanged.
+- Remove GOOL from all user-selectable Android surfaces (main mode row, Tor menu, widget label, VPN hint). WireGuard remains the primary selectable mode and maps to the official Aether `--wg` flag.
+- Migrate legacy saved GOOL / Tor-through-GOOL preferences to WireGuard / Tor-through-WireGuard at startup so old state can never restart `--gool`; no GOOL start path remains in the UI.
+- Psiphon: not yet available in the Android APK. Upstream Aether v2.1.0 exposes `--psiphon*` flags, but they require an external `psiphon-tunnel-core` binary at runtime; this build does not package one, so no Psiphon mode is shown or claimed. Activation waits for a packaged, licensed Psiphon client in the Aether build pipeline.
+- Aether Core stays pinned at official v2.1.0 commit `6398931aeaa551248530cc164aea6d5f2c5fe4a2` (latest stable upstream); HEV tun2socks stays pinned at `d9dca26c7ad0e494492244f0309e80ee583e739e` (2.18.0). No protocol or reachability logic exists outside Aether Core; local health checks only probe the local SOCKS/HTTP listeners.
+- Release pipeline: unit tests and lint now run before native core builds so failures surface earlier. Version: versionCode `200`, versionName `1.10.0`.
+
 ## v1.9.2
 
 - Android APK only; Termux scripts and runtime remain unchanged.

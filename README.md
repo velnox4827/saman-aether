@@ -358,10 +358,10 @@ saman / Termux:Widget
 
 ## برنامهٔ اندروید
 
-این مخزن برنامهٔ جداگانهٔ Saman Tunnel برای Android را نیز نگه می‌دارد. انتشار پایدار فعلی **v1.9.2** است و APKهای آن در [Releases](https://github.com/velnox4827/saman-aether/releases/tag/v1.9.2) قرار دارند:
+این مخزن برنامهٔ جداگانهٔ Saman Tunnel برای Android را نیز نگه می‌دارد. انتشار پایدار فعلی **v1.10.0** است و APKهای آن در [Releases](https://github.com/velnox4827/saman-aether/releases/tag/v1.10.0) قرار دارند:
 
 - هستهٔ رسمی و بدون‌تغییر **Aether v2.1.0** با feature رسمی Tor و هستهٔ رسمی **HEV tun2socks 2.18.0** در build گنجانده شده است.
-- حالت‌های MASQUE H3/H2 (با انتخاب جداگانهٔ HTTP/2 و HTTP/3 برای هر دو MASQUE و MASQUE-in-MASQUE)، WireGuard، GOOL، Tor-only، transport→Tor و Tor→MASQUE H2 در رابط برنامه موجودند.
+- حالت‌های MASQUE H3/H2 (با انتخاب جداگانهٔ HTTP/2 و HTTP/3 برای هر دو MASQUE و MASQUE-in-MASQUE)، WireGuard، Tor-only، transport→Tor و Tor→MASQUE H2 در رابط برنامه موجودند. GOOL از منوی قابل انتخاب حذف شده و مقدارهای ذخیره‌شدهٔ قدیمی GOOL به WireGuard مهاجرت داده می‌شوند.
 - در Settings → Check for updates می‌توانید آخرین نسخه را مستقیماً از GitHub در داخل برنامه دانلود کنید.
 - Psiphon در برنامهٔ اندروید فعال نیست؛ سرویس رسمی Psiphon به پیکربندی و مجوز توزیع اختصاصی Psiphon نیاز دارد و نمی‌توان آن را به‌عنوان حالت هستهٔ Aether نمایش داد.
 - برای انتخاب APK مناسب و بررسی امضا به [ANDROID_APP_README.md](ANDROID_APP_README.md) مراجعه کنید.
@@ -373,7 +373,7 @@ saman / Termux:Widget
 <a id="english"></a>
 ## English (short reference)
 
-Saman for Termux is a menu, configuration, logging, update, and lifecycle wrapper around the unmodified official [Aether](https://github.com/CluvexStudio/Aether) executable. Termux is the primary workflow documented here; the separate Android application is documented in [ANDROID_APP_README.md](ANDROID_APP_README.md) and its current stable release is [Saman Tunnel v1.9.2](https://github.com/velnox4827/saman-aether/releases/tag/v1.9.2), built directly from unmodified official Aether v2.1.0 (Tor enabled) and HEV tun2socks 2.18.0.
+Saman for Termux is a menu, configuration, logging, update, and lifecycle wrapper around the unmodified official [Aether](https://github.com/CluvexStudio/Aether) executable. Termux is the primary workflow documented here; the separate Android application is documented in [ANDROID_APP_README.md](ANDROID_APP_README.md) and its current stable release is [Saman Tunnel v1.10.0](https://github.com/velnox4827/saman-aether/releases/tag/v1.10.0), built directly from unmodified official Aether v2.1.0 (Tor enabled) and HEV tun2socks 2.18.0.
 
 Quick start:
 
@@ -425,15 +425,15 @@ License: [GNU AGPL-3.0](LICENSE).
 
 ## نسخهٔ Android و کانال رسمی
 
-نسخهٔ Android فعلی **Saman Tunnel v1.9.2** است. APK از هستهٔ رسمی Aether v2.1.0 متعلق به CluvexStudio و هستهٔ رسمی HEV tun2socks 2.18.0 برای مسیر TUN اندروید استفاده می‌کند. برای پروتکل شبکه هیچ هستهٔ دیگری به APK اضافه نشده است.
+نسخهٔ Android فعلی **Saman Tunnel v1.10.0** است. APK از هستهٔ رسمی Aether v2.1.0 متعلق به CluvexStudio و هستهٔ رسمی HEV tun2socks 2.18.0 برای مسیر TUN اندروید استفاده می‌کند. برای پروتکل شبکه هیچ هستهٔ دیگری به APK اضافه نشده است.
 
 کانال رسمی تلگرام: https://t.me/SamanTunnelOfficial
 
-## قابلیت‌های رابط Android در نسخهٔ 1.9.2
+## قابلیت‌های رابط Android در نسخهٔ 1.10.0
 
 نسخهٔ Android یک پنل کنترل ساده و قابل‌فهم دارد:
 
-- دکمه‌های واضح برای MASQUE، WireGuard، GOOL و Tor و نمایش مرحلهٔ اتصال؛
+- دکمه‌های واضح برای MASQUE، WireGuard و Tor و نمایش مرحلهٔ اتصال (GOOL از منو حذف شده است)؛
 - منوی **Settings & help** برای مسیریابی برنامه‌ها، Diagnostics، تنظیمات باتری، بررسی آپدیت و About؛
 - نمایش زندهٔ وضعیت اتصال، پایداری ارتباط و آدرس‌های proxy محلی؛
 - ذخیره و خروجی‌گرفتن از لاگ‌ها برای عیب‌یابی؛
@@ -446,6 +446,6 @@ License: [GNU AGPL-3.0](LICENSE).
 
 ## Android release and official channel
 
-The current Android release is **Saman Tunnel v1.9.2**. It uses the official CluvexStudio Aether v2.1.0 core (Tor enabled) and the official HEV tun2socks 2.18.0 engine for Android TUN forwarding. MASQUE and MASQUE-in-MASQUE each offer separate HTTP/2 and HTTP/3 choices, and Settings → Check for updates downloads the latest APK directly from GitHub. No other protocol core is added to the APK.
+The current Android release is **Saman Tunnel v1.10.0**. It uses the official CluvexStudio Aether v2.1.0 core (Tor enabled) and the official HEV tun2socks 2.18.0 engine for Android TUN forwarding. MASQUE and MASQUE-in-MASQUE each offer separate HTTP/2 and HTTP/3 choices; GOOL was removed from the selectable menu and legacy GOOL settings migrate to WireGuard. Settings → Check for updates downloads the latest APK directly from GitHub. No other protocol core is added to the APK; Psiphon is not offered because this build packages no Psiphon client binary.
 
 Official Telegram channel: https://t.me/SamanTunnelOfficial

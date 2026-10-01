@@ -71,10 +71,11 @@ class AetherService : Service() {
             }
 
             ACTION_START -> {
-                val mode =
+                val mode = AetherArguments.canonicalMode(
                     intent.getStringExtra(EXTRA_MODE)
                         ?.ifBlank { "WG" }
                         ?: "WG"
+                )
 
                 if (jobId != 0L || currentPhase.isBusy || terminating.get()) {
                     LogStore.append(
@@ -472,13 +473,11 @@ class AetherService : Service() {
             "MASQUE_H2" -> "MASQUE H2"
             "MASQUE_H3", "MASQUE" -> "MASQUE H3"
             "WG" -> "WG"
-            "GOOL" -> "GOOL"
             "MIM_H2" -> "MASQUE-in-MASQUE H2"
             "MIM_H3", "MIM" -> "MASQUE-in-MASQUE H3"
             "TOR_ONLY" -> "Tor only"
             "TOR_REVERSE" -> "Tor → MASQUE H2"
             "TOR_INSIDE_WG" -> "WireGuard → Tor"
-            "TOR_INSIDE_GOOL" -> "GOOL → Tor"
             "TOR_INSIDE_MASQUE_H2" -> "MASQUE H2 → Tor"
             "TOR_INSIDE_MASQUE", "TOR_INSIDE_MASQUE_H3" -> "MASQUE H3 → Tor"
             else -> mode.ifBlank { "core" }

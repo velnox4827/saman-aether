@@ -1,0 +1,67 @@
+name: Announce Saman Tunnel Release on Telegram
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  announce:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check secrets exist
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+            echo "TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID secrets are not configured; announcement cannot be sent." >&2
+            exit 1
+          fi
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - name: Gather release data
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_URL: ${{ github.event.release.html_url }}
+        run: |
+          set -euo pipefail
+          TAG="$GITHUB_REF_NAME"
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body > /tmp/release-body.md
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '[.assets[].name]' > /tmp/assets.json
+          awk -v heading="## $TAG" '
+            $0 == heading { found=1 }
+            found && $0 ~ /^## / && $0 != heading { exit }
+            found { print }
+          ' CHANGELOG.md > /tmp/notes.md
+          if [ ! -s /tmp/notes.md ]; then
+            printf '# Saman Tunnel %s\n' "$TAG" > /tmp/notes.md
+          fi
+          echo "RELEASE_URL=$RELEASE_URL" >> "$GITHUB_ENV"
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+      - name: Send Telegram message
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_THREAD_ID: ${{ secrets.TELEGRAM_THREAD_ID }}
+        run: |
+          set -euo pipefail
+          python3 tools/telegram_release_announce.py \
+            --tag "$TAG" \
+            --release-url "$RELEASE_URL" \
+            --notes-file /tmp/notes.md \
+            --assets-file /tmp/assets.json \
+            --release-body-file /tmp/release-body.md
+      - name: Record announce marker
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if grep -q '<!-- saman-tunnel-telegram-announced -->' /tmp/release-body.md; then
+            echo "marker already present"
+            exit 0
+          fi
+          { cat /tmp/release-body.md; printf '\n<!-- saman-tunnel-telegram-announced -->\n'; } > /tmp/release-body-new.md
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file /tmp/release-body-new.md

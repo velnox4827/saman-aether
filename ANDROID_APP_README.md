@@ -1,15 +1,15 @@
 # Saman Tunnel Android
 
-Saman Tunnel v1.9.2 is the current Android APK release. It uses the official CluvexStudio Aether v2.1.0 core for proxy modes and the official HEV tun2socks 2.18.0 engine for Android TUN/VPN forwarding. No third-party protocol core is added.
+Saman Tunnel v1.10.0 is the current Android APK release. It uses the official CluvexStudio Aether v2.1.0 core for proxy modes and the official HEV tun2socks 2.18.0 engine for Android TUN/VPN forwarding. No third-party protocol core is added.
 
 کانال رسمی تلگرام: https://t.me/SamanTunnelOfficial
 
 The Android app provides:
 
-- Aether MASQUE H3/H2 and MASQUE-in-MASQUE each with separate HTTP/2 and HTTP/3 choices, plus WireGuard, GOOL, and Tor modes where supported by the official core.
+- Aether MASQUE H3/H2 and MASQUE-in-MASQUE each with separate HTTP/2 and HTTP/3 choices, plus WireGuard and Tor modes where supported by the official core. GOOL was removed from the user-selectable menu; legacy saved GOOL settings migrate to WireGuard.
 - Optional Android VpnService mode: Android TUN → HEV → Aether SOCKS5.
 - Per-app routing, diagnostics, connection health, dark/light UI, and quick-connect widget.
-- No Psiphon, Xray, SSTP, or other protocol implementation in the APK.
+- No Psiphon, Xray, SSTP, or other protocol implementation in the APK. Psiphon flags exist in upstream Aether but need an external `psiphon-tunnel-core` binary that this build does not package, so no Psiphon mode is offered.
 
 ## قابلیت‌ها
 
