@@ -3,6 +3,13 @@ name: Announce Saman Tunnel Release on Telegram
 on:
   release:
     types: [published]
+  # Releases created by the default GITHUB_TOKEN do not fire `release`
+  # events (GitHub anti-recursion). Fire manually when that happens:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to announce (e.g. v1.10.0)"
+        required: true
 
 permissions:
   contents: write
@@ -25,10 +32,12 @@ jobs:
       - name: Gather release data
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_URL: ${{ github.event.release.html_url }}
+          RELEASE_URL: ${{ github.event.release.html_url || format('https://github.com/{0}/releases/tag/{1}', github.repository, inputs.tag) }}
         run: |
           set -euo pipefail
-          TAG="$GITHUB_REF_NAME"
+          TAG="${GITHUB_REF_NAME}"
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then TAG="${{ inputs.tag }}"; fi
+          if [ "$GITHUB_EVENT_NAME" = "release" ]; then TAG="$GITHUB_REF_NAME"; fi
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body > /tmp/release-body.md
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '[.assets[].name]' > /tmp/assets.json
           awk -v heading="## $TAG" '
