@@ -40,8 +40,8 @@ android {
         applicationId = "com.saman.tunnel"
         minSdk = 24
         targetSdk = 35
-        versionCode = 200
-        versionName = "1.10.0"
+        versionCode = 20000
+        versionName = "2.0.0"
         manifestPlaceholders["appLabel"] = "Saman Tunnel"
 
         ndk {
@@ -110,8 +110,10 @@ android {
     packaging {
         jniLibs {
             useLegacyPackaging = true
+            keepDebugSymbols += setOf("**/libpsiphon-tunnel-core.so")
         }
     }
+
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
