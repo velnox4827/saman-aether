@@ -10,6 +10,10 @@ permissions:
 
 env:
   AETHER_COMMIT: "6398931aeaa551248530cc164aea6d5f2c5fe4a2"
+  AETHER_ANDROID_ARM64_SHA256: "797cda06f5d651603b3b0c0cb8de7a5832d69e62241b3396b289d8bb0fca5374"
+  AETHER_ANDROID_ARMV7_SHA256: "2816df2a7cd7db675e73111e1131ec469afe252a35e4d3ac9bd226d479b5abf2"
+  PSIPHON_ANDROID_ARM64_SHA256: "7cab04ebf82ceed76ae53b99c306db26233b80825b930e2e7288f07a4087387a"
+  PSIPHON_ANDROID_ARMV7_SHA256: "719bf754d197ecb2b320e6251ace79109dc1972c6675206950bf8cb5a55f03ca"
   CARGO_NDK_VERSION: "4.1.2"
   RELEASE_CERT_SHA256: "03233edadf89ed27c7cf80452916a7bd25e8c74abe0f12d2eefcb8b290b48805"
 
@@ -110,6 +114,29 @@ jobs:
             target/armv7-linux-androideabi/release/libaether.so \
             "$GITHUB_WORKSPACE/android-app/app/src/main/jniLibs/armeabi-v7a/libaether.so"
 
+      - name: Verify and stage official Aether Psiphon clients
+        run: |
+          set -euo pipefail
+          TEMP="$RUNNER_TEMP/aether-psiphon"
+          LIBS="$GITHUB_WORKSPACE/android-app/app/src/main/jniLibs"
+          mkdir -p "$TEMP" "$LIBS/arm64-v8a" "$LIBS/armeabi-v7a"
+          for abi in arm64 armv7; do
+            case "$abi" in
+              arm64) expected_archive="$AETHER_ANDROID_ARM64_SHA256"; expected_binary="$PSIPHON_ANDROID_ARM64_SHA256"; gradle_abi=arm64-v8a ;;
+              armv7) expected_archive="$AETHER_ANDROID_ARMV7_SHA256"; expected_binary="$PSIPHON_ANDROID_ARMV7_SHA256"; gradle_abi=armeabi-v7a ;;
+            esac
+            archive="$TEMP/aether-android-$abi.tar.gz"
+            curl --fail --location --retry 3 --connect-timeout 20 \
+              "https://github.com/CluvexStudio/Aether/releases/download/v2.1.0/aether-android-$abi.tar.gz" -o "$archive"
+            printf '%s  %s\n' "$expected_archive" "$archive" | sha256sum --check --strict
+            tar -xOzf "$archive" pt/psiphon-tunnel-core > "$TEMP/psiphon-$abi"
+            printf '%s  %s\n' "$expected_binary" "$TEMP/psiphon-$abi" | sha256sum --check --strict
+            file "$TEMP/psiphon-$abi"
+            if [ "$abi" = arm64 ]; then file "$TEMP/psiphon-$abi" | grep -q 'ELF 64-bit.*ARM aarch64'; else file "$TEMP/psiphon-$abi" | grep -q 'ELF 32-bit.*ARM'; fi
+            # Android extracts packaged JNI libraries to nativeLibraryDir with executable permissions.
+            install -Dm755 "$TEMP/psiphon-$abi" "$LIBS/$gradle_abi/libpsiphon-tunnel-core.so"
+          done
+
       - name: Build pinned HEV tun2socks
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/26.3.11579264
@@ -208,6 +235,7 @@ jobs:
                           "libaether.so",
                           "libsamanbridge.so",
                           "libhev-socks5-tunnel.so",
+                          "libpsiphon-tunnel-core.so",
                       ):
                           info = z.getinfo(f"lib/{abi}/{lib}")
                           assert info.file_size > 0, (apk, abi, lib)
@@ -281,7 +309,8 @@ jobs:
           - ARMv7
           - Universal ARM
 
-          This Android-only release bundles official Aether v2.1.0 and HEV 2.18.0.
+          This Android-only release bundles official Aether v2.1.0 (with official
+          Psiphon console clients for ARM64/ARMv7) and HEV 2.18.0.
 
           Verify APK SHA-256 hashes and signing-certificate continuity before installation.
           NOTES

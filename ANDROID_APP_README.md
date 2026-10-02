@@ -1,15 +1,15 @@
 # Saman Tunnel Android
 
-Saman Tunnel v1.10.0 is the current Android APK release. It uses the official CluvexStudio Aether v2.1.0 core for proxy modes and the official HEV tun2socks 2.18.0 engine for Android TUN/VPN forwarding. No third-party protocol core is added.
+Saman Tunnel v2.0.0 is the current Android APK release. It uses the official CluvexStudio Aether v2.1.0 core for proxy modes and the official HEV tun2socks 2.18.0 engine for Android TUN/VPN forwarding. Psiphon-only is offered through official Aether with official bundled Psiphon console clients; no protocol core is patched, vendored, or added.
 
 کانال رسمی تلگرام: https://t.me/SamanTunnelOfficial
 
 The Android app provides:
 
-- Aether MASQUE H3/H2 and MASQUE-in-MASQUE each with separate HTTP/2 and HTTP/3 choices, plus WireGuard and Tor modes where supported by the official core. GOOL was removed from the user-selectable menu; legacy saved GOOL settings migrate to WireGuard.
+- Aether MASQUE H3/H2 and MASQUE-in-MASQUE each with separate HTTP/2 and HTTP/3 choices, plus WireGuard and Tor modes where supported by the official core. GOOL is restored beside WireGuard in a single WireGuard-family picker; legacy GOOL settings migrate back only when the v1.10.0 migration marker proves GOOL was formerly selected.
 - Optional Android VpnService mode: Android TUN → HEV → Aether SOCKS5.
 - Per-app routing, diagnostics, connection health, dark/light UI, and quick-connect widget.
-- No Psiphon, Xray, SSTP, or other protocol implementation in the APK. Psiphon flags exist in upstream Aether but need an external `psiphon-tunnel-core` binary that this build does not package, so no Psiphon mode is offered.
+- Psiphon-only mode through official Aether `--psiphon-only`: the official `pt/psiphon-tunnel-core` client for arm64 and armv7 is packaged from checksum-verified official Aether v2.1.0 release archives. Psiphon chain/reverse modes are not offered in v2.0.0. No Xray, SSTP, or other protocol implementation is added.
 
 ## قابلیت‌ها
 
@@ -33,6 +33,6 @@ cd saman-aether/android-app
 ./gradlew :app:testDebugUnitTest :app:lintDebug
 ```
 
-The release workflow builds the official Aether v2.1.0 core at its pinned upstream commit and HEV tun2socks 2.18.0 from the pinned `heiher/hev-socks5-tunnel` commit. Aether is never patched or vendored.
+The release workflow builds the official Aether v2.1.0 core at its pinned upstream commit and HEV tun2socks 2.18.0 from the pinned `heiher/hev-socks5-tunnel` commit. It also stages the official `pt/psiphon-tunnel-core` clients for both ABIs from the checksum-verified official Aether v2.1.0 archives and asserts their presence in every release APK. Aether is never patched or vendored.
 
 کانال رسمی پروژه: https://t.me/SamanTunnelOfficial
