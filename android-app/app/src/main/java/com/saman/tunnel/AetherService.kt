@@ -35,8 +35,12 @@ class AetherService : Service() {
 
         private const val CHANNEL_ID = "saman_tunnel_core"
         private const val NOTIFICATION_ID = 1819
-        private const val SOCKS_PORT = 1819
-        private const val HTTP_PORT = 1820
+        private const val SOCKS_PORT = AetherArguments.APP_SOCKS_PORT
+        private const val HTTP_PORT = AetherArguments.APP_HTTP_PORT
+        private const val PSIPHON_SOCKS_PORT = 1821
+        private const val PSIPHON_HTTP_PORT = 1822
+        private const val PORT_RETRIES = 8
+        private const val PORT_RETRY_DELAY_MS = 250L
     }
 
     private val executor = Executors.newSingleThreadExecutor()
@@ -122,12 +126,9 @@ class AetherService : Service() {
 
         executor.execute {
             try {
-                if (!waitForLocalPorts(myGeneration)) {
+                if (!waitForLocalPorts(myGeneration, mode)) {
                     if (generation != myGeneration) return@execute
-                    fail(
-                        "Port 1819/1820 is still in use after restart wait.",
-                        mode
-                    )
+                    fail("Local proxy ports stayed busy after restart wait.", mode)
                     return@execute
                 }
 
@@ -141,24 +142,22 @@ class AetherService : Service() {
         }
     }
 
-    private fun waitForLocalPorts(myGeneration: Long): Boolean {
+    private fun waitForLocalPorts(myGeneration: Long, mode: String): Boolean {
         var waited = false
 
-        // 8 * 250 ms = 2 seconds. This covers the short hand-off window
-        // after the isolated core process is killed, without changing
-        // tunnel scan/reconnect settings.
-        for (attempt in 0 until 8) {
+        // Bound port probing; do not wait forever on an unrelated listener.
+        for (attempt in 0 until PORT_RETRIES) {
             if (generation != myGeneration) return false
 
-            val socksBusy = isPortInUse(SOCKS_PORT)
-            val httpBusy = isPortInUse(HTTP_PORT)
+            val ports = localPorts(mode)
+            val busy = ports.filter(::isPortInUse)
 
-            if (!socksBusy && !httpBusy) {
+            if (busy.isEmpty()) {
                 if (waited) {
                     LogStore.append(
                         this,
                         "PORT",
-                        "Local proxy ports became reusable after ${attempt * 250}ms"
+                        "Local proxy ports ${localPorts(mode).joinToString()} became reusable after ${attempt * PORT_RETRY_DELAY_MS}ms"
                     )
                 }
                 return true
@@ -169,7 +168,7 @@ class AetherService : Service() {
                 LogStore.append(
                     this,
                     "PORT",
-                    "Waiting for local port hand-off: SOCKS5=$socksBusy HTTP=$httpBusy"
+                    "Waiting for local port hand-off: busy=$busy"
                 )
             }
 
@@ -179,10 +178,14 @@ class AetherService : Service() {
         LogStore.append(
             this,
             "PORT",
-            "Local ports still busy after 2s: SOCKS5=${isPortInUse(SOCKS_PORT)} HTTP=${isPortInUse(HTTP_PORT)}"
+            "Local ports still busy after ${PORT_RETRIES * PORT_RETRY_DELAY_MS}ms: ${localPorts(mode).filter(::isPortInUse)}"
         )
         return false
     }
+
+    private fun localPorts(mode: String): List<Int> =
+        if (mode.uppercase() == "PSIPHON_ONLY") listOf(SOCKS_PORT, HTTP_PORT, PSIPHON_SOCKS_PORT, PSIPHON_HTTP_PORT)
+        else listOf(SOCKS_PORT, HTTP_PORT)
 
     private fun launchCore(mode: String, myGeneration: Long) {
         val psiphonBinary = if (AetherArguments.needsPsiphonBinary(mode)) {
@@ -284,7 +287,7 @@ class AetherService : Service() {
                 LogStore.append(
                     this,
                     "CORE",
-                    "SOCKS5 bound; HTTP bound=$httpReady"
+                    "App-facing SOCKS5 $SOCKS_PORT handshake passed; HTTP bound=$httpReady"
                 )
                 setConnectedState(mode, httpReady)
                 monitor(id, mode, myGeneration)
@@ -394,9 +397,9 @@ class AetherService : Service() {
     private fun setConnectedState(mode: String, httpReady: Boolean) {
         val status =
             if (httpReady) {
-                "Connected — SOCKS5 :1819 + HTTP :1820"
+                "Connected — ${modeLabel(mode)} — SOCKS5 :$SOCKS_PORT + HTTP :$HTTP_PORT"
             } else {
-                "Connected — SOCKS5 :1819"
+                "Connected — ${modeLabel(mode)} — SOCKS5 :$SOCKS_PORT"
             }
 
         if (terminating.get()) return
@@ -445,11 +448,11 @@ class AetherService : Service() {
                 if (!jobDone) jobDone = runCatching {
                     JSONObject(NativeBridge.pollJob(id)).optString("state") == "done"
                 }.getOrDefault(false)
-                if (jobDone && !isPortInUse(SOCKS_PORT) && !isPortInUse(HTTP_PORT)) break
+                if (jobDone && localPorts(mode).none(::isPortInUse)) break
                 Thread.sleep(100)
             }
             if (id != 0L && jobDone) releaseJob(id)
-            val needsRecycle = !jobDone || isPortInUse(SOCKS_PORT) || isPortInUse(HTTP_PORT)
+            val needsRecycle = !jobDone || localPorts(mode).any(::isPortInUse)
             LogStore.append(this, "CORE_STOP", "jobDone=$jobDone portsClosed=${!needsRecycle}")
             executor.shutdownNow()
             mainHandler.post {

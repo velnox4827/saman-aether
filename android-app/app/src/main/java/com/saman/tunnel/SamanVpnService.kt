@@ -45,7 +45,7 @@ class SamanVpnService : VpnService() {
         private const val CHANNEL_ID = "saman_vpn"
         private const val NOTIFICATION_ID = 1821
         private const val TUN_MTU = 1400
-        private const val SOCKS_PORT = 1819
+        private const val SOCKS_PORT = AetherArguments.APP_SOCKS_PORT
     }
 
     private data class Request(val mode: String, val routing: String, val apps: Set<String>)

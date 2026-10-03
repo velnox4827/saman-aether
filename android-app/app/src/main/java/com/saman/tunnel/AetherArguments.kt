@@ -2,8 +2,12 @@ package com.saman.tunnel
 
 /** Official Aether v2 command lines only; no Saman-specific protocol flags. */
 object AetherArguments {
-    private const val socks = "127.0.0.1:1819"
-    private const val http = "127.0.0.1:1820"
+    const val APP_SOCKS_PORT = 1819
+    const val APP_HTTP_PORT = 1820
+    private const val socks = "127.0.0.1:$APP_SOCKS_PORT"
+    private const val http = "127.0.0.1:$APP_HTTP_PORT"
+    private const val psiphonSocks = "127.0.0.1:1821"
+    private const val psiphonHttp = "127.0.0.1:1822"
 
     fun canonicalMode(mode: String): String = mode.trim().uppercase()
 
@@ -20,7 +24,7 @@ object AetherArguments {
         "MASQUE_H3", "MASQUE" -> listOf("--masque", "-4", "--bind", socks, "--http-proxy", http, "--scan", "balanced", "--noize", "firewall", "--quick-reconnect")
         "GOOL" -> listOf("--gool", "-4", "--bind", socks, "--http-proxy", http, "--scan", "balanced", "--noize", "balanced", "--keepalive", "5", "--quick-reconnect")
         "PSIPHON_ONLY" -> buildList {
-            addAll(listOf("--psiphon-only", "--bind", socks, "--psiphon-http", http))
+            addAll(listOf("--psiphon", "--masque", "--h2", "--bind", socks, "--psiphon-bind", psiphonSocks, "--psiphon-http", psiphonHttp, "--http-proxy", http))
             if (!psiphonBinary.isNullOrBlank()) addAll(listOf("--psiphon-bin", psiphonBinary))
         }
         "MIM_H2" -> forMode("MIM_H3") + "--h2"

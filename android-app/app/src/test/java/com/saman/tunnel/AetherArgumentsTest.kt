@@ -25,12 +25,19 @@ class AetherArgumentsTest {
     }
 
     @Test
-    fun psiphonOnlyUsesOfficialAetherFlagAndSharedLocalProxyPorts() {
+    fun psiphonModeKeepsAppSocksSeparateFromPsiphonListener() {
         val args = AetherArguments.forMode("PSIPHON_ONLY", "/native/libpsiphon-tunnel-core.so")
+        assertEquals(1819, AetherArguments.APP_SOCKS_PORT)
+        assertEquals(1820, AetherArguments.APP_HTTP_PORT)
         assertTrue(args.containsAll(listOf(
-            "--psiphon-only", "--bind", "127.0.0.1:1819", "--psiphon-http", "127.0.0.1:1820",
-            "--psiphon-bin", "/native/libpsiphon-tunnel-core.so"
+            "--psiphon", "--masque", "--h2", "--bind", "127.0.0.1:1819",
+            "--psiphon-bind", "127.0.0.1:1821", "--psiphon-http", "127.0.0.1:1822",
+            "--http-proxy", "127.0.0.1:1820", "--psiphon-bin", "/native/libpsiphon-tunnel-core.so"
         )))
+        assertEquals("127.0.0.1:${AetherArguments.APP_SOCKS_PORT}", args[args.indexOf("--bind") + 1])
+        assertEquals("127.0.0.1:1821", args[args.indexOf("--psiphon-bind") + 1])
+        assertTrue("--psiphon-only" !in args)
+        assertTrue("--upstream" !in args)
         assertTrue(AetherArguments.needsPsiphonBinary("psiphon_only"))
         assertTrue(!AetherArguments.needsPsiphonBinary("WG"))
         assertTrue(AetherArguments.forMode("PSIPHON_ONLY").none { it == "--psiphon-bin" })
