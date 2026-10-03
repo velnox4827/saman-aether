@@ -1,6 +1,6 @@
 # Saman Tunnel Android
 
-Saman Tunnel v2.0.0 is the current Android APK release. It uses the official CluvexStudio Aether v2.1.0 core for proxy modes and the official HEV tun2socks 2.18.0 engine for Android TUN/VPN forwarding. Psiphon-only is offered through official Aether with official bundled Psiphon console clients; no protocol core is patched, vendored, or added.
+Saman Tunnel v2.0.1 is the current Android APK release. It uses the official CluvexStudio Aether v2.1.0 core for proxy modes and the official HEV tun2socks 2.18.0 engine for Android TUN/VPN forwarding. Psiphon-only is offered through official Aether with official bundled Psiphon console clients; no protocol core is patched, vendored, or added.
 
 کانال رسمی تلگرام: https://t.me/SamanTunnelOfficial
 
@@ -9,7 +9,7 @@ The Android app provides:
 - Aether MASQUE H3/H2 and MASQUE-in-MASQUE each with separate HTTP/2 and HTTP/3 choices, plus WireGuard and Tor modes where supported by the official core. GOOL is restored beside WireGuard in a single WireGuard-family picker; legacy GOOL settings migrate back only when the v1.10.0 migration marker proves GOOL was formerly selected.
 - Optional Android VpnService mode: Android TUN → HEV → Aether SOCKS5.
 - Per-app routing, diagnostics, connection health, dark/light UI, and quick-connect widget.
-- Psiphon-only mode through official Aether `--psiphon-only`: the official `pt/psiphon-tunnel-core` client for arm64 and armv7 is packaged from checksum-verified official Aether v2.1.0 release archives. Psiphon chain/reverse modes are not offered in v2.0.0. No Xray, SSTP, or other protocol implementation is added.
+- Psiphon tunnel mode through official Aether `--psiphon --masque --h2`, with the official `pt/psiphon-tunnel-core` client for arm64 and armv7 packaged from checksum-verified official Aether v2.1.0 release archives. App-facing SOCKS/TUN/HEV stays on `127.0.0.1:1819`; the Psiphon-side SOCKS listener uses `127.0.0.1:1821`. VPN Aether → Psiphon end-to-end behavior is not verified on an Android device. No Xray, SSTP, or other protocol implementation is added.
 
 ## قابلیت‌ها
 
