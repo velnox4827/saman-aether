@@ -1,5 +1,15 @@
 # Changelog
 
+## v2.0.1
+
+- Android APK only; Termux scripts remain unchanged.
+- Keep the app-facing Aether SOCKS endpoint and Android TUN/HEV destination on `127.0.0.1:1819`; use a separate Psiphon-side SOCKS listener on `127.0.0.1:1821` and HTTP listener on `127.0.0.1:1822`.
+- Select the official Aether Psiphon-inside-tunnel mode with `--psiphon --masque --h2`; no TUN routing restructure and no alternate core added.
+- Improve local proxy port collision checks and cleanup coverage for Psiphon listener ports; report the app-facing SOCKS endpoint consistently.
+- CI: hosted Android unit tests, lint, native builds, debug APK verification and signed release workflow checks.
+- VPN Aether → Psiphon end-to-end behavior remains NOT VERIFIED on an Android device.
+- Version: versionCode `20001`, versionName `2.0.1`.
+
 ## v2.0.0
 
 - Android APK only; Termux scripts and runtime remain unchanged.

@@ -253,7 +253,7 @@ jobs:
 
             BADGING="$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK")"
 
-            grep -q "package: name='com.saman.tunnel'" <<<"$BADGING"
+            grep -q "package: name='com.saman.tunnel' versionCode='20001' versionName='${V}'" <<<"$BADGING"
             grep -q "versionName='${V}'" <<<"$BADGING"
             grep -q "application-label:'Saman Tunnel'" <<<"$BADGING"
           done
