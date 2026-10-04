@@ -632,7 +632,7 @@ class MainActivity : Activity() {
         val page = ScrollView(this).apply {
             isFillViewport = true
             clipToPadding = false
-            addView(root, ScrollView.LayoutParams(
+            addView(root, ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             ))
