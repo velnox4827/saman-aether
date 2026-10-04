@@ -48,7 +48,7 @@ class EgressLookupTest {
     @Test
     fun invalidCountryCodeUsesGlobeFallback() {
         val result = EgressLookup.parse("""{"success":true,"ip":"2001:4860:4860::8888","country":"Example","country_code":"ZZZ"}""")
-        assertEquals("🌐", result.flag)
-        assertEquals("Example", result.country)
+        assertEquals("🌐", result?.flag)
+        assertEquals("Example", result?.country)
     }
 }
