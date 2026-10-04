@@ -65,6 +65,7 @@ class MainActivity : Activity() {
     private lateinit var vpnModeView: TextView
     private lateinit var routingView: TextView
     private lateinit var egressView: TextView
+    private lateinit var connectHero: TextView
     private var egressGeneration = 0
     private var egressConnected = false
     private var egressRetryPolicy = EgressRetryPolicy()
@@ -629,6 +630,62 @@ class MainActivity : Activity() {
             )
         })
 
+        // Keep existing controls and actions, but make the connection hero the home screen.
+        val settingsTile = root.getChildAt(8)
+        val footerNote = root.getChildAt(10)
+        root.removeAllViews()
+        root.addView(header)
+        root.addView(TextView(this).apply {
+            text = "SAMAN TUNNEL"
+            textSize = 12f
+            letterSpacing = .18f
+            setTextColor(blue)
+            gravity = Gravity.CENTER
+            setPadding(0, dp(30), 0, dp(7))
+        })
+        root.addView(TextView(this).apply {
+            text = "Secure your connection"
+            textSize = 25f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(ink)
+            gravity = Gravity.CENTER
+            setPadding(dp(12), 0, dp(12), dp(5))
+        })
+        root.addView(TextView(this).apply {
+            text = "Tap to connect with ${prettyMode(getSharedPreferences(AetherService.PREFS, MODE_PRIVATE).getString(AetherService.KEY_LAST_MODE, "WG").orEmpty())}"
+            textSize = 14f
+            setTextColor(muted)
+            gravity = Gravity.CENTER
+            setPadding(dp(12), 0, dp(12), dp(16))
+        })
+        connectHero = TextView(this).apply {
+            text = "⏻"
+            textSize = 66f
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                intArrayOf(blue, withAlpha(blue, 170))
+            ).apply { shape = GradientDrawable.OVAL }
+            elevation = dp(12).toFloat()
+            isClickable = true
+            isFocusable = true
+            contentDescription = "Connect or disconnect"
+            layoutParams = LinearLayout.LayoutParams(dp(148), dp(148)).apply {
+                gravity = Gravity.CENTER
+                bottomMargin = dp(22)
+            }
+            setOnClickListener { statusCard.performClick() }
+        }
+        root.addView(connectHero)
+        root.addView(statusCard)
+        root.addView(egressView)
+        root.addView(actionTile("⚙  SETTINGS", blue, card) {
+            showSettingsSheet(listOf(modeRow, vpnControlRow, actionRow, utilityRow, supportRow, socksCard, settingsTile, footerNote))
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)).apply {
+            topMargin = dp(14)
+            bottomMargin = dp(10)
+        })
         val page = ScrollView(this).apply {
             isFillViewport = true
             clipToPadding = false
@@ -722,6 +779,37 @@ class MainActivity : Activity() {
             isFocusable = true
             setOnClickListener { action() }
         }
+
+    private fun showSettingsSheet(items: List<View>) {
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(10), dp(18), dp(24))
+            background = rounded(card, 26, line)
+        }
+        content.addView(TextView(this).apply {
+            text = "Settings"
+            textSize = 22f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(ink)
+            gravity = Gravity.CENTER
+            setPadding(0, 0, 0, dp(12))
+        })
+        items.forEach { item ->
+            (item.parent as? ViewGroup)?.removeView(item)
+            content.addView(item)
+        }
+        val dialog = Dialog(this)
+        dialog.setContentView(ScrollView(this).apply { addView(content) })
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+        dialog.setOnShowListener {
+            dialog.window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, (resources.displayMetrics.heightPixels * .88f).toInt())
+            dialog.window?.setGravity(Gravity.BOTTOM)
+        }
+        dialog.show()
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+        dialog.window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, (resources.displayMetrics.heightPixels * .88f).toInt())
+        dialog.window?.setGravity(Gravity.BOTTOM)
+    }
 
     private fun showAppearanceMenu() {
         AlertDialog.Builder(this)
@@ -2210,6 +2298,23 @@ class MainActivity : Activity() {
 
         val connected = status.startsWith("Connected", true)
         refreshEgress(connected)
+        if (::connectHero.isInitialized) {
+            connectHero.text = when {
+                connected -> "✓"
+                status.startsWith("Starting", true) || status.startsWith("Connecting", true) || status.startsWith("Switching", true) -> "…"
+                else -> "⏻"
+            }
+            val accent = if (connected) green else if (status.startsWith("Error", true)) red else blue
+            connectHero.background = GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                intArrayOf(accent, withAlpha(accent, 170))
+            ).apply { shape = GradientDrawable.OVAL }
+            connectHero.contentDescription = when {
+                connected -> "Connected. Tap to disconnect."
+                status.startsWith("Starting", true) || status.startsWith("Connecting", true) -> "Connecting"
+                else -> "Stopped. Tap to connect."
+            }
+        }
         val unstable = status.startsWith("Connection unstable", true)
         val error = status.startsWith("Error", true)
         val starting = status.startsWith("Starting", true)
