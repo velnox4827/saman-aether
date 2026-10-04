@@ -3,7 +3,6 @@ package com.saman.tunnel
 import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
-import android.app.Dialog
 import android.content.ContentValues
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -29,6 +28,8 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowInsets
+import android.view.WindowInsetsController
+import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -41,7 +42,7 @@ import java.net.HttpURLConnection
 import java.net.InetSocketAddress
 import java.net.Proxy
 import java.net.URL
-import kotlin.math.max
+import java.util.Locale
 
 class MainActivity : Activity() {
 
@@ -55,20 +56,43 @@ class MainActivity : Activity() {
         private const val PROJECT_GROUP = "https://t.me/SamanTunnel"
     }
 
-    private lateinit var modeView: TextView
-    private lateinit var statusView: TextView
-    private lateinit var proxyStatusView: TextView
-    private lateinit var statusBadge: TextView
+    // ---- UI state (glass redesign) ----
+    private lateinit var tk: Tk
+    private val ui by lazy { UiPrefs(this) }
+    private val corePrefs by lazy { getSharedPreferences(AetherService.PREFS, MODE_PRIVATE) }
+    private val vpnPrefs by lazy { getSharedPreferences(SamanVpnService.PREFS, MODE_PRIVATE) }
+
+    private lateinit var orbs: OrbsView
+    private lateinit var powerSwitch: PowerSwitchView
+    private lateinit var titleView: TextView
+    private lateinit var subView: TextView
+    private lateinit var detailView: TextView
+    private lateinit var timerView: TextView
+    private lateinit var badgeView: TextView
+    private lateinit var protoValue: TextView
+    private lateinit var connValue: TextView
     private lateinit var versionView: TextView
+    private lateinit var coreView: TextView
     private lateinit var batteryView: TextView
     private lateinit var updateView: TextView
-    private lateinit var vpnModeView: TextView
     private lateinit var routingView: TextView
-    private lateinit var egressView: TextView
-    private lateinit var connectHero: TextView
-    private var egressGeneration = 0
-    private var egressConnected = false
-    private var egressRetryPolicy = EgressRetryPolicy()
+    private lateinit var connSeg: SegmentView
+    private var sheetCtl: SheetController? = null
+    private val modeChips = HashMap<String, LinearLayout>()
+    private val modeColors = HashMap<String, Int>()
+    private var selectedChip = ""
+    private var popLayer: View? = null
+    private var popVisible = false
+    private var topInset = 0
+    private var bottomInset = 0
+    private var renderKey = ""
+    private var connectedSince = 0L
+    private var nextDelay = 1000L
+    private var resumed = false
+    private var updateChecking = false
+    private var staleSinceCheck = true
+    private var coreVersionCache: String? = null
+
     private var pendingVpnMode: String? = null
     private var deferredVpnMode: String? = null
     private var vpnPrepareBusy = false
@@ -84,46 +108,32 @@ class MainActivity : Activity() {
     private val refresh = object : Runnable {
         override fun run() {
             refreshState()
-            handler.postDelayed(this, 900)
+            handler.postDelayed(this, nextDelay)
         }
     }
 
-    private val uiPrefs get() = getSharedPreferences("saman_ui", MODE_PRIVATE)
     private val isDark: Boolean
-        get() = when (uiPrefs.getString("theme", "system")) {
-            "light" -> false
+        get() = when (ui.theme) {
             "dark" -> true
+            "light" -> false
             else -> (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
                 Configuration.UI_MODE_NIGHT_YES
         }
 
-    private val canvas: Int get() =
-        if (isDark) Color.rgb(11, 15, 23) else Color.rgb(248, 249, 251)
-    private val card: Int get() =
-        if (isDark) Color.rgb(27, 33, 44) else Color.WHITE
-    private val cardSoft: Int get() =
-        if (isDark) Color.rgb(22, 28, 38) else Color.rgb(251, 252, 254)
-    private val ink: Int get() =
-        if (isDark) Color.rgb(238, 242, 249) else Color.rgb(24, 33, 50)
-    private val muted: Int get() =
-        if (isDark) Color.rgb(166, 174, 188) else Color.rgb(100, 108, 122)
-    private val line: Int get() =
-        if (isDark) Color.rgb(54, 62, 76) else Color.rgb(224, 228, 235)
+    private val isFa: Boolean
+        get() = when (ui.lang) {
+            "fa" -> true
+            "en" -> false
+            else -> Locale.getDefault().language == "fa"
+        }
 
-    private val palette get() = uiPrefs.getString("palette", "blue").orEmpty()
-    private val blue get() = when (palette) {
-        "purple" -> Color.rgb(139, 92, 255)
-        "orange" -> Color.rgb(255, 138, 43)
-        else -> Color.rgb(58, 174, 255)
-    }
-    private val green = Color.rgb(35, 190, 128)
-    private val purple get() = when (palette) {
-        "orange" -> Color.rgb(196, 72, 31)
-        "blue" -> Color.rgb(42, 82, 176)
-        else -> Color.rgb(122, 47, 192)
-    }
-    private val red = Color.rgb(235, 78, 78)
-    private val orange get() = if (palette == "orange") Color.rgb(255, 161, 77) else Color.rgb(244, 142, 50)
+    private fun tr(fa: String, en: String): String = if (isFa) fa else en
+
+    private val ink: Int get() = tk.ink
+    private val green: Int get() = tk.ok
+    private val orange: Int get() = tk.warn
+
+    private data class ModeDef(val id: String, val label: String, val color: Int)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -157,18 +167,28 @@ class MainActivity : Activity() {
             }
         }
 
-        window.statusBarColor = canvas
-        window.navigationBarColor = canvas
+        tk = Tk(isDark, ui.palette)
+        applyWindow()
 
         LogStore.append(this, "APP", "MainActivity created")
         buildUi()
         showVersions()
         refreshBatteryStatus()
         requestNotificationsIfNeeded()
+
+        if (savedInstanceState == null && ui.autoConnect && corePhase() == TunnelPhase.STOPPED) {
+            handler.postDelayed({
+                if (!isFinishing && !isDestroyed && corePhase() == TunnelPhase.STOPPED) {
+                    start(lastModeValue())
+                }
+            }, 700L)
+        }
     }
 
     override fun onResume() {
         super.onResume()
+        resumed = true
+        if (::orbs.isInitialized) orbs.start()
         refreshBatteryStatus()
         handler.post(refresh)
         if (intent?.action == "com.saman.tunnel.QUICK_CONNECT") {
@@ -200,6 +220,8 @@ class MainActivity : Activity() {
 
     override fun onPause() {
         LogStore.append(this, "APP", "MainActivity paused")
+        resumed = false
+        if (::orbs.isInitialized) orbs.stop()
         handler.removeCallbacks(refresh)
         super.onPause()
     }
@@ -223,678 +245,686 @@ class MainActivity : Activity() {
         if (strokeColor != null) setStroke(dp(strokeWidth), strokeColor)
     }
 
-    private fun buildUi() {
-        val baseLeft = dp(14)
-        val baseTop = dp(8)
-        val baseRight = dp(14)
-        val baseBottom = dp(8)
+    private fun lp(w: Int, h: Int, weight: Float = 0f) = LinearLayout.LayoutParams(w, h, weight)
 
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(canvas)
-            setPadding(baseLeft, baseTop, baseRight, baseBottom)
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-            )
-
-            setOnApplyWindowInsetsListener { view, insets ->
-                val topInset = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    insets.getInsets(WindowInsets.Type.statusBars()).top
-                } else {
-                    @Suppress("DEPRECATION")
-                    insets.systemWindowInsetTop
-                }
-
-                val bottomInset = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    insets.getInsets(WindowInsets.Type.navigationBars()).bottom
-                } else {
-                    @Suppress("DEPRECATION")
-                    insets.systemWindowInsetBottom
-                }
-
-                view.setPadding(
-                    baseLeft,
-                    topInset + baseTop,
-                    baseRight,
-                    max(baseBottom, bottomInset)
-                )
-                insets
+    @Suppress("DEPRECATION")
+    private fun applyWindow() {
+        window.statusBarColor = tk.bg
+        window.navigationBarColor = tk.bg
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val mask = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
+                WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
+            window.insetsController?.setSystemBarsAppearance(if (tk.dark) 0 else mask, mask)
+        } else {
+            val decor = window.decorView
+            var f = decor.systemUiVisibility
+            f = if (tk.dark) f and View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv()
+            else f or View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                f = if (tk.dark) f and View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR.inv()
+                else f or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
             }
-
-            requestApplyInsets()
+            decor.systemUiVisibility = f
         }
+    }
 
-        // Header
+    private fun readInsets(insets: WindowInsets) {
+        topInset = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            insets.getInsets(WindowInsets.Type.statusBars()).top
+        } else {
+            @Suppress("DEPRECATION")
+            insets.systemWindowInsetTop
+        }
+        bottomInset = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            insets.getInsets(WindowInsets.Type.navigationBars()).bottom
+        } else {
+            @Suppress("DEPRECATION")
+            insets.systemWindowInsetBottom
+        }
+    }
+
+    private fun buildUi() {
+        tk = Tk(isDark, ui.palette)
+        applyWindow()
+        modeChips.clear()
+        modeColors.clear()
+        selectedChip = ""
+        popVisible = false
+        renderKey = ""
+
+        val mp = ViewGroup.LayoutParams.MATCH_PARENT
+        val wrap = ViewGroup.LayoutParams.WRAP_CONTENT
+        val screenW = resources.displayMetrics.widthPixels
+        val maxW = minOf(screenW, dp(420))
+
+        val root = FrameLayout(this).apply {
+            setBackgroundColor(tk.bg)
+            layoutDirection = if (isFa) View.LAYOUT_DIRECTION_RTL else View.LAYOUT_DIRECTION_LTR
+        }
+        orbs = OrbsView(this)
+        root.addView(orbs, FrameLayout.LayoutParams(mp, mp))
+
+        val main = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        root.addView(main, FrameLayout.LayoutParams(maxW, mp, Gravity.CENTER_HORIZONTAL))
+
+        // ---- header ----
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(2), 0, dp(2), dp(5))
         }
-
-        header.addView(ImageView(this).apply {
-            setImageResource(R.drawable.saman_tunnel_logo)
-            scaleType = ImageView.ScaleType.CENTER_INSIDE
-            adjustViewBounds = true
-            contentDescription = "Saman Tunnel logo"
-            layoutParams = LinearLayout.LayoutParams(dp(62), dp(62)).apply {
-                marginEnd = dp(10)
-            }
-        })
-
-        val headerText = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_VERTICAL
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        }
-
-        headerText.addView(TextView(this).apply {
-            text = if (packageName.endsWith(".beta")) "Saman Tunnel Beta" else "Saman Tunnel"
-            textSize = 24f
-            setTextColor(ink)
-            setTypeface(typeface, Typeface.BOLD)
-            includeFontPadding = false
-        })
-
-        versionView = TextView(this).apply {
-            text = "App …  •  Aether Core …"
-            textSize = 12.5f
-            setTextColor(muted)
-            setPadding(0, dp(4), 0, 0)
-            includeFontPadding = false
-        }
-
-        headerText.addView(versionView)
-        header.addView(headerText)
-        root.addView(header)
-
-        // Status
-        val statusCard = LinearLayout(this).apply {
+        val brand = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            background = rounded(card, 18, line)
-            setPadding(dp(12), dp(8), dp(12), dp(8))
-            elevation = dp(2).toFloat()
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(104)
-            ).apply {
-                bottomMargin = dp(8)
-            }
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
         }
-
-        statusBadge = TextView(this).apply {
-            text = "○"
-            gravity = Gravity.CENTER
-            textSize = 23f
+        brand.addView(
+            ImageView(this).apply {
+                setImageResource(R.drawable.saman_tunnel_logo)
+                scaleType = ImageView.ScaleType.CENTER_INSIDE
+                contentDescription = "Saman Tunnel"
+            },
+            lp(dp(36), dp(36)).apply { marginEnd = dp(8) }
+        )
+        brand.addView(TextView(this).apply {
+            text = if (packageName.endsWith(".beta")) "SAMAN TUNNEL β" else "SAMAN TUNNEL"
+            textSize = 15f
+            setTextColor(tk.ink)
             setTypeface(typeface, Typeface.BOLD)
-            layoutParams = LinearLayout.LayoutParams(dp(50), dp(50)).apply {
-                marginEnd = dp(11)
-            }
+            letterSpacing = 0.12f
+            includeFontPadding = false
+        })
+        badgeView = TextView(this).apply {
+            text = "WG"
+            textSize = 11f
+            setTextColor(tk.sky)
+            setTypeface(typeface, Typeface.BOLD)
+            letterSpacing = 0.08f
+            includeFontPadding = false
+            setPadding(dp(9), dp(3), dp(9), dp(3))
+            background = rounded(withAlpha(tk.sky, 41), 99)
         }
-        statusCard.addView(statusBadge)
+        brand.addView(badgeView, lp(wrap, wrap).apply { marginStart = dp(8) })
+        header.addView(brand, lp(wrap, wrap))
+        header.addView(View(this), lp(0, 1, 1f))
+        header.addView(
+            TextView(this).apply {
+                text = "◐"
+                textSize = 20f
+                gravity = Gravity.CENTER
+                setTextColor(tk.ink)
+                background = rounded(tk.glass, 22, tk.glassB)
+                isClickable = true
+                isFocusable = true
+                contentDescription = tr("ظاهر برنامه", "Appearance")
+                setOnClickListener { if (popVisible) hidePop() else showPop() }
+            },
+            lp(dp(44), dp(44))
+        )
+        main.addView(header, lp(mp, dp(52)))
 
-        val statusColumn = LinearLayout(this).apply {
+        // ---- hero ----
+        val hero = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_VERTICAL
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            gravity = Gravity.CENTER
         }
-
-        modeView = TextView(this).apply {
-            text = "Mode: —"
-            textSize = 16f
-            setTextColor(ink)
+        titleView = TextView(this).apply {
+            textSize = 28f
+            gravity = Gravity.CENTER
+            setTextColor(tk.ink)
             setTypeface(typeface, Typeface.BOLD)
             includeFontPadding = false
         }
-
-        statusView = TextView(this).apply {
-            text = "Status: Stopped"
-            textSize = 13.2f
-            setTextColor(muted)
-            setPadding(0, dp(5), 0, 0)
-            includeFontPadding = false
-            maxLines = 1
-            isSingleLine = true
+        subView = TextView(this).apply {
+            textSize = 15f
+            gravity = Gravity.CENTER
+            setTextColor(tk.muted)
         }
-
-        proxyStatusView = TextView(this).apply {
-            text = ""
-            textSize = 11.8f
-            setTextColor(green)
-            setPadding(0, dp(3), 0, 0)
-            includeFontPadding = false
-            maxLines = 2
-            isSingleLine = false
+        timerView = TextView(this).apply {
+            text = "00:00:00"
+            textSize = 17f
+            gravity = Gravity.CENTER
+            setTextColor(tk.ok)
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            textDirection = View.TEXT_DIRECTION_LTR
+            fontFeatureSettings = "tnum"
+            visibility = View.INVISIBLE
+        }
+        detailView = TextView(this).apply {
+            textSize = 12f
+            gravity = Gravity.CENTER
+            setTextColor(tk.muted)
+            textDirection = View.TEXT_DIRECTION_LTR
             visibility = View.GONE
         }
-
-        statusColumn.addView(modeView)
-        statusColumn.addView(statusView)
-        statusColumn.addView(proxyStatusView)
-        statusCard.addView(statusColumn)
-        statusCard.isClickable = true
-        statusCard.isFocusable = true
-        statusCard.contentDescription = "Connection state. Tap to connect or disconnect."
-        statusCard.setOnClickListener {
-            val prefs = getSharedPreferences(AetherService.PREFS, MODE_PRIVATE)
-            if (prefs.getString(AetherService.KEY_STATUS, "Stopped").orEmpty().startsWith("Connected", true)) {
-                stop()
-            } else {
-                val selected = prefs.getString(AetherService.KEY_LAST_MODE, "WG").orEmpty().ifBlank { "WG" }
-                start(selected)
-            }
+        hero.addView(titleView, lp(mp, wrap))
+        hero.addView(subView, lp(mp, wrap).apply { topMargin = dp(8) })
+        hero.addView(timerView, lp(mp, wrap).apply { topMargin = dp(6) })
+        hero.addView(detailView, lp(mp, wrap).apply { topMargin = dp(4) })
+        powerSwitch = PowerSwitchView(this).apply {
+            applyTheme(tk)
+            setOnClickListener { onSwitchTap() }
         }
-        root.addView(statusCard)
+        hero.addView(powerSwitch, lp(wrap, wrap).apply { topMargin = dp(14) })
+        main.addView(hero, lp(mp, 0, 1f))
 
-        egressView = TextView(this).apply {
-            text = "🌐  Egress IP: —"
-            textSize = 14f
-            setTextColor(ink)
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(16), 0, dp(16), 0)
-            background = rounded(cardSoft, 16, line)
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)).apply {
-                bottomMargin = dp(10)
-            }
+        // ---- scrim + bottom sheet ----
+        val scrim = View(this).apply {
+            setBackgroundColor(tk.scrim)
+            alpha = 0f
         }
-        root.addView(egressView)
+        root.addView(scrim, FrameLayout.LayoutParams(mp, mp))
 
-        // Modes
-        val modeRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(70)
-            ).apply { bottomMargin = dp(7) }
-        }
-
-        modeRow.addView(modeTile("◎", "MASQUE", blue, tinted(blue)) {
-            chooseMasqueMode()
-        })
-        modeRow.addView(modeTile("◇", "WireGuard", green, tinted(green)) {
-            chooseWireGuardMode()
-        })
-        modeRow.addView(modeTile("◉", "Psiphon", purple, tinted(purple)) {
-            start("PSIPHON_ONLY")
-        })
-        modeRow.addView(modeTile("◌", "Tor", orange, tinted(orange)) {
-            chooseTorMode()
-        })
-        root.addView(modeRow)
-
-        // VPN_MODE_UI_V1
-        val vpnControlRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(50)
-            ).apply { bottomMargin = dp(7) }
-        }
-
-        vpnModeView = actionTile(
-            "Connection: Proxy",
-            blue,
-            card
-        ) {
-            chooseConnectionMode()
-        }
-
-        vpnControlRow.addView(
-            vpnModeView,
-            LinearLayout.LayoutParams(
-                0,
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                1f
-            ).apply {
-                marginEnd = dp(5)
-            }
-        )
-
-        routingView = actionTile(
-            "Apps: All",
-            purple,
-            card
-        ) {
-            startActivityForResult(
-                Intent(
-                    this,
-                    AppRoutingActivity::class.java
-                ),
-                REQUEST_APP_ROUTING
-            )
-        }
-
-        vpnControlRow.addView(
-            routingView,
-            LinearLayout.LayoutParams(
-                0,
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                1f
-            ).apply {
-                marginStart = dp(5)
-            }
-        )
-
-        root.addView(vpnControlRow)
-
-        // Stop / Copy
-        val actionRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(52)
-            ).apply { bottomMargin = dp(7) }
-        }
-
-        actionRow.addView(
-            actionTile("■  STOP", red, if (isDark) Color.rgb(54, 29, 33) else Color.rgb(255, 245, 245)) {
-                stop()
-            },
-            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f).apply {
-                marginEnd = dp(5)
-            }
-        )
-
-        actionRow.addView(
-            actionTile("▣  Copy proxies", ink, card) {
-                copySocks()
-            },
-            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f).apply {
-                marginStart = dp(5)
-            }
-        )
-        root.addView(actionRow)
-
-        // Utilities: battery + updater
-        val utilityRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(46)
-            ).apply { bottomMargin = dp(7) }
-        }
-
-        batteryView = utilityTile("Battery: …") { openBatterySettings() }
-        utilityRow.addView(
-            batteryView,
-            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f).apply {
-                marginEnd = dp(5)
-            }
-        )
-
-        updateView = utilityTile("Check update") { checkForUpdates() }
-        utilityRow.addView(
-            updateView,
-            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f).apply {
-                marginStart = dp(5)
-            }
-        )
-
-        root.addView(utilityRow)
-
-        val supportRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(46)
-            ).apply { bottomMargin = dp(7) }
-        }
-        supportRow.addView(actionTile("📢 Channel", blue, card) { openProjectLink(PROJECT_CHANNEL) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f).apply { marginEnd = dp(5) })
-        supportRow.addView(actionTile("👥 Group", purple, card) { openProjectLink(PROJECT_GROUP) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f).apply { marginStart = dp(5) })
-        root.addView(supportRow)
-
-        root.addView(
-            actionTile("⚙  Settings & help", ink, card) { showSettingsMenu() },
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(44)
-            ).apply { bottomMargin = dp(7) }
-        )
-
-        // SOCKS
-        val socksCard = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            background = rounded(
-                if (isDark) Color.rgb(19, 35, 57) else Color.rgb(244, 248, 255),
-                18,
-                if (isDark) Color.rgb(48, 87, 133) else Color.rgb(177, 205, 247)
-            )
-            setPadding(dp(13), dp(7), dp(13), dp(7))
-            isClickable = true
-            isFocusable = true
-            setOnClickListener { copySocks() }
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(64)
-            ).apply { bottomMargin = dp(4) }
-        }
-
-        socksCard.addView(TextView(this).apply {
-            text = "▦"
-            gravity = Gravity.CENTER
-            textSize = 25f
-            setTextColor(blue)
-            background = rounded(
-                if (isDark) Color.rgb(29, 53, 83) else Color.rgb(227, 238, 255),
-                14
-            )
-            layoutParams = LinearLayout.LayoutParams(dp(46), dp(46)).apply {
-                marginEnd = dp(11)
-            }
-        })
-
-        val socksText = LinearLayout(this).apply {
+        val sheetH = minOf((resources.displayMetrics.heightPixels * 0.88f).toInt(), dp(720))
+        val sheet = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-        }
-
-        socksText.addView(TextView(this).apply {
-            text = "LOCAL PROXIES"
-            textSize = 12.5f
-            setTextColor(blue)
-            setTypeface(typeface, Typeface.BOLD)
-            includeFontPadding = false
-        })
-
-        socksText.addView(TextView(this).apply {
-            text = "SOCKS5  127.0.0.1:1819\nHTTP    127.0.0.1:1820"
-            textSize = 12.8f
-            setTextColor(ink)
-            setTypeface(Typeface.MONOSPACE, Typeface.NORMAL)
-            includeFontPadding = false
-            maxLines = 2
-        })
-
-        socksCard.addView(socksText)
-        root.addView(socksCard)
-
-        root.addView(TextView(this).apply {
-            text = if (packageName.endsWith(".beta")) {
-                "β  Beta — do not run Stable and Beta at the same time."
-            } else {
-                "♢  Built-in VPN: Android TUN → HEV → Aether SOCKS5 :1819"
+            visibility = View.INVISIBLE
+            elevation = dp(16).toFloat()
+            background = GradientDrawable().apply {
+                setColor(tk.sheet)
+                val r = dp(28).toFloat()
+                cornerRadii = floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f)
+                setStroke(dp(1), tk.glassB)
             }
-            textSize = 10.8f
-            setTextColor(muted)
-            gravity = Gravity.CENTER
-            includeFontPadding = false
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(22)
-            )
-        })
+        }
+        root.addView(
+            sheet,
+            FrameLayout.LayoutParams(maxW, sheetH, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL)
+        )
 
-        // Keep existing controls and actions, but make the connection hero the home screen.
-        val settingsTile = root.getChildAt(8)
-        val footerNote = root.getChildAt(10)
-        root.removeAllViews()
-        root.addView(header)
-        root.addView(TextView(this).apply {
-            text = "SAMAN TUNNEL"
-            textSize = 12f
-            letterSpacing = .18f
-            setTextColor(blue)
-            gravity = Gravity.CENTER
-            setPadding(0, dp(30), 0, dp(7))
-        })
-        root.addView(TextView(this).apply {
-            text = "Secure your connection"
-            textSize = 25f
-            setTypeface(typeface, Typeface.BOLD)
-            setTextColor(ink)
-            gravity = Gravity.CENTER
-            setPadding(dp(12), 0, dp(12), dp(5))
-        })
-        root.addView(TextView(this).apply {
-            text = "Tap to connect with ${prettyMode(getSharedPreferences(AetherService.PREFS, MODE_PRIVATE).getString(AetherService.KEY_LAST_MODE, "WG").orEmpty())}"
-            textSize = 14f
-            setTextColor(muted)
-            gravity = Gravity.CENTER
-            setPadding(dp(12), 0, dp(12), dp(16))
-        })
-        connectHero = TextView(this).apply {
-            text = "⏻"
-            textSize = 66f
-            gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
-            background = GradientDrawable(
-                GradientDrawable.Orientation.TL_BR,
-                intArrayOf(blue, withAlpha(blue, 170))
-            ).apply { shape = GradientDrawable.OVAL }
-            elevation = dp(12).toFloat()
-            isClickable = true
+        val grab = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            contentDescription = tr("تنظیمات", "Settings")
             isFocusable = true
-            contentDescription = "Connect or disconnect"
-            layoutParams = LinearLayout.LayoutParams(dp(148), dp(148)).apply {
-                gravity = Gravity.CENTER
-                bottomMargin = dp(22)
+        }
+        grab.addView(
+            View(this).apply { background = rounded(withAlpha(tk.muted, 115), 3) },
+            lp(dp(44), dp(5)).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+                bottomMargin = dp(12)
             }
-            setOnClickListener { statusCard.performClick() }
+        )
+        protoValue = valueLabel()
+        connValue = valueLabel()
+        val tiles = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        tiles.addView(tile(tr("پروتکل", "Protocol"), protoValue), lp(0, wrap, 1f).apply { marginEnd = dp(5) })
+        tiles.addView(tile(tr("اتصال", "Connection"), connValue), lp(0, wrap, 1f).apply { marginStart = dp(5) })
+        grab.addView(tiles, lp(mp, wrap))
+        sheet.addView(grab, lp(mp, wrap))
+
+        val body = ScrollView(this).apply {
+            overScrollMode = View.OVER_SCROLL_NEVER
+            isVerticalScrollBarEnabled = false
         }
-        root.addView(connectHero)
-        root.addView(statusCard)
-        root.addView(egressView)
-        root.addView(actionTile("⚙  SETTINGS", blue, card) {
-            showSettingsSheet(listOf(modeRow, vpnControlRow, actionRow, utilityRow, supportRow, socksCard, settingsTile, footerNote))
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)).apply {
-            topMargin = dp(14)
-            bottomMargin = dp(10)
-        })
-        val page = ScrollView(this).apply {
-            isFillViewport = true
-            clipToPadding = false
-            addView(root, ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ))
+        val content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        body.addView(content, ViewGroup.LayoutParams(mp, wrap))
+        sheet.addView(body, lp(mp, 0, 1f))
+        fillSettings(content)
+        sheetCtl = SheetController(sheet, grab, scrim, body)
+
+        // ---- appearance popover ----
+        val edge = (screenW - maxW) / 2
+        val layer = FrameLayout(this).apply {
+            visibility = View.GONE
+            isClickable = true
+            setOnClickListener { hidePop() }
         }
-        setContentView(page)
-        refreshState()
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(10), dp(10), dp(10), dp(10))
+            background = rounded(tk.sheet, 22, tk.glassB)
+            elevation = dp(8).toFloat()
+            isClickable = true
+        }
+        val themeSeg = SegmentView(this, tk).apply {
+            setItems(listOf(tr("روشن", "Light"), tr("تاریک", "Dark"), tr("خودکار", "Auto")))
+            select(
+                when (ui.theme) {
+                    "light" -> 0
+                    "dark" -> 1
+                    else -> 2
+                }
+            )
+            onSelect = { i ->
+                ui.theme = arrayOf("light", "dark", "system")[i]
+                rebuildUi()
+            }
+        }
+        card.addView(themeSeg, lp(mp, wrap))
+        val pals = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        Palette.values().forEachIndexed { i, p ->
+            val sel = p == ui.palette
+            val item = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                setPadding(dp(2), dp(10), dp(2), dp(10))
+                background = rounded(tk.tile, 16, if (sel) tk.sky else tk.line, if (sel) 2 else 1)
+                isClickable = true
+                isFocusable = true
+                setOnClickListener {
+                    ui.palette = p
+                    rebuildUi()
+                }
+            }
+            item.addView(SwatchView(this, p.swA, p.swB), lp(dp(28), dp(28)))
+            item.addView(
+                TextView(this).apply {
+                    text = paletteName(p)
+                    textSize = 12f
+                    gravity = Gravity.CENTER
+                    setTextColor(tk.ink)
+                },
+                lp(wrap, wrap).apply { topMargin = dp(6) }
+            )
+            pals.addView(item, lp(0, wrap, 1f).apply { if (i > 0) marginStart = dp(6) })
+        }
+        card.addView(pals, lp(mp, wrap).apply { topMargin = dp(8) })
+        layer.addView(
+            card,
+            FrameLayout.LayoutParams(
+                minOf(dp(300), maxW - dp(40)), wrap, Gravity.TOP or Gravity.END
+            ).apply { marginEnd = edge + dp(20) }
+        )
+        root.addView(layer, FrameLayout.LayoutParams(mp, mp))
+        popLayer = layer
+
+        fun applyInsets() {
+            main.setPadding(dp(20), topInset + dp(6), dp(20), bottomInset + dp(150))
+            grab.setPadding(dp(18), dp(10), dp(18), dp(14) + bottomInset)
+            content.setPadding(dp(20), dp(6), dp(20), dp(24) + bottomInset)
+            (card.layoutParams as FrameLayout.LayoutParams).topMargin = topInset + dp(64)
+            card.requestLayout()
+        }
+        root.setOnApplyWindowInsetsListener { _, insets ->
+            readInsets(insets)
+            applyInsets()
+            insets
+        }
+        applyInsets()
+        setContentView(root)
+        root.requestApplyInsets()
+        if (resumed) orbs.start()
+        refreshState(true)
     }
 
-    private fun tinted(accent: Int): Int =
-        if (isDark) Color.rgb(
-            (Color.red(accent) * 0.16).toInt(),
-            (Color.green(accent) * 0.16).toInt(),
-            (Color.blue(accent) * 0.16).toInt()
-        ) else Color.argb(18, Color.red(accent), Color.green(accent), Color.blue(accent))
+    private fun rebuildUi() {
+        val sheetOpen = sheetCtl?.open == true
+        val popOpen = popVisible
+        if (::orbs.isInitialized) orbs.stop()
+        buildUi()
+        showVersions()
+        refreshBatteryStatus()
+        sheetCtl?.open = sheetOpen
+        if (popOpen) showPop()
+    }
 
-    private fun modeTile(
-        symbol: String,
-        label: String,
-        accent: Int,
-        fill: Int,
-        action: () -> Unit
-    ): View = LinearLayout(this).apply {
+    private fun showPop() {
+        popLayer?.visibility = View.VISIBLE
+        popVisible = true
+    }
+
+    private fun hidePop() {
+        popLayer?.visibility = View.GONE
+        popVisible = false
+    }
+
+    @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
+    override fun onBackPressed() {
+        when {
+            popVisible -> hidePop()
+            sheetCtl?.open == true -> sheetCtl?.snap(false)
+            else -> super.onBackPressed()
+        }
+    }
+
+    private fun paletteName(p: Palette): String = when (p) {
+        Palette.BLUE -> tr("آبی و سفید", "Blue & white")
+        Palette.PURPLE -> tr("بنفش نئونی", "Neon purple")
+        Palette.ORANGE -> tr("نارنجی و سفید", "Orange & white")
+    }
+
+    private fun valueLabel(): TextView = TextView(this).apply {
+        textSize = 16f
+        setTextColor(tk.ink)
+        setTypeface(typeface, Typeface.BOLD)
+        textDirection = View.TEXT_DIRECTION_LTR
+        textAlignment = View.TEXT_ALIGNMENT_VIEW_START
+        includeFontPadding = false
+        maxLines = 1
+        ellipsize = android.text.TextUtils.TruncateAt.END
+    }
+
+    private fun tile(label: String, value: TextView): LinearLayout = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
-        gravity = Gravity.CENTER
-        background = rounded(fill, 17, withAlpha(accent, if (isDark) 135 else 85))
-        isClickable = true
-        isFocusable = true
-        setOnClickListener {
-            LogStore.append(this@MainActivity, "UI", "Mode tile tapped: $label")
-            action()
-        }
-        layoutParams = LinearLayout.LayoutParams(
-            0,
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            1f
-        ).apply {
-            marginStart = dp(4)
-            marginEnd = dp(4)
-        }
-
-        addView(TextView(this@MainActivity).apply {
-            text = symbol
-            textSize = 21f
-            gravity = Gravity.CENTER
-            setTextColor(accent)
-            includeFontPadding = false
-        })
-
+        setPadding(dp(14), dp(10), dp(14), dp(10))
+        background = rounded(tk.tile, 18, tk.line)
         addView(TextView(this@MainActivity).apply {
             text = label
-            textSize = if (label == "WireGuard" || label == "Psiphon") 12.5f else 13.8f
-            gravity = Gravity.CENTER
-            setTextColor(accent)
-            setTypeface(typeface, Typeface.BOLD)
-            includeFontPadding = false
-            setPadding(0, dp(3), 0, 0)
+            textSize = 12.5f
+            setTextColor(tk.muted)
+        })
+        addView(value, lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(2)
         })
     }
 
-    private fun actionTile(
-        label: String,
-        accent: Int,
-        fill: Int,
-        action: () -> Unit
-    ): TextView = TextView(this).apply {
-        text = label
-        textSize = 13.8f
-        gravity = Gravity.CENTER
-        setTextColor(accent)
+    private fun label(text: String): TextView = TextView(this).apply {
+        this.text = text
+        textSize = 14f
+        setTextColor(tk.muted)
+        setPadding(0, dp(16), 0, dp(8))
+    }
+
+    private fun groupTitle(text: String): TextView = TextView(this).apply {
+        this.text = text
+        textSize = 12f
+        letterSpacing = 0.08f
+        setTextColor(tk.muted)
         setTypeface(typeface, Typeface.BOLD)
-        background = rounded(fill, 17, if (accent == ink) line else withAlpha(accent, 100))
+        textDirection = View.TEXT_DIRECTION_LTR
+        textAlignment = View.TEXT_ALIGNMENT_VIEW_START
+        setPadding(dp(2), dp(4), 0, dp(6))
+    }
+
+    private fun divider(): View = View(this).apply { setBackgroundColor(tk.line) }
+
+    private fun chip(text: String, action: () -> Unit): TextView = TextView(this).apply {
+        this.text = text
+        textSize = 14f
+        gravity = Gravity.CENTER
+        setTextColor(tk.ink)
+        setPadding(dp(16), 0, dp(16), 0)
+        minHeight = dp(38)
+        background = rounded(tk.tile, 19, tk.line)
         isClickable = true
         isFocusable = true
         setOnClickListener { action() }
     }
 
+    private fun valueText(text: String): TextView = TextView(this).apply {
+        this.text = text
+        textSize = 15f
+        setTextColor(tk.muted)
+        textDirection = View.TEXT_DIRECTION_LTR
+    }
 
-    private fun utilityTile(label: String, action: () -> Unit): TextView =
-        TextView(this).apply {
-            text = label
-            textSize = 11.3f
-            gravity = Gravity.CENTER
-            setTextColor(ink)
-            setTypeface(typeface, Typeface.BOLD)
-            background = rounded(card, 15, line)
+    private fun row(title: String, sub: String?, trailing: View): LinearLayout {
+        val wrap = ViewGroup.LayoutParams.WRAP_CONTENT
+        val r = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(12), 0, dp(12))
+        }
+        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        col.addView(TextView(this).apply {
+            text = title
+            textSize = 16f
+            setTextColor(tk.ink)
+        })
+        if (sub != null) {
+            col.addView(
+                TextView(this).apply {
+                    text = sub
+                    textSize = 12.5f
+                    setTextColor(tk.muted)
+                },
+                lp(wrap, wrap).apply { topMargin = dp(2) }
+            )
+        }
+        r.addView(col, lp(0, wrap, 1f))
+        r.addView(trailing, lp(wrap, wrap).apply { marginStart = dp(12) })
+        return r
+    }
+
+    private fun modeGroups(): List<Pair<String, List<ModeDef>>> {
+        val masque = Color.rgb(58, 141, 255)
+        val wg = Color.rgb(47, 194, 122)
+        val gool = Color.rgb(139, 108, 255)
+        val psi = Color.rgb(232, 93, 155)
+        val tor = Color.rgb(255, 154, 61)
+        return listOf(
+            "MASQUE" to listOf(
+                ModeDef("MASQUE_H3", "MASQUE H3", masque),
+                ModeDef("MASQUE_H2", "MASQUE H2", masque),
+                ModeDef("MIM_H3", "MiM H3", masque),
+                ModeDef("MIM_H2", "MiM H2", masque)
+            ),
+            "WireGuard" to listOf(
+                ModeDef("WG", "WireGuard", wg),
+                ModeDef("GOOL", "GOOL", gool)
+            ),
+            "Psiphon" to listOf(ModeDef("PSIPHON_ONLY", "Psiphon", psi)),
+            "Tor" to listOf(
+                ModeDef("TOR_ONLY", "Tor only", tor),
+                ModeDef("TOR_INSIDE_MASQUE_H3", "MASQUE H3 → Tor", tor),
+                ModeDef("TOR_INSIDE_MASQUE_H2", "MASQUE H2 → Tor", tor),
+                ModeDef("TOR_INSIDE_WG", "WireGuard → Tor", tor),
+                ModeDef("TOR_INSIDE_GOOL", "GOOL → Tor", tor),
+                ModeDef("TOR_REVERSE", "Tor → MASQUE H2", tor)
+            )
+        )
+    }
+
+    private fun modeChip(def: ModeDef): View {
+        val wrap = ViewGroup.LayoutParams.WRAP_CONTENT
+        val v = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            setPadding(dp(14), 0, dp(10), 0)
             isClickable = true
             isFocusable = true
-            setOnClickListener { action() }
+            setOnClickListener { onModeChip(def.id) }
         }
-
-    private fun showSettingsSheet(items: List<View>) {
-        val content = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(10), dp(18), dp(24))
-            background = rounded(card, 26, line)
-        }
-        content.addView(TextView(this).apply {
-            text = "Settings"
-            textSize = 22f
-            setTypeface(typeface, Typeface.BOLD)
-            setTextColor(ink)
-            gravity = Gravity.CENTER
-            setPadding(0, 0, 0, dp(12))
-        })
-        items.forEach { item ->
-            (item.parent as? ViewGroup)?.removeView(item)
-            content.addView(item)
-        }
-        val dialog = Dialog(this)
-        dialog.setContentView(ScrollView(this).apply { addView(content) })
-        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
-        dialog.setOnShowListener {
-            dialog.window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, (resources.displayMetrics.heightPixels * .88f).toInt())
-            dialog.window?.setGravity(Gravity.BOTTOM)
-        }
-        dialog.show()
-        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
-        dialog.window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, (resources.displayMetrics.heightPixels * .88f).toInt())
-        dialog.window?.setGravity(Gravity.BOTTOM)
+        v.addView(
+            View(this).apply { background = rounded(def.color, 5) },
+            lp(dp(10), dp(10)).apply { marginEnd = dp(10) }
+        )
+        v.addView(
+            TextView(this).apply {
+                text = def.label
+                textSize = 13.5f
+                setTextColor(tk.ink)
+                setTypeface(typeface, Typeface.BOLD)
+                maxLines = 2
+            },
+            lp(0, wrap, 1f)
+        )
+        modeChips[def.id] = v
+        modeColors[def.id] = def.color
+        styleChip(def.id, false)
+        return v
     }
 
-    private fun showAppearanceMenu() {
-        AlertDialog.Builder(this)
-            .setTitle("Theme and palette")
-            .setItems(arrayOf(
-                "Theme: System", "Theme: Light", "Theme: Dark",
-                "Palette: Blue / White", "Palette: Neon Purple", "Palette: Orange / White"
-            )) { _, which ->
-                if (which < 3) uiPrefs.edit().putString("theme", arrayOf("system", "light", "dark")[which]).apply()
-                else uiPrefs.edit().putString("palette", arrayOf("blue", "purple", "orange")[which - 3]).apply()
-                recreate()
+    private fun styleChip(id: String, selected: Boolean) {
+        val v = modeChips[id] ?: return
+        val c = modeColors[id] ?: tk.sky
+        v.background = if (selected) rounded(withAlpha(c, 41), 18, c, 2)
+        else rounded(tk.tile, 18, tk.line)
+    }
+
+    private fun fillSettings(c: LinearLayout) {
+        val mp = ViewGroup.LayoutParams.MATCH_PARENT
+        val wrap = ViewGroup.LayoutParams.WRAP_CONTENT
+
+        c.addView(
+            TextView(this).apply {
+                text = tr("تنظیمات", "Settings")
+                textSize = 19f
+                setTextColor(tk.ink)
+                setTypeface(typeface, Typeface.BOLD)
+            },
+            lp(mp, wrap).apply {
+                topMargin = dp(6)
+                bottomMargin = dp(2)
             }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
+        )
 
-    private fun showSettingsMenu() {
-        val dialog = Dialog(this)
-        val content = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(12), dp(20), dp(24))
-            setBackgroundColor(card)
-        }
-        content.addView(TextView(this).apply {
-            text = "Settings"
-            textSize = 22f
-            setTextColor(ink)
-            setTypeface(typeface, Typeface.BOLD)
-            setPadding(0, 0, 0, dp(8))
-        })
-        fun action(label: String, click: () -> Unit) {
-            content.addView(actionTile(label, ink, cardSoft, click).apply {
-                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply {
-                    bottomMargin = dp(7)
+        c.addView(label(tr("مود اتصال", "Connection mode")))
+        for ((group, defs) in modeGroups()) {
+            c.addView(groupTitle(group))
+            var i = 0
+            while (i < defs.size) {
+                val r = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+                r.addView(modeChip(defs[i]), lp(0, dp(52), 1f).apply { marginEnd = dp(5) })
+                if (i + 1 < defs.size) {
+                    r.addView(modeChip(defs[i + 1]), lp(0, dp(52), 1f).apply { marginStart = dp(5) })
+                } else {
+                    r.addView(View(this), lp(0, dp(52), 1f).apply { marginStart = dp(5) })
                 }
-            })
+                c.addView(r, lp(mp, wrap).apply { bottomMargin = dp(10) })
+                i += 2
+            }
         }
-        action("Appearance · theme and palette") { dialog.dismiss(); showAppearanceMenu() }
-        action("Protocol · MASQUE H2/H3 and MIM") { dialog.dismiss(); chooseMasqueMode() }
-        action("WireGuard / GOOL") { dialog.dismiss(); chooseWireGuardMode() }
-        action("Psiphon only") { dialog.dismiss(); start("PSIPHON_ONLY") }
-        action("Tor routing") { dialog.dismiss(); chooseTorMode() }
-        action("Connection type · Proxy / VPN-TUN") { dialog.dismiss(); chooseConnectionMode() }
-        action("Apps · App routing") {
-            dialog.dismiss()
+
+        c.addView(label(tr("نوع اتصال", "Connection type")))
+        connSeg = SegmentView(this, tk).apply {
+            setItems(listOf(tr("پراکسی", "Proxy"), tr("وی‌پی‌ان", "VPN")))
+            onSelect = { i -> applyConnectionMode(i) }
+        }
+        c.addView(connSeg, lp(mp, wrap))
+        routingView = chip("…") {
             startActivityForResult(Intent(this, AppRoutingActivity::class.java), REQUEST_APP_ROUTING)
         }
-        action("Local proxies · copy SOCKS5 / HTTP") { copySocks() }
-        action("Diagnostics · view logs / export TXT") { dialog.dismiss(); showDiagnosticsMenu() }
-        action("Battery optimization") { dialog.dismiss(); openBatterySettings() }
-        action("Check for updates") { dialog.dismiss(); checkForUpdates() }
-        action("About Saman Tunnel") {
-            dialog.dismiss()
-            AlertDialog.Builder(this)
-                .setTitle("Saman Tunnel ${currentVersion()}")
-                .setMessage("Official Aether core v2.1.0\nAndroid VPN path: HEV tun2socks\n\nChannel: $PROJECT_CHANNEL\nGroup: $PROJECT_GROUP")
-                .setPositiveButton("Channel") { _, _ -> openProjectLink(PROJECT_CHANNEL) }
-                .setNeutralButton("Group") { _, _ -> openProjectLink(PROJECT_GROUP) }
-                .setNegativeButton("Close", null)
-                .show()
+        c.addView(row(tr("برنامه‌ها", "Apps"), null, routingView))
+
+        val proxyCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            background = rounded(tk.tile, 18, tk.line)
         }
-        val scroll = ScrollView(this).apply { addView(content) }
-        dialog.setContentView(scroll)
-        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
-        dialog.setOnShowListener {
-            dialog.window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, (resources.displayMetrics.heightPixels * .88f).toInt())
-            dialog.window?.setGravity(Gravity.BOTTOM)
+        proxyCard.addView(TextView(this).apply {
+            text = tr("پراکسی محلی", "Local proxy")
+            textSize = 13f
+            setTextColor(tk.sky)
+            setTypeface(typeface, Typeface.BOLD)
+        })
+        for ((k, v) in listOf("SOCKS5" to "127.0.0.1:1819", "HTTP" to "127.0.0.1:1820")) {
+            val line = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                layoutDirection = View.LAYOUT_DIRECTION_LTR
+                setPadding(0, dp(5), 0, dp(1))
+            }
+            line.addView(TextView(this).apply {
+                text = k
+                textSize = 14f
+                typeface = Typeface.MONOSPACE
+                setTextColor(tk.muted)
+            }, lp(0, wrap, 1f))
+            line.addView(TextView(this).apply {
+                text = v
+                textSize = 14f
+                typeface = Typeface.MONOSPACE
+                setTextColor(tk.ink)
+            })
+            proxyCard.addView(line, lp(mp, wrap))
         }
-        dialog.show()
-        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
-        dialog.window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, (resources.displayMetrics.heightPixels * .88f).toInt())
-        dialog.window?.setGravity(Gravity.BOTTOM)
+        proxyCard.addView(
+            chip(tr("کپی پراکسی‌ها", "Copy proxies")) { copySocks() },
+            lp(mp, wrap).apply { topMargin = dp(8) }
+        )
+        c.addView(proxyCard, lp(mp, wrap).apply { topMargin = dp(8) })
+
+        c.addView(label(tr("عمومی", "General")))
+        val auto = ToggleView(this, tk).apply {
+            setChecked(ui.autoConnect, false)
+            onChange = { v -> ui.autoConnect = v }
+        }
+        c.addView(row(
+            tr("اتصال خودکار", "Auto-connect"),
+            tr("با باز شدن برنامه وصل شو", "Connect when the app opens"),
+            auto
+        ))
+        c.addView(divider(), lp(mp, dp(1)))
+        val langSeg = SegmentView(this, tk).apply {
+            setItems(listOf(tr("خودکار", "Auto"), "فارسی", "English"))
+            select(
+                when (ui.lang) {
+                    "fa" -> 1
+                    "en" -> 2
+                    else -> 0
+                }
+            )
+            onSelect = { i ->
+                ui.lang = arrayOf("auto", "fa", "en")[i]
+                rebuildUi()
+            }
+        }
+        c.addView(label(tr("زبان", "Language")))
+        c.addView(langSeg, lp(mp, wrap))
+
+        c.addView(label(tr("عیب‌یابی", "Diagnostics")))
+        val diag = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        diag.addView(chip(tr("لاگ‌ها", "Logs")) { showQuickLog(40) }, lp(0, dp(42), 1f).apply { marginEnd = dp(5) })
+        diag.addView(chip(tr("ذخیره TXT", "Save TXT")) { chooseDiagnosticsExport() }, lp(0, dp(42), 1f).apply { marginStart = dp(5) })
+        c.addView(diag, lp(mp, wrap))
+
+        c.addView(label(tr("درباره", "About")))
+        versionView = valueText("…")
+        coreView = valueText("…")
+        batteryView = chip("…") { openBatterySettings() }
+        updateView = chip(tr("بررسی", "Check")) { checkForUpdates() }
+        c.addView(row(tr("نسخه برنامه", "App version"), null, versionView))
+        c.addView(divider(), lp(mp, dp(1)))
+        c.addView(row(tr("هسته", "Core"), null, coreView))
+        c.addView(divider(), lp(mp, dp(1)))
+        c.addView(row(tr("باتری", "Battery"), null, batteryView))
+        c.addView(divider(), lp(mp, dp(1)))
+        c.addView(row(tr("به‌روزرسانی", "Updates"), null, updateView))
+        val links = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        links.addView(chip(tr("کانال", "Channel")) { openProjectLink(PROJECT_CHANNEL) }, lp(0, dp(42), 1f).apply { marginEnd = dp(5) })
+        links.addView(chip(tr("گروه", "Group")) { openProjectLink(PROJECT_GROUP) }, lp(0, dp(42), 1f).apply { marginStart = dp(5) })
+        c.addView(links, lp(mp, wrap).apply { topMargin = dp(10) })
     }
 
-    private fun showDiagnosticsMenu() {
-        AlertDialog.Builder(this)
-            .setTitle("Diagnostics and logs")
-            .setItems(arrayOf("View logs", "Save diagnostics TXT")) { _, which ->
-                when (which) {
-                    0 -> showQuickLog(40)
-                    1 -> chooseDiagnosticsExport()
-                }
-            }
-            .setNegativeButton("Close", null)
-            .show()
+    private fun corePhase(): TunnelPhase =
+        TunnelPhase.fromStatus(corePrefs.getString(AetherService.KEY_STATUS, "Stopped").orEmpty())
+
+    private fun lastModeValue(): String = AetherArguments.canonicalMode(
+        corePrefs.getString(AetherService.KEY_LAST_MODE, "WG").orEmpty().ifBlank { "WG" }
+    )
+
+    private fun normMode(m: String): String = when (val u = m.trim().uppercase()) {
+        "MASQUE" -> "MASQUE_H3"
+        "MIM" -> "MIM_H3"
+        "TOR_INSIDE_MASQUE" -> "TOR_INSIDE_MASQUE_H3"
+        else -> u
+    }
+
+    private fun onModeChip(mode: String) {
+        if (isBusy()) {
+            Toast.makeText(this, tr("لطفاً صبر کن تا کار فعلی تمام شود", "Please wait for the current action to finish"), Toast.LENGTH_SHORT).show()
+            return
+        }
+        LogStore.append(this, "UI", "Mode chip tapped: $mode")
+        val phase = corePhase()
+        if (phase == TunnelPhase.CONNECTED || phase == TunnelPhase.DEGRADED) {
+            start(mode)
+        } else {
+            corePrefs.edit().putString(AetherService.KEY_LAST_MODE, mode).apply()
+            refreshState(true)
+        }
+    }
+
+    private fun onSwitchTap() {
+        val raw = corePrefs.getString(AetherService.KEY_STATUS, "Stopped").orEmpty()
+        val display = ConnectionStatus.display(
+            raw.trim(), isVpnMode(),
+            vpnPrefs.getBoolean(SamanVpnService.KEY_RUNNING, false),
+            vpnPrefs.getString(SamanVpnService.KEY_STATUS, "Preparing VPN").orEmpty()
+        ).lowercase()
+        val phase = TunnelPhase.fromStatus(raw)
+        LogStore.append(this, "UI", "Power switch tapped status=$display")
+        when {
+            display.startsWith("connected") || display.startsWith("connection unstable") -> stop()
+            display.startsWith("connecting") || display.startsWith("starting") ||
+                display.startsWith("switching") -> stop()
+            display.startsWith("stopping") ->
+                Toast.makeText(this, tr("در حال قطع اتصال…", "Disconnecting…"), Toast.LENGTH_SHORT).show()
+            display.startsWith("error") &&
+                (phase == TunnelPhase.CONNECTED || phase == TunnelPhase.DEGRADED) && isVpnMode() ->
+                start(corePrefs.getString(AetherService.KEY_MODE, "").orEmpty().ifBlank { lastModeValue() })
+            else -> start(lastModeValue())
+        }
     }
 
     private fun openProjectLink(url: String) {
@@ -907,89 +937,19 @@ class MainActivity : Activity() {
 
     private fun showVersions() {
         val appVersion = currentVersion()
-        val coreVersion = runCatching {
+        val coreVersion = coreVersionCache ?: runCatching {
             val reply = JSONObject(NativeBridge.version())
             if (reply.optBoolean("ok")) reply.optString("version", "unknown") else "unavailable"
         }.getOrElse {
             LogStore.append(this, "NATIVE", "Could not read Aether version: ${it.stackTraceToString()}")
             "unavailable"
+        }.also {
+            coreVersionCache = it
+            LogStore.append(this, "VERSION", "app=$appVersion aether=$it")
         }
 
-        versionView.text = "App v$appVersion  •  Aether Core v$coreVersion"
-        LogStore.append(this, "VERSION", "app=$appVersion aether=$coreVersion")
-    }
-
-    private fun chooseMasqueMode() {
-        if (isBusy()) {
-            Toast.makeText(this, "Please wait for the current action to finish", Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        AlertDialog.Builder(this)
-            .setTitle("MASQUE mode")
-            .setItems(
-                arrayOf(
-                    "HTTP/3 (QUIC) — default",
-                    "HTTP/2 — alternative network mode",
-                    "MASQUE-in-MASQUE HTTP/3 (QUIC)",
-                    "MASQUE-in-MASQUE HTTP/2"
-                )
-            ) { _, which ->
-                when (which) {
-                    0 -> start("MASQUE_H3")
-                    1 -> start("MASQUE_H2")
-                    2 -> start("MIM_H3")
-                    3 -> start("MIM_H2")
-                }
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-
-    private fun chooseTorMode() {
-        if (isBusy()) {
-            Toast.makeText(this, "Please wait for the current action to finish", Toast.LENGTH_SHORT).show()
-            return
-        }
-        AlertDialog.Builder(this)
-            .setTitle("Tor routing (official Aether)")
-            .setItems(
-                arrayOf(
-                    "Tor only",
-                    "MASQUE HTTP/3 → Tor",
-                    "MASQUE HTTP/2 → Tor",
-                    "WireGuard → Tor",
-                    "GOOL → Tor",
-                    "Tor → MASQUE HTTP/2"
-                )
-            ) { _, which ->
-                start(
-                    arrayOf(
-                        "TOR_ONLY",
-                        "TOR_INSIDE_MASQUE_H3",
-                        "TOR_INSIDE_MASQUE_H2",
-                        "TOR_INSIDE_WG",
-                        "TOR_INSIDE_GOOL",
-                        "TOR_REVERSE"
-                    )[which]
-                )
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-
-    private fun chooseWireGuardMode() {
-        if (isBusy()) {
-            Toast.makeText(this, "Please wait for the current action to finish", Toast.LENGTH_SHORT).show()
-            return
-        }
-        AlertDialog.Builder(this)
-            .setTitle("WireGuard mode")
-            .setItems(arrayOf("WireGuard", "GOOL — WARP-in-WARP")) { _, which ->
-                start(if (which == 0) "WG" else "GOOL")
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
+        versionView.text = "v$appVersion"
+        coreView.text = "Aether Core v$coreVersion"
     }
 
     private fun isBusy(): Boolean {
@@ -1185,89 +1145,44 @@ class MainActivity : Activity() {
             SamanVpnService.CONNECTION_PROXY
         ) == SamanVpnService.CONNECTION_VPN
 
-    private fun chooseConnectionMode() {
-        val currentVpn = isVpnMode()
+    /** which: 0 = Proxy, 1 = VPN (same behaviour as the former connection-mode dialog). */
+    private fun applyConnectionMode(which: Int) {
+        if (which == 1) {
+            vpnPrefs.edit()
+                .putString(SamanVpnService.KEY_CONNECTION_MODE, SamanVpnService.CONNECTION_VPN)
+                .apply()
 
-        AlertDialog.Builder(this)
-            .setTitle("Connection mode")
-            .setSingleChoiceItems(
-                arrayOf(
-                    "Proxy — connect apps with a proxy setting",
-                    "VPN — connect the device or selected apps"
-                ),
-                if (currentVpn) 1 else 0
-            ) { dialog, which ->
-                dialog.dismiss()
+            val status = corePrefs.getString(AetherService.KEY_STATUS, "Stopped").orEmpty()
+            val runningMode = corePrefs.getString(AetherService.KEY_MODE, "").orEmpty()
 
-                val prefs = getSharedPreferences(
-                    SamanVpnService.PREFS,
-                    MODE_PRIVATE
-                )
-
-                if (which == 1) {
-                    prefs.edit()
-                        .putString(
-                            SamanVpnService.KEY_CONNECTION_MODE,
-                            SamanVpnService.CONNECTION_VPN
-                        )
-                        .apply()
-
-                    val aetherPrefs =
-                        getSharedPreferences(
-                            AetherService.PREFS,
-                            MODE_PRIVATE
-                        )
-
-                    val status =
-                        aetherPrefs.getString(
-                            AetherService.KEY_STATUS,
-                            "Stopped"
-                        ).orEmpty()
-
-                    val runningMode =
-                        aetherPrefs.getString(
-                            AetherService.KEY_MODE,
-                            ""
-                        ).orEmpty()
-
-                    if (
-                        status.startsWith("Connected", true) &&
-                        runningMode.isNotBlank()
-                    ) {
-                        requestVpnPermissionAndStart(runningMode)
-                    } else {
-                        if (TunnelPhase.fromStatus(status).isActive) deferredVpnMode = runningMode
-                        Toast.makeText(
-                            this,
-                            "VPN selected — choose WireGuard, MASQUE or Psiphon to connect",
-                            Toast.LENGTH_LONG
-                        ).show()
-                    }
-                } else {
-                    prefs.edit()
-                        .putString(
-                            SamanVpnService.KEY_CONNECTION_MODE,
-                            SamanVpnService.CONNECTION_PROXY
-                        )
-                        .apply()
-
-                    deferredVpnMode = null
-                    pendingVpnMode = null
-                    vpnPrepareBusy = false
-                    vpnStartDispatched = false
-                    stopVpnService()
-
-                    Toast.makeText(
-                        this,
-                        "Proxy mode selected",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                }
-
-                refreshVpnControls()
+            if (status.startsWith("Connected", true) && runningMode.isNotBlank()) {
+                requestVpnPermissionAndStart(runningMode)
+            } else {
+                if (TunnelPhase.fromStatus(status).isActive) deferredVpnMode = runningMode
+                Toast.makeText(
+                    this,
+                    tr(
+                        "وی‌پی‌ان انتخاب شد — برای اتصال کلید را بزن",
+                        "VPN selected — tap the power switch to connect"
+                    ),
+                    Toast.LENGTH_LONG
+                ).show()
             }
-            .setNegativeButton("Cancel", null)
-            .show()
+        } else {
+            vpnPrefs.edit()
+                .putString(SamanVpnService.KEY_CONNECTION_MODE, SamanVpnService.CONNECTION_PROXY)
+                .apply()
+
+            deferredVpnMode = null
+            pendingVpnMode = null
+            vpnPrepareBusy = false
+            vpnStartDispatched = false
+            stopVpnService()
+
+            Toast.makeText(this, tr("حالت پراکسی انتخاب شد", "Proxy mode selected"), Toast.LENGTH_SHORT).show()
+        }
+
+        refreshState(true)
     }
 
     private fun requestVpnPermissionAndStart(mode: String) {
@@ -1485,57 +1400,37 @@ class MainActivity : Activity() {
     }
 
     private fun refreshVpnControls() {
-        if (
-            !::vpnModeView.isInitialized ||
-            !::routingView.isInitialized
-        ) return
+        if (!::connSeg.isInitialized || !::routingView.isInitialized || !::connValue.isInitialized) return
 
-        val prefs = getSharedPreferences(
-            SamanVpnService.PREFS,
-            MODE_PRIVATE
-        )
+        val vpnSelected = vpnPrefs.getString(
+            SamanVpnService.KEY_CONNECTION_MODE,
+            SamanVpnService.CONNECTION_PROXY
+        ) == SamanVpnService.CONNECTION_VPN
+        val vpnRunning = vpnPrefs.getBoolean(SamanVpnService.KEY_RUNNING, false)
 
-        val vpnSelected =
-            prefs.getString(
-                SamanVpnService.KEY_CONNECTION_MODE,
-                SamanVpnService.CONNECTION_PROXY
-            ) == SamanVpnService.CONNECTION_VPN
+        connSeg.select(if (vpnSelected) 1 else 0)
+        val conn = when {
+            vpnSelected && vpnRunning -> "VPN ✓"
+            vpnSelected -> tr("وی‌پی‌ان", "VPN")
+            else -> tr("پراکسی", "Proxy")
+        }
+        if (connValue.text.toString() != conn) connValue.text = conn
 
-        val vpnRunning =
-            prefs.getBoolean(
-                SamanVpnService.KEY_RUNNING,
-                false
-            )
+        val routingMode = vpnPrefs.getString(
+            SamanVpnService.KEY_ROUTING_MODE,
+            SamanVpnService.ROUTING_ALL
+        ) ?: SamanVpnService.ROUTING_ALL
+        val selectedCount = vpnPrefs.getStringSet(
+            SamanVpnService.KEY_SELECTED_APPS,
+            emptySet()
+        )?.size ?: 0
 
-        vpnModeView.text =
-            when {
-                vpnSelected && vpnRunning -> "Connection: VPN ✓"
-                vpnSelected -> "Connection: VPN"
-                else -> "Connection: Proxy"
-            }
-
-        val routingMode =
-            prefs.getString(
-                SamanVpnService.KEY_ROUTING_MODE,
-                SamanVpnService.ROUTING_ALL
-            ) ?: SamanVpnService.ROUTING_ALL
-
-        val selectedCount =
-            prefs.getStringSet(
-                SamanVpnService.KEY_SELECTED_APPS,
-                emptySet()
-            )?.size ?: 0
-
-        routingView.text =
-            when (routingMode) {
-                SamanVpnService.ROUTING_ONLY ->
-                    "Apps: Only $selectedCount"
-
-                SamanVpnService.ROUTING_BYPASS ->
-                    "Apps: Bypass $selectedCount"
-
-                else -> "Apps: All"
-            }
+        val routing = when (routingMode) {
+            SamanVpnService.ROUTING_ONLY -> tr("فقط $selectedCount", "Only $selectedCount")
+            SamanVpnService.ROUTING_BYPASS -> tr("بایپس $selectedCount", "Bypass $selectedCount")
+            else -> tr("همه", "All")
+        }
+        if (routingView.text.toString() != routing) routingView.text = routing
     }
 
     private fun maybeStartDeferredVpn(
@@ -2024,7 +1919,7 @@ class MainActivity : Activity() {
         val unrestricted = androidUnrestricted || xiaomiUnrestricted
 
         batteryView.text =
-            if (unrestricted) "Battery: Unrestricted" else "Battery: Optimized"
+            if (unrestricted) tr("بدون محدودیت", "Unrestricted") else tr("بهینه‌شده", "Optimized")
 
         batteryView.setTextColor(if (unrestricted) green else orange)
 
@@ -2095,16 +1990,18 @@ class MainActivity : Activity() {
     }
 
     private fun checkForUpdates() {
-        if (updateView.text.toString().startsWith("Checking")) return
+        if (updateChecking) return
+        updateChecking = true
 
-        updateView.text = "Checking…"
+        updateView.text = tr("در حال بررسی…", "Checking…")
         LogStore.append(this, "UPDATE", "Manual update check started")
 
         Thread {
             val result = runCatching { fetchLatestRelease() }
 
             runOnUiThread {
-                updateView.text = "Check update"
+                updateChecking = false
+                updateView.text = tr("بررسی", "Check")
 
                 result.onSuccess { release ->
                     val current = currentVersion()
@@ -2243,78 +2140,47 @@ class MainActivity : Activity() {
         "MIM_H2" -> "MASQUE-in-MASQUE H2"
         "MIM_H3", "MIM" -> "MASQUE-in-MASQUE H3"
         "MASQUE_H2" -> "MASQUE H2"
-        "WG" -> "WG"
+        "WG" -> "WireGuard"
         "GOOL" -> "GOOL"
         "PSIPHON_ONLY" -> "Psiphon"
+        "TOR_ONLY" -> "Tor"
+        "TOR_INSIDE_MASQUE_H3", "TOR_INSIDE_MASQUE" -> "MASQUE H3 → Tor"
+        "TOR_INSIDE_MASQUE_H2" -> "MASQUE H2 → Tor"
+        "TOR_INSIDE_WG" -> "WireGuard → Tor"
+        "TOR_INSIDE_GOOL" -> "GOOL → Tor"
+        "TOR_REVERSE" -> "Tor → MASQUE H2"
         else -> mode.ifBlank { "—" }
     }
 
-    private fun refreshEgress(connected: Boolean) {
-        if (connected == egressConnected) return
-        egressConnected = connected
-        val generation = ++egressGeneration
-        if (!connected) {
-            egressRetryPolicy.succeeded()
-            egressView.text = "🌐  Egress IP: —"
-            return
-        }
-        egressView.text = "🌐  Egress IP: checking…"
-        Thread {
-            val result = runCatching { EgressLookup.fetch() }
-            handler.post {
-                if (generation != egressGeneration || !egressConnected) return@post
-                result.onSuccess {
-                    egressRetryPolicy.succeeded()
-                    egressView.text = "${it.flag}  ${it.ip}  ·  ${it.country}"
-                }.onFailure {
-                    egressRetryPolicy.failed()
-                    egressView.text = "🌐  Egress IP unavailable"
-                    LogStore.append(this, "EGRESS", "Lookup failed: ${it.javaClass.simpleName}")
-                    handler.postDelayed({
-                        if (egressConnected && generation == egressGeneration) {
-                            egressConnected = false
-                            refreshEgress(true)
-                        }
-                    }, egressRetryPolicy.delayMillis())
-                }
-            }
-        }.start()
+    private fun badgeFor(mode: String): String = when {
+        mode.startsWith("TOR") -> "TOR"
+        mode.startsWith("MIM") -> "MIM"
+        mode.startsWith("MASQUE") -> "MASQUE"
+        mode == "PSIPHON_ONLY" -> "PSIPHON"
+        else -> mode.ifBlank { "WG" }
     }
 
-    private fun refreshState() {
-        refreshVpnControls()
+    private fun fmtTime(totalSeconds: Long): String {
+        val s = totalSeconds.coerceAtLeast(0L)
+        return String.format(Locale.US, "%02d:%02d:%02d", s / 3600, (s / 60) % 60, s % 60)
+    }
 
-        val prefs = getSharedPreferences(AetherService.PREFS, MODE_PRIVATE)
-        val mode = prefs.getString(AetherService.KEY_MODE, "") ?: ""
-        val rawStatus = prefs.getString(AetherService.KEY_STATUS, "Stopped") ?: "Stopped"
+    private fun refreshState(force: Boolean = false) {
+        refreshVpnControls()
+        if (!::titleView.isInitialized) return
+
+        val mode = corePrefs.getString(AetherService.KEY_MODE, "") ?: ""
+        val rawStatus = corePrefs.getString(AetherService.KEY_STATUS, "Stopped") ?: "Stopped"
 
         maybeStartDeferredVpn(mode, rawStatus)
-        val vpnPrefs = getSharedPreferences(SamanVpnService.PREFS, MODE_PRIVATE)
-        val status = ConnectionStatus.display(rawStatus.trim(), isVpnMode(),
-            vpnPrefs.getBoolean(SamanVpnService.KEY_RUNNING, false),
-            vpnPrefs.getString(SamanVpnService.KEY_STATUS, "Preparing VPN").orEmpty())
-
-        modeView.text = "Mode: ${prettyMode(mode)}"
+        val vpnRunning = vpnPrefs.getBoolean(SamanVpnService.KEY_RUNNING, false)
+        val vpnSelected = isVpnMode()
+        val status = ConnectionStatus.display(
+            rawStatus.trim(), vpnSelected, vpnRunning,
+            vpnPrefs.getString(SamanVpnService.KEY_STATUS, "Preparing VPN").orEmpty()
+        )
 
         val connected = status.startsWith("Connected", true)
-        refreshEgress(connected)
-        if (::connectHero.isInitialized) {
-            connectHero.text = when {
-                connected -> "✓"
-                status.startsWith("Starting", true) || status.startsWith("Connecting", true) || status.startsWith("Switching", true) -> "…"
-                else -> "⏻"
-            }
-            val accent = if (connected) green else if (status.startsWith("Error", true)) red else blue
-            connectHero.background = GradientDrawable(
-                GradientDrawable.Orientation.TL_BR,
-                intArrayOf(accent, withAlpha(accent, 170))
-            ).apply { shape = GradientDrawable.OVAL }
-            connectHero.contentDescription = when {
-                connected -> "Connected. Tap to disconnect."
-                status.startsWith("Starting", true) || status.startsWith("Connecting", true) -> "Connecting"
-                else -> "Stopped. Tap to connect."
-            }
-        }
         val unstable = status.startsWith("Connection unstable", true)
         val error = status.startsWith("Error", true)
         val starting = status.startsWith("Starting", true)
@@ -2322,156 +2188,100 @@ class MainActivity : Activity() {
         val switching = status.startsWith("Switching", true)
         val stopping = status.startsWith("Stopping", true)
         val stopped = status.startsWith("Stopped", true)
+        val working = starting || connecting || switching
 
-        val detail: String
-
-        when {
-            connected -> {
-                statusView.text = "Status: Connected"
-
-                val builtInVpnRunning =
-                    getSharedPreferences(
-                        SamanVpnService.PREFS,
-                        MODE_PRIVATE
-                    ).getBoolean(
-                        SamanVpnService.KEY_RUNNING,
-                        false
-                    )
-
-                detail =
-                    if (builtInVpnRunning) {
-                        "${prettyMode(mode)} VPN connected"
-                    } else if (status.contains("HTTP", true)) {
-                        "SOCKS5 :1819 + HTTP :1820"
-                    } else {
-                        "SOCKS5 :1819"
-                    }
+        // Session timer (persisted so it survives activity recreation).
+        if (connected || unstable) {
+            if (connectedSince == 0L) {
+                connectedSince = ui.since.takeIf { it > 0L } ?: System.currentTimeMillis()
+                ui.since = connectedSince
             }
-
-            unstable -> {
-                statusView.text = "Status: Connection unstable"
-                detail = "Checking SOCKS5 127.0.0.1:1819"
-            }
-
-            error -> {
-                statusView.text = "Status: Error"
-                detail = status
-                    .substringAfter("Error:", "")
-                    .trim()
-                    .ifBlank { "Aether core reported an error" }
-            }
-
-            switching -> {
-                statusView.text = "Status: Switching mode"
-                detail = "Resetting previous connection"
-            }
-
-            starting -> {
-                statusView.text = "Status: Starting"
-                detail = "Preparing ${prettyMode(mode)}"
-            }
-
-            connecting -> {
-                statusView.text = "Status: Connecting"
-                detail = status
-                    .substringAfter("—", "")
-                    .trim()
-                    .ifBlank {
-                        "Waiting for local proxies"
-                    }
-            }
-
-            stopping -> {
-                statusView.text = "Status: Stopping"
-                detail = "Closing local proxies"
-            }
-
-            stopped -> {
-                statusView.text = "Status: Stopped"
-                detail = ""
-            }
-
-            else -> {
-                val parts = status.split("—", limit = 2)
-                statusView.text =
-                    "Status: ${parts.firstOrNull()?.trim().orEmpty().ifBlank { "Unknown" }}"
-                detail = parts.getOrNull(1)?.trim().orEmpty()
-            }
+        } else if (connectedSince != 0L || staleSinceCheck) {
+            connectedSince = 0L
+            staleSinceCheck = false
+            ui.since = 0L
+        }
+        val showTimer = connected || unstable
+        if (showTimer) {
+            timerView.text = fmtTime((System.currentTimeMillis() - connectedSince) / 1000L)
+        }
+        if (timerView.visibility != (if (showTimer) View.VISIBLE else View.INVISIBLE)) {
+            timerView.visibility = if (showTimer) View.VISIBLE else View.INVISIBLE
+        }
+        nextDelay = when {
+            showTimer -> 1000L
+            working || stopping -> 600L
+            else -> 1500L
         }
 
-        proxyStatusView.text = detail
-        proxyStatusView.visibility =
-            if (detail.isBlank()) View.GONE else View.VISIBLE
+        val lastMode = lastModeValue()
+        val active = connected || unstable || working || stopping
+        val shownMode = normMode(if (active && mode.isNotBlank()) mode else lastMode)
 
+        val key = "$status|$mode|$lastMode|$vpnRunning|$vpnSelected|${tk.dark}|${tk.pal.key}|${ui.lang}"
+        if (!force && key == renderKey) return
+        renderKey = key
+
+        val modeName = prettyMode(shownMode)
+        val title: String
+        val sub: String
+        var detail = ""
+        val state: SwState
         when {
             connected -> {
-                statusBadge.text = "✓"
-                statusBadge.setTextColor(green)
-                statusBadge.background = rounded(
-                    if (isDark) Color.rgb(22, 60, 48) else Color.rgb(235, 250, 242),
-                    16,
-                    if (isDark) Color.rgb(42, 112, 87) else Color.rgb(190, 231, 211)
-                )
-                statusView.setTextColor(green)
-                proxyStatusView.setTextColor(green)
+                title = tr("متصل شدی", "Connected")
+                sub = tr("اینترنتت با $modeName امن شد", "Secured with $modeName")
+                detail = if (vpnRunning) "${prettyMode(mode)} VPN"
+                else if (status.contains("HTTP", true)) "SOCKS5 :1819 + HTTP :1820"
+                else "SOCKS5 :1819"
+                state = SwState.ON
             }
-
-            error -> {
-                statusBadge.text = "!"
-                statusBadge.setTextColor(red)
-                statusBadge.background = rounded(
-                    if (isDark) Color.rgb(67, 30, 34) else Color.rgb(255, 239, 239),
-                    16,
-                    if (isDark) Color.rgb(128, 54, 61) else Color.rgb(244, 191, 191)
-                )
-                statusView.setTextColor(red)
-                proxyStatusView.setTextColor(red)
-            }
-
             unstable -> {
-                statusBadge.text = "…"
-                statusBadge.setTextColor(orange)
-                statusBadge.background = rounded(
-                    if (isDark) Color.rgb(63, 45, 24) else Color.rgb(255, 247, 235),
-                    16,
-                    if (isDark) Color.rgb(126, 86, 38) else Color.rgb(242, 207, 158)
-                )
-                statusView.setTextColor(orange)
-                proxyStatusView.setTextColor(muted)
+                title = tr("اتصال ناپایدار", "Connection unstable")
+                sub = tr("در حال بررسی SOCKS5 محلی", "Checking local SOCKS5")
+                detail = "127.0.0.1:1819"
+                state = SwState.WARN
             }
-
-            starting || connecting || switching -> {
-                statusBadge.text = "…"
-                statusBadge.setTextColor(blue)
-                statusBadge.background = rounded(
-                    if (isDark) Color.rgb(24, 47, 76) else Color.rgb(238, 246, 255),
-                    16,
-                    if (isDark) Color.rgb(51, 91, 139) else Color.rgb(188, 213, 245)
-                )
-                statusView.setTextColor(blue)
-                proxyStatusView.setTextColor(muted)
+            error -> {
+                title = tr("خطا", "Error")
+                sub = status.substringAfter("Error:", "").trim()
+                    .ifBlank { tr("هسته خطا گزارش کرد", "Aether core reported an error") }
+                state = SwState.ERROR
             }
-
+            working -> {
+                title = tr("در حال اتصال…", "Connecting…")
+                sub = status.substringAfter("—", "").trim()
+                    .ifBlank { tr("چند لحظه صبر کن", "Just a moment") }
+                state = SwState.BUSY
+            }
             stopping -> {
-                statusBadge.text = "…"
-                statusBadge.setTextColor(orange)
-                statusBadge.background = rounded(
-                    if (isDark) Color.rgb(63, 45, 24) else Color.rgb(255, 247, 235),
-                    16,
-                    if (isDark) Color.rgb(126, 86, 38) else Color.rgb(242, 207, 158)
-                )
-                statusView.setTextColor(orange)
-                proxyStatusView.setTextColor(muted)
+                title = tr("در حال قطع اتصال…", "Disconnecting…")
+                sub = tr("بستن پروکسی‌های محلی", "Closing local proxies")
+                state = SwState.BUSY
             }
-
             else -> {
-                statusBadge.text = "○"
-                statusBadge.setTextColor(muted)
-                statusBadge.background = rounded(cardSoft, 16, line)
-                statusView.setTextColor(muted)
-                proxyStatusView.setTextColor(muted)
+                title = tr("متصل نیستی", "Not connected")
+                sub = tr("برای محافظت از اینترنتت وصل شو", "Tap to protect your internet")
+                state = SwState.OFF
             }
         }
+        titleView.text = title
+        subView.text = sub
+        detailView.text = detail
+        detailView.visibility = if (detail.isBlank()) View.GONE else View.VISIBLE
+        subView.setTextColor(if (error) tk.err else tk.muted)
+        powerSwitch.setState(state)
+        powerSwitch.contentDescription = "$title. $sub"
+        orbs.setColors(tk.orbColors(connected), true)
+        badgeView.text = badgeFor(shownMode)
+        protoValue.text = modeName
+
+        if (shownMode != selectedChip) {
+            if (selectedChip.isNotEmpty()) styleChip(selectedChip, false)
+            styleChip(shownMode, true)
+            selectedChip = shownMode
+        }
+        if (stopped) timerView.text = "00:00:00"
     }
 
     private fun requestNotificationsIfNeeded() {
