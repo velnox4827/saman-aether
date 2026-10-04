@@ -20,7 +20,7 @@ internal object EgressLookup {
             connection.readTimeout = 7_000
             connection.requestMethod = "GET"
             connection.setRequestProperty("Accept", "application/json")
-            connection.setRequestProperty("User-Agent", "Saman-Tunnel/${BuildConfig.VERSION_NAME}")
+            connection.setRequestProperty("User-Agent", "Saman-Tunnel")
             check(connection.responseCode in 200..299) { "Geolocation service unavailable" }
             val body = connection.inputStream.use { input ->
                 val output = java.io.ByteArrayOutputStream()
@@ -51,8 +51,8 @@ internal object EgressLookup {
 
     internal fun flagFor(code: String): String? {
         if (!code.matches(Regex("[A-Z]{2}"))) return null
-        return String(Character.toChars(0x1F1E6 + code[0] - 'A')) +
-            String(Character.toChars(0x1F1E6 + code[1] - 'A'))
+        return String(Character.toChars(0x1F1E6 + code[0].code - 'A'.code)) +
+            String(Character.toChars(0x1F1E6 + code[1].code - 'A'.code))
     }
 
     private fun isIpLiteral(value: String): Boolean = when {
