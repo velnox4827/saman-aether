@@ -3,6 +3,7 @@ package com.saman.tunnel
 import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
+import android.app.Dialog
 import android.content.ContentValues
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -63,6 +64,10 @@ class MainActivity : Activity() {
     private lateinit var updateView: TextView
     private lateinit var vpnModeView: TextView
     private lateinit var routingView: TextView
+    private lateinit var egressView: TextView
+    private var egressGeneration = 0
+    private var egressConnected = false
+    private var egressRetryPolicy = EgressRetryPolicy()
     private var pendingVpnMode: String? = null
     private var deferredVpnMode: String? = null
     private var vpnPrepareBusy = false
@@ -82,9 +87,14 @@ class MainActivity : Activity() {
         }
     }
 
+    private val uiPrefs get() = getSharedPreferences("saman_ui", MODE_PRIVATE)
     private val isDark: Boolean
-        get() = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
-            Configuration.UI_MODE_NIGHT_YES
+        get() = when (uiPrefs.getString("theme", "system")) {
+            "light" -> false
+            "dark" -> true
+            else -> (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+                Configuration.UI_MODE_NIGHT_YES
+        }
 
     private val canvas: Int get() =
         if (isDark) Color.rgb(11, 15, 23) else Color.rgb(248, 249, 251)
@@ -99,11 +109,20 @@ class MainActivity : Activity() {
     private val line: Int get() =
         if (isDark) Color.rgb(54, 62, 76) else Color.rgb(224, 228, 235)
 
-    private val blue = Color.rgb(68, 145, 255)
+    private val palette get() = uiPrefs.getString("palette", "blue").orEmpty()
+    private val blue get() = when (palette) {
+        "purple" -> Color.rgb(139, 92, 255)
+        "orange" -> Color.rgb(255, 138, 43)
+        else -> Color.rgb(58, 174, 255)
+    }
     private val green = Color.rgb(35, 190, 128)
-    private val purple = Color.rgb(158, 89, 255)
+    private val purple get() = when (palette) {
+        "orange" -> Color.rgb(196, 72, 31)
+        "blue" -> Color.rgb(42, 82, 176)
+        else -> Color.rgb(122, 47, 192)
+    }
     private val red = Color.rgb(235, 78, 78)
-    private val orange = Color.rgb(244, 142, 50)
+    private val orange get() = if (palette == "orange") Color.rgb(255, 161, 77) else Color.rgb(244, 142, 50)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -353,7 +372,32 @@ class MainActivity : Activity() {
         statusColumn.addView(statusView)
         statusColumn.addView(proxyStatusView)
         statusCard.addView(statusColumn)
+        statusCard.isClickable = true
+        statusCard.isFocusable = true
+        statusCard.contentDescription = "Connection state. Tap to connect or disconnect."
+        statusCard.setOnClickListener {
+            val prefs = getSharedPreferences(AetherService.PREFS, MODE_PRIVATE)
+            if (prefs.getString(AetherService.KEY_STATUS, "Stopped").orEmpty().startsWith("Connected", true)) {
+                stop()
+            } else {
+                val selected = prefs.getString(AetherService.KEY_LAST_MODE, "WG").orEmpty().ifBlank { "WG" }
+                start(selected)
+            }
+        }
         root.addView(statusCard)
+
+        egressView = TextView(this).apply {
+            text = "🌐  Egress IP: —"
+            textSize = 14f
+            setTextColor(ink)
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(16), 0, dp(16), 0)
+            background = rounded(cardSoft, 16, line)
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)).apply {
+                bottomMargin = dp(10)
+            }
+        }
+        root.addView(egressView)
 
         // Modes
         val modeRow = LinearLayout(this).apply {
@@ -585,7 +629,15 @@ class MainActivity : Activity() {
             )
         })
 
-        setContentView(root)
+        val page = ScrollView(this).apply {
+            isFillViewport = true
+            clipToPadding = false
+            addView(root, ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ))
+        }
+        setContentView(page)
         refreshState()
     }
 
@@ -671,38 +723,77 @@ class MainActivity : Activity() {
             setOnClickListener { action() }
         }
 
-    private fun showSettingsMenu() {
+    private fun showAppearanceMenu() {
         AlertDialog.Builder(this)
-            .setTitle("Settings & help")
-            .setItems(
-                arrayOf(
-                    "App routing",
-                    "Diagnostics and logs",
-                    "Battery optimization",
-                    "Check for updates",
-                    "About Saman Tunnel"
-                )
-            ) { _, which ->
-                when (which) {
-                    0 -> startActivityForResult(Intent(this, AppRoutingActivity::class.java), REQUEST_APP_ROUTING)
-                    1 -> showDiagnosticsMenu()
-                    2 -> openBatterySettings()
-                    3 -> checkForUpdates()
-                    4 -> AlertDialog.Builder(this)
-                        .setTitle("Saman Tunnel 1.10.0")
-                        .setMessage(
-                            "Official Aether core v2.1.0\n" +
-                                "Android VPN path: HEV tun2socks\n\n" +
-                                "Channel: $PROJECT_CHANNEL\nGroup: $PROJECT_GROUP"
-                        )
-                        .setPositiveButton("Channel") { _, _ -> openProjectLink(PROJECT_CHANNEL) }
-                        .setNeutralButton("Group") { _, _ -> openProjectLink(PROJECT_GROUP) }
-                        .setNegativeButton("Close", null)
-                        .show()
-                }
+            .setTitle("Theme and palette")
+            .setItems(arrayOf(
+                "Theme: System", "Theme: Light", "Theme: Dark",
+                "Palette: Blue / White", "Palette: Neon Purple", "Palette: Orange / White"
+            )) { _, which ->
+                if (which < 3) uiPrefs.edit().putString("theme", arrayOf("system", "light", "dark")[which]).apply()
+                else uiPrefs.edit().putString("palette", arrayOf("blue", "purple", "orange")[which - 3]).apply()
+                recreate()
             }
-            .setNegativeButton("Close", null)
+            .setNegativeButton("Cancel", null)
             .show()
+    }
+
+    private fun showSettingsMenu() {
+        val dialog = Dialog(this)
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(12), dp(20), dp(24))
+            setBackgroundColor(card)
+        }
+        content.addView(TextView(this).apply {
+            text = "Settings"
+            textSize = 22f
+            setTextColor(ink)
+            setTypeface(typeface, Typeface.BOLD)
+            setPadding(0, 0, 0, dp(8))
+        })
+        fun action(label: String, click: () -> Unit) {
+            content.addView(actionTile(label, ink, cardSoft, click).apply {
+                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply {
+                    bottomMargin = dp(7)
+                }
+            })
+        }
+        action("Appearance · theme and palette") { dialog.dismiss(); showAppearanceMenu() }
+        action("Protocol · MASQUE H2/H3 and MIM") { dialog.dismiss(); chooseMasqueMode() }
+        action("WireGuard / GOOL") { dialog.dismiss(); chooseWireGuardMode() }
+        action("Psiphon only") { dialog.dismiss(); start("PSIPHON_ONLY") }
+        action("Tor routing") { dialog.dismiss(); chooseTorMode() }
+        action("Connection type · Proxy / VPN-TUN") { dialog.dismiss(); chooseConnectionMode() }
+        action("Apps · App routing") {
+            dialog.dismiss()
+            startActivityForResult(Intent(this, AppRoutingActivity::class.java), REQUEST_APP_ROUTING)
+        }
+        action("Local proxies · copy SOCKS5 / HTTP") { copySocks() }
+        action("Diagnostics · view logs / export TXT") { dialog.dismiss(); showDiagnosticsMenu() }
+        action("Battery optimization") { dialog.dismiss(); openBatterySettings() }
+        action("Check for updates") { dialog.dismiss(); checkForUpdates() }
+        action("About Saman Tunnel") {
+            dialog.dismiss()
+            AlertDialog.Builder(this)
+                .setTitle("Saman Tunnel ${currentVersion()}")
+                .setMessage("Official Aether core v2.1.0\nAndroid VPN path: HEV tun2socks\n\nChannel: $PROJECT_CHANNEL\nGroup: $PROJECT_GROUP")
+                .setPositiveButton("Channel") { _, _ -> openProjectLink(PROJECT_CHANNEL) }
+                .setNeutralButton("Group") { _, _ -> openProjectLink(PROJECT_GROUP) }
+                .setNegativeButton("Close", null)
+                .show()
+        }
+        val scroll = ScrollView(this).apply { addView(content) }
+        dialog.setContentView(scroll)
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+        dialog.setOnShowListener {
+            dialog.window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, (resources.displayMetrics.heightPixels * .88f).toInt())
+            dialog.window?.setGravity(Gravity.BOTTOM)
+        }
+        dialog.show()
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+        dialog.window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, (resources.displayMetrics.heightPixels * .88f).toInt())
+        dialog.window?.setGravity(Gravity.BOTTOM)
     }
 
     private fun showDiagnosticsMenu() {
@@ -2070,6 +2161,38 @@ class MainActivity : Activity() {
         else -> mode.ifBlank { "—" }
     }
 
+    private fun refreshEgress(connected: Boolean) {
+        if (connected == egressConnected) return
+        egressConnected = connected
+        val generation = ++egressGeneration
+        if (!connected) {
+            egressRetryPolicy.succeeded()
+            egressView.text = "🌐  Egress IP: —"
+            return
+        }
+        egressView.text = "🌐  Egress IP: checking…"
+        Thread {
+            val result = runCatching { EgressLookup.fetch() }
+            handler.post {
+                if (generation != egressGeneration || !egressConnected) return@post
+                result.onSuccess {
+                    egressRetryPolicy.succeeded()
+                    egressView.text = "${it.flag}  ${it.ip}  ·  ${it.country}"
+                }.onFailure {
+                    egressRetryPolicy.failed()
+                    egressView.text = "🌐  Egress IP unavailable"
+                    LogStore.append(this, "EGRESS", "Lookup failed: ${it.javaClass.simpleName}")
+                    handler.postDelayed({
+                        if (egressConnected && generation == egressGeneration) {
+                            egressConnected = false
+                            refreshEgress(true)
+                        }
+                    }, egressRetryPolicy.delayMillis())
+                }
+            }
+        }.start()
+    }
+
     private fun refreshState() {
         refreshVpnControls()
 
@@ -2086,6 +2209,7 @@ class MainActivity : Activity() {
         modeView.text = "Mode: ${prettyMode(mode)}"
 
         val connected = status.startsWith("Connected", true)
+        refreshEgress(connected)
         val unstable = status.startsWith("Connection unstable", true)
         val error = status.startsWith("Error", true)
         val starting = status.startsWith("Starting", true)
