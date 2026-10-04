@@ -69,7 +69,7 @@ internal object EgressLookup {
 internal class EgressRetryPolicy {
     private var failures = 0
     fun succeeded() { failures = 0 }
-    fun failed() { failures = (failures + 1).coerceAtMost(6) }
+    fun failed() { failures = (failures + 1).coerceAtMost(7) }
     fun delayMillis(): Long = if (failures == 0) 15 * 60_000L else (30_000L shl (failures - 1)).coerceAtMost(30 * 60_000L)
 }
 
