@@ -153,7 +153,6 @@ class MainActivity : Activity() {
         }.apply()
 
         tk = Tk(isDark, ui.palette)
-        applyWindow()
 
         LogStore.append(this, "APP", "MainActivity created")
         buildUi()
@@ -232,25 +231,28 @@ class MainActivity : Activity() {
 
     private fun lp(w: Int, h: Int, weight: Float = 0f) = LinearLayout.LayoutParams(w, h, weight)
 
+    /** Bar colours/icons only. Cosmetic: any OEM failure drops the effect, never the app. */
     @Suppress("DEPRECATION")
     private fun applyWindow() {
-        window.statusBarColor = tk.bg
-        window.navigationBarColor = tk.bg
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            val mask = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
-                WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
-            window.insetsController?.setSystemBarsAppearance(if (tk.dark) 0 else mask, mask)
-        } else {
-            val decor = window.decorView
-            var f = decor.systemUiVisibility
-            f = if (tk.dark) f and View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv()
-            else f or View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                f = if (tk.dark) f and View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR.inv()
-                else f or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+        runCatching {
+            window.statusBarColor = tk.bg
+            window.navigationBarColor = tk.bg
+            val decor = window.decorView // creates the decor if needed; window.insetsController NPEs without it
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val mask = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
+                    WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
+                decor.windowInsetsController?.setSystemBarsAppearance(if (tk.dark) 0 else mask, mask)
+            } else {
+                var f = decor.systemUiVisibility
+                f = if (tk.dark) f and View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv()
+                else f or View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    f = if (tk.dark) f and View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR.inv()
+                    else f or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+                }
+                decor.systemUiVisibility = f
             }
-            decor.systemUiVisibility = f
-        }
+        }.onFailure { LogStore.append(this, "UI", "Window styling skipped: $it") }
     }
 
     private fun readInsets(insets: WindowInsets) {
@@ -270,7 +272,6 @@ class MainActivity : Activity() {
 
     private fun buildUi() {
         tk = Tk(isDark, ui.palette)
-        applyWindow()
         modeChips.clear()
         modeColors.clear()
         selectedChip = ""
@@ -526,6 +527,7 @@ class MainActivity : Activity() {
         }
         applyInsets()
         setContentView(root)
+        applyWindow()
         root.requestApplyInsets()
         if (resumed) orbs.start()
         refreshState(true)

@@ -71,8 +71,6 @@ class DebugActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         tk = Tk(dark(), ui.palette)
-        window.statusBarColor = tk.bg
-        window.navigationBarColor = tk.bg
         val mp = ViewGroup.LayoutParams.MATCH_PARENT
         val wrap = ViewGroup.LayoutParams.WRAP_CONTENT
 
@@ -135,6 +133,11 @@ class DebugActivity : Activity() {
             insets
         }
         setContentView(root)
+        @Suppress("DEPRECATION")
+        runCatching {
+            window.statusBarColor = tk.bg
+            window.navigationBarColor = tk.bg
+        }
         root.requestApplyInsets()
         render()
     }

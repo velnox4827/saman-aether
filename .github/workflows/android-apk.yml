@@ -262,3 +262,39 @@ jobs:
             android-app/app/build/test-results/
           if-no-files-found: ignore
           retention-days: 14
+
+  smoke:
+    # Launch Main, Settings, Debug on real emulators; any crash fails the build.
+    # x86_64 API 30+ images run the arm APK via built-in ARM translation.
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [30, 34]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: saman-tunnel-v2.1.0-debug
+          path: dist
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+      - uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: ${{ matrix.api }}
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: android-app/smoke-test.sh dist/Saman-Tunnel-v2.1.0-universal-arm-debug.apk smoke-out
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: smoke-api${{ matrix.api }}
+          path: smoke-out
+          if-no-files-found: ignore
+
