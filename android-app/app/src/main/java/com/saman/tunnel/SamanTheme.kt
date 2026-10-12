@@ -46,7 +46,7 @@ class Tk(val dark: Boolean, val pal: Palette) {
     val glass: Int = if (dark) Color.argb(23, 255, 255, 255) else Color.argb(140, 255, 255, 255)
     val glassB: Int = if (dark) Color.argb(46, 255, 255, 255) else Color.argb(242, 255, 255, 255)
     val tile: Int = if (dark) Color.argb(18, 255, 255, 255) else Color.argb(153, 255, 255, 255)
-    val sheet: Int = if (dark) Color.argb(245, 9, 26, 43) else Color.argb(244, 255, 255, 255)
+    val sheet: Int = if (dark) Color.rgb(9, 26, 43) else Color.WHITE
     val scrim: Int = if (dark) Color.argb(140, 0, 0, 0) else Color.argb(102, 11, 42, 67)
     val track: Int = glass
     val tin: Int = if (dark) Color.argb(89, 0, 0, 0) else Color.argb(31, 11, 42, 67)

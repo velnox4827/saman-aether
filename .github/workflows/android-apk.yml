@@ -82,6 +82,10 @@ jobs:
           cargo ndk -t arm64-v8a -t armeabi-v7a --platform 24 build --release --lib --features tor
           install -Dm755 target/aarch64-linux-android/release/libaether.so "$GITHUB_WORKSPACE/android-app/app/src/main/jniLibs/arm64-v8a/libaether.so"
           install -Dm755 target/armv7-linux-androideabi/release/libaether.so "$GITHUB_WORKSPACE/android-app/app/src/main/jniLibs/armeabi-v7a/libaether.so"
+          # libaether.so (v2.3.0) links libc++_shared.so; Android only finds it if the APK ships it.
+          STL="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib"
+          install -Dm644 "$STL/aarch64-linux-android/libc++_shared.so" "$GITHUB_WORKSPACE/android-app/app/src/main/jniLibs/arm64-v8a/libc++_shared.so"
+          install -Dm644 "$STL/arm-linux-androideabi/libc++_shared.so" "$GITHUB_WORKSPACE/android-app/app/src/main/jniLibs/armeabi-v7a/libc++_shared.so"
       - name: Verify and stage official Aether Psiphon clients
         run: |
           set -euo pipefail
@@ -187,7 +191,7 @@ jobs:
           for apk, abis in zip(sys.argv[1:], [("arm64-v8a",), ("armeabi-v7a",), ("arm64-v8a", "armeabi-v7a")]):
               with zipfile.ZipFile(apk) as archive:
                   for abi in abis:
-                      for lib in ("libaether.so", "libsamanbridge.so", "libhev-socks5-tunnel.so", "libpsiphon-tunnel-core.so"):
+                      for lib in ("libaether.so", "libc++_shared.so", "libsamanbridge.so", "libhev-socks5-tunnel.so", "libpsiphon-tunnel-core.so"):
                           assert archive.getinfo(f"lib/{abi}/{lib}").file_size > 0, (apk, abi, lib)
           PYVERIFY
           mkdir -p dist

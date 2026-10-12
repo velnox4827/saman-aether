@@ -894,8 +894,8 @@ class MainActivity : Activity() {
         c.addView(divider(), lp(mp, dp(1)))
         c.addView(row(tr("به‌روزرسانی", "Updates"), tr("بررسی نسخه جدید در گیت‌هاب", "Check GitHub for a new version"), updateView))
         val links = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        links.addView(chip(tr("کانال", "Channel")) { openProjectLink(PROJECT_CHANNEL) }, lp(0, dp(42), 1f).apply { marginEnd = dp(5) })
-        links.addView(chip(tr("گروه", "Group")) { openProjectLink(PROJECT_GROUP) }, lp(0, dp(42), 1f).apply { marginStart = dp(5) })
+        links.addView(chip(tr("کانال", "Channel")) { openProjectLink(PROJECT_CHANNEL) }, lp(0, wrap, 1f).apply { marginEnd = dp(5) })
+        links.addView(chip(tr("گروه", "Group")) { openProjectLink(PROJECT_GROUP) }, lp(0, wrap, 1f).apply { marginStart = dp(5) })
         c.addView(links, lp(mp, wrap).apply { topMargin = dp(10) })
     }
 
@@ -967,7 +967,8 @@ class MainActivity : Activity() {
         }
 
         versionView.text = "v$appVersion"
-        coreView.text = "Aether Core v$coreVersion"
+        coreView.text = if (coreVersion.firstOrNull()?.isDigit() == true) "Aether Core v$coreVersion"
+        else tr("در دسترس نیست", "Unavailable")
     }
 
     private fun isBusy(): Boolean {
@@ -1108,14 +1109,14 @@ class MainActivity : Activity() {
             LogStore.append(
                 this,
                 "ERROR",
-                "Starting AetherService failed: ${t.javaClass.name}: ${t.message.orEmpty()}"
+                "Starting AetherService failed: ${t.stackTraceToString()}"
             )
             getSharedPreferences(AetherService.PREFS, MODE_PRIVATE).edit()
                 .putString(AetherService.KEY_STATUS, "Error: Core service could not start")
                 .putString(AetherService.KEY_PHASE, TunnelPhase.FAILED.name).apply()
             Toast.makeText(
                 this,
-                "Aether service could not start: ${t.javaClass.simpleName}",
+                tr("سرویس اتصال اجرا نشد؛ جزئیات در صفحه عیب‌یابی", "Connection service could not start; details in Debug") + "\n${t.javaClass.simpleName}: ${t.message.orEmpty().take(120)}",
                 Toast.LENGTH_LONG
             ).show()
             return

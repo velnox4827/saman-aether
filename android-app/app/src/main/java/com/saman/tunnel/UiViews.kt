@@ -441,6 +441,9 @@ class SegmentView(context: Context, private val tk: Tk) : LinearLayout(context) 
                 text = label
                 gravity = Gravity.CENTER
                 textSize = 14f
+                minHeight = (40f * d).toInt()
+                val v = (6f * d).toInt()
+                setPadding(0, v, 0, v)
                 isClickable = true
                 isFocusable = true
                 setOnClickListener {
@@ -448,7 +451,7 @@ class SegmentView(context: Context, private val tk: Tk) : LinearLayout(context) 
                     onSelect?.invoke(i)
                 }
             }
-            val lp = LinearLayout.LayoutParams(0, (40f * d).toInt(), 1f)
+            val lp = LinearLayout.LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f)
             if (i > 0) lp.marginStart = (4f * d).toInt()
             addView(b, lp)
             buttons.add(b)

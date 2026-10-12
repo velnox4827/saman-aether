@@ -58,6 +58,7 @@ class AetherService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        CrashRecorder.install(this) // :aether_core is its own process; record its crashes too
         createNotificationChannel()
         LogStore.append(
             this,
@@ -505,7 +506,7 @@ class AetherService : Service() {
     private fun releaseJob(id: Long) {
         runCatching { NativeBridge.freeJob(id) }
             .onFailure {
-                LogStore.append(this, "NATIVE", "freeJob failed: ${it.javaClass.simpleName}")
+                LogStore.append(this, "NATIVE", "freeJob failed: ${it.stackTraceToString()}")
             }
     }
 

@@ -114,6 +114,10 @@ jobs:
           install -Dm755 \
             target/armv7-linux-androideabi/release/libaether.so \
             "$GITHUB_WORKSPACE/android-app/app/src/main/jniLibs/armeabi-v7a/libaether.so"
+          # libaether.so (v2.3.0) links libc++_shared.so; Android only finds it if the APK ships it.
+          STL="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib"
+          install -Dm644 "$STL/aarch64-linux-android/libc++_shared.so" "$GITHUB_WORKSPACE/android-app/app/src/main/jniLibs/arm64-v8a/libc++_shared.so"
+          install -Dm644 "$STL/arm-linux-androideabi/libc++_shared.so" "$GITHUB_WORKSPACE/android-app/app/src/main/jniLibs/armeabi-v7a/libc++_shared.so"
 
       - name: Verify and stage official Aether Psiphon clients
         run: |
@@ -234,6 +238,7 @@ jobs:
                   for abi in abis:
                       for lib in (
                           "libaether.so",
+                          "libc++_shared.so",
                           "libsamanbridge.so",
                           "libhev-socks5-tunnel.so",
                           "libpsiphon-tunnel-core.so",
