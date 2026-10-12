@@ -1079,6 +1079,23 @@ class MainActivity : Activity() {
         pendingModeSwitch = null
     }
 
+    /** MIUI/HyperOS refuse to spawn the service process ("process is bad") until Autostart is on. */
+    private fun showServiceBlocked(t: Throwable) {
+        val blocked = t is SecurityException || t.message.orEmpty().contains("process is bad")
+        val msg = if (blocked) tr(
+            "گوشی اجازه‌ی اجرای سرویس اتصال را نمی‌دهد. در تنظیمات برنامه «شروع خودکار» (Autostart) را روشن کن و محدودیت باتری را روی «بدون محدودیت» بگذار، سپس برنامه را ببند و دوباره باز کن.",
+            "This phone blocks the connection service. In app settings turn on Autostart and set battery to No restrictions, then close and reopen the app."
+        ) else tr("سرویس اتصال اجرا نشد؛ جزئیات در صفحه عیب‌یابی", "Connection service could not start; details in Debug") +
+            "\n${t.javaClass.simpleName}: ${t.message.orEmpty().take(120)}"
+        val d = AlertDialog.Builder(this).setMessage(msg).setNegativeButton(tr("بستن", "Close"), null)
+        if (blocked) d.setPositiveButton(tr("باز کردن تنظیمات برنامه", "Open app settings")) { _, _ ->
+            runCatching {
+                startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.fromParts("package", packageName, null)))
+            }
+        }
+        d.show()
+    }
+
     private fun launchCoreService(mode: String) {
         LogStore.append(
             this,
@@ -1114,11 +1131,7 @@ class MainActivity : Activity() {
             getSharedPreferences(AetherService.PREFS, MODE_PRIVATE).edit()
                 .putString(AetherService.KEY_STATUS, "Error: Core service could not start")
                 .putString(AetherService.KEY_PHASE, TunnelPhase.FAILED.name).apply()
-            Toast.makeText(
-                this,
-                tr("سرویس اتصال اجرا نشد؛ جزئیات در صفحه عیب‌یابی", "Connection service could not start; details in Debug") + "\n${t.javaClass.simpleName}: ${t.message.orEmpty().take(120)}",
-                Toast.LENGTH_LONG
-            ).show()
+            showServiceBlocked(t)
             return
         }
 
@@ -1355,11 +1368,7 @@ class MainActivity : Activity() {
                 "ERROR",
                 "Starting SamanVpnService failed: ${t.javaClass.name}: ${t.message.orEmpty()}"
             )
-            Toast.makeText(
-                this,
-                "VPN service failed to start: ${t.javaClass.simpleName}",
-                Toast.LENGTH_LONG
-            ).show()
+            showServiceBlocked(t)
         }
     }
 

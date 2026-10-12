@@ -22,6 +22,10 @@ Psiphon settings: exit country (default Auto) and method Auto / CDN / Direct. Th
 
 Optional Android VpnService mode: Android TUN -> HEV -> local SOCKS5. Per-app routing, quick-connect widget, dark/light theme, Persian (RTL) and English.
 
+## Xiaomi / MIUI / HyperOS
+
+If connecting fails with "Unable to start service ... process is bad", the phone blocks the app's service processes. Open App settings -> turn on **Autostart** and set Battery to **No restrictions**, then close and reopen the app. The app now shows this hint in a dialog.
+
 ## Debug
 
 Settings -> Support -> Debug. Filter App / Core / Errors, copy, share, save TXT (safe report redacts identifiers), clear.

@@ -9,6 +9,7 @@
 - **GOOL is now the new core GOOL** (WireGuard inside MASQUE, foreign exit, `--gool`). The old WireGuard-in-WireGuard GOOL stays available as *GOOL Classic* (`--gool-classic`). WireGuard and GOOL are separate groups.
 - **Fewer Tor modes (6 -> 3):** *Tor*, *MASQUE -> Tor*, *Tor -> MASQUE*. Removed: *MASQUE H2 -> Tor*, *WireGuard -> Tor*, *GOOL -> Tor*. A saved removed mode silently moves to *MASQUE -> Tor*.
 - **New Debug page** (Settings -> Support -> Debug): App / Core / Errors filter, copy, share, save TXT (safe or full), clear. It replaces the old log dialog and the two overlapping export menus.
+- **Xiaomi / MIUI / HyperOS:** connecting needs **Autostart** on and Battery **No restrictions** for the app. When the phone blocks the service, a dialog explains this and opens App settings.
 - **Real exit IP and country** shown on the main screen while connected (looked up through the local SOCKS5 proxy).
 - Every setting now has a one-line explanation. Glass UI redesign (dark/light, three palettes, Persian RTL) from the 2.0.x work branch is included.
 - Cleanup: one mode catalog replaces four duplicated label tables; removed dead v1.10.0 migration code, unused helpers and stale debug docs.
