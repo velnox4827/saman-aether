@@ -318,20 +318,15 @@ class SamanVpnService : VpnService() {
         if (!ending.compareAndSet(false, true)) return
         generation.incrementAndGet() // Cancel startup before the queued cleanup.
         starting = false
-        // A native join must not hold the Android VPN indefinitely. This process
-        // owns only the bridge; recycling it closes its TUN file descriptor.
+        // A native join must not hold the Android VPN indefinitely: release the
+        // service after 4 s even if HEV is still joining (TUN fd is closed first).
         mainHandler.postDelayed({
             if (!cleanupComplete.get()) {
-                val isolated = runCatching {
-                    File("/proc/self/cmdline").readText().trimEnd('\u0000') == "$packageName:vpn"
-                }.getOrDefault(false)
-                if (isolated) {
-                    saveState(false, status)
-                    LogStore.append(this, "VPN_STOP", "Recycling isolated VPN after cleanup timeout")
-                    stopForeground(STOP_FOREGROUND_REMOVE)
-                    stopSelf()
-                    android.os.Process.killProcess(android.os.Process.myPid())
-                }
+                saveState(false, status)
+                LogStore.append(this, "VPN_STOP", "Cleanup timeout; releasing VPN service")
+                runCatching { tunInterface?.close() } // drop the TUN even if HEV is stuck joining
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
             }
         }, 4_000L)
         if (stopCore) runCatching {

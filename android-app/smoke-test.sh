@@ -36,16 +36,27 @@ adb shell am start -W -n "$PKG/com.saman.tunnel.DebugActivity"
 shot debug; alive debug
 
 # Connect in Proxy mode via the launcher quick-connect path (same start() as the power button).
+# Single process: no :aether_core/:vpn. Stop must free ports so the next mode starts in the same process.
+adb shell am force-stop "$PKG"
+adb shell "run-as $PKG rm -f files/saman-tunnel-app.log"
 for MODE in WG GOOL; do
-  adb shell am force-stop "$PKG"
-  printf '<?xml version="1.0" encoding="utf-8"?>\n<map><string name="last_mode">%s</string></map>\n' "$MODE" |
-    adb shell "run-as $PKG sh -c 'mkdir -p shared_prefs && cat > shared_prefs/saman_tunnel.xml && rm -f files/saman-tunnel-app.log'"
+  printf '<?xml version="1.0" encoding="utf-8"?>\n<map><string name="last_mode">%s</string><string name="status">Stopped</string></map>\n' "$MODE" |
+    adb shell "run-as $PKG sh -c 'cat > shared_prefs/saman_tunnel.xml'"
   adb shell am start -W -a com.saman.tunnel.QUICK_CONNECT -n "$PKG/com.saman.tunnel.MainActivity"
-  for _ in $(seq 1 30); do applog | grep -q 'startCore ok=' && break; sleep 1; done
+  for _ in $(seq 1 30); do applog | grep -q "Starting mode=$MODE" && applog | grep -q 'startCore ok=' && break; sleep 1; done
   L=$(applog)
   if grep -qE 'Starting AetherService failed|FATAL_JAVA|\[EXCEPTION\]|UnsatisfiedLinkError' <<<"$L"; then fail "$MODE start threw"; fi
   grep -q "Starting mode=$MODE" <<<"$L" || fail "$MODE service never launched core"
   grep -q 'startCore ok=true' <<<"$L" || fail "$MODE startCore not ok"
+  P=$(adb shell ps -A -o NAME | grep -c "^$PKG") || true
+  [ "$P" = 1 ] || { adb shell ps -A | grep "$PKG"; fail "expected 1 app process, got $P"; }
   shot "connect-$MODE"; alive "connect-$MODE"
-  echo "ok: connect $MODE (proxy)"
+  echo "ok: connect $MODE (proxy, single process)"
+  adb shell am startservice -n "$PKG/com.saman.tunnel.AetherService" -a com.saman.tunnel.STOP >/dev/null
+  for _ in $(seq 1 15); do applog | grep -q 'CORE_STOP' && break; sleep 1; done
+  S=$(applog | grep 'CORE_STOP' | tail -1); echo "$S"
+  grep -q 'portsClosed=true' <<<"$S" || fail "$MODE stop left ports open"
+  alive "stop-$MODE"
+  adb shell "run-as $PKG rm -f files/saman-tunnel-app.log"
+  sleep 2
 done
