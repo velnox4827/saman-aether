@@ -58,7 +58,7 @@ class AetherService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        CrashRecorder.install(this)
+        CrashRecorder.install(this) // :aether_core is its own process; record its crashes too
         createNotificationChannel()
         LogStore.append(
             this,
@@ -457,16 +457,25 @@ class AetherService : Service() {
             LogStore.append(this, "CORE_STOP", "jobDone=$jobDone portsClosed=${!needsRecycle}")
             executor.shutdownNow()
             mainHandler.post {
-                // ponytail: core shares the app process (OEMs block extra processes), so it
-                // can't be recycled by kill. Leftover listeners surface here and are retried
-                // by waitForLocalPorts on the next start; recycle via a process only if this bites.
-                if (needsRecycle) {
+                // Only this dedicated process can be recycled. Never kill the UI.
+                val isolated = runCatching {
+                    java.io.File("/proc/self/cmdline").readText().trimEnd('\u0000') ==
+                        "$packageName:aether_core"
+                }.getOrDefault(false)
+                if (needsRecycle && !isolated) {
                     setState("Error: Core cleanup incomplete", mode)
                 } else if (error == null) {
                     setState("Stopped", "")
                 }
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
+                if (isolated) {
+                    // Aether also owns a process-wide Rust runtime. End this
+                    // dedicated process so no detached client or runtime thread
+                    // survives Stop, even when both listener ports are closed.
+                    LogStore.append(this, "CORE_STOP", "Recycling isolated core; cleanupTimeout=$needsRecycle")
+                    Process.killProcess(Process.myPid())
+                }
             }
         }, "saman-core-stop").start()
     }
