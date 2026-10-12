@@ -37,8 +37,7 @@ class AetherService : Service() {
         private const val NOTIFICATION_ID = 1819
         private const val SOCKS_PORT = AetherArguments.APP_SOCKS_PORT
         private const val HTTP_PORT = AetherArguments.APP_HTTP_PORT
-        private const val PSIPHON_SOCKS_PORT = 1821
-        private const val PSIPHON_HTTP_PORT = 1822
+        private const val INNER_SOCKS_PORT = AetherArguments.INNER_SOCKS_PORT
         private const val PORT_RETRIES = 8
         private const val PORT_RETRY_DELAY_MS = 250L
     }
@@ -184,7 +183,7 @@ class AetherService : Service() {
     }
 
     private fun localPorts(mode: String): List<Int> =
-        if (mode.uppercase() == "PSIPHON_ONLY") listOf(SOCKS_PORT, HTTP_PORT, PSIPHON_SOCKS_PORT, PSIPHON_HTTP_PORT)
+        if (ModeCatalog.isPsiphon(mode) && ModeCatalog.canonical(mode) != "PSIPHON_ONLY") listOf(SOCKS_PORT, HTTP_PORT, INNER_SOCKS_PORT)
         else listOf(SOCKS_PORT, HTTP_PORT)
 
     private fun launchCore(mode: String, myGeneration: Long) {
@@ -197,7 +196,8 @@ class AetherService : Service() {
             }
             installed.absolutePath
         } else null
-        val modeArguments = AetherArguments.forMode(mode, psiphonBinary)
+        val psi = PsiphonSettings.get(this)
+        val modeArguments = AetherArguments.forMode(mode, psiphonBinary, psi.region, psi.shape)
         val args = JSONArray(modeArguments).toString()
         LogStore.append(this, "CORE", "Starting mode=$mode argumentCount=${modeArguments.size}")
 
@@ -479,25 +479,7 @@ class AetherService : Service() {
         }, "saman-core-stop").start()
     }
 
-    private fun argumentsFor(mode: String): List<String> = AetherArguments.forMode(mode)
-
-    private fun modeLabel(mode: String): String =
-        when (mode.uppercase()) {
-            "MASQUE_H2" -> "MASQUE H2"
-            "MASQUE_H3", "MASQUE" -> "MASQUE H3"
-            "WG" -> "WG"
-            "GOOL" -> "GOOL"
-            "PSIPHON_ONLY" -> "Psiphon"
-            "MIM_H2" -> "MASQUE-in-MASQUE H2"
-            "MIM_H3", "MIM" -> "MASQUE-in-MASQUE H3"
-            "TOR_ONLY" -> "Tor only"
-            "TOR_REVERSE" -> "Tor → MASQUE H2"
-            "TOR_INSIDE_WG" -> "WireGuard → Tor"
-            "TOR_INSIDE_GOOL" -> "GOOL → Tor"
-            "TOR_INSIDE_MASQUE_H2" -> "MASQUE H2 → Tor"
-            "TOR_INSIDE_MASQUE", "TOR_INSIDE_MASQUE_H3" -> "MASQUE H3 → Tor"
-            else -> mode.ifBlank { "core" }
-        }
+    private fun modeLabel(mode: String): String = ModeCatalog.label(mode)
 
     /**
      * Port-state probe that never connects to SOCKS/HTTP.

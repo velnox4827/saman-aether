@@ -197,6 +197,10 @@ object LogStore {
         }
     }
 
+    /** Sanitized tail of one log file for the Debug page. */
+    fun tail(context: Context, core: Boolean, lines: Int): String =
+        sanitize(tailLines(File(context.filesDir, if (core) CORE_LOG else APP_LOG), lines))
+
     fun connectionPhase(
         context: Context,
         mode: String
@@ -291,9 +295,9 @@ object LogStore {
             }
         }
 
-        return when (mode.uppercase(Locale.US)) {
-            "GOOL" -> "Preparing GOOL pair"
-            "PSIPHON_ONLY" -> "Starting Psiphon through Aether"
+        return when (ModeCatalog.canonical(mode)) {
+            "GOOL", "GOOL_CLASSIC" -> "Preparing GOOL"
+            "PSIPHON", "PSIPHON_REVERSE", "PSIPHON_ONLY" -> "Starting Psiphon"
             "MASQUE_H2" -> "Preparing MASQUE H2"
             "MASQUE_H3", "MASQUE" -> "Preparing MASQUE H3"
             else -> "Preparing WireGuard"

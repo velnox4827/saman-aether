@@ -47,7 +47,6 @@ import java.util.Locale
 class MainActivity : Activity() {
 
     companion object {
-        private const val REQUEST_SAVE_DIAGNOSTICS = 2002
         private const val REQUEST_VPN_PERMISSION = 2003
         private const val REQUEST_APP_ROUTING = 2004
         private const val RELEASES_API =
@@ -92,6 +91,10 @@ class MainActivity : Activity() {
     private var updateChecking = false
     private var staleSinceCheck = true
     private var coreVersionCache: String? = null
+    private var egressText = ""
+    private var egressFor = 0L
+    private val egressRetry = EgressRetryPolicy()
+    private var egressNextTry = 0L
 
     private var pendingVpnMode: String? = null
     private var deferredVpnMode: String? = null
@@ -101,7 +104,6 @@ class MainActivity : Activity() {
     private val handler = Handler(Looper.getMainLooper())
     private var lastStartTap = 0L
     private var lastStopTap = 0L
-    private var pendingDiagnosticsFull = false
     private var modeSwitchGeneration = 0L
     private var pendingModeSwitch: Runnable? = null
 
@@ -141,31 +143,14 @@ class MainActivity : Activity() {
         deferredVpnMode = savedInstanceState?.getString("deferred_vpn")
         pendingVpnMode = savedInstanceState?.getString("pending_vpn")
 
-        // v1.10.0 mapped legacy GOOL choices to WG, losing the user's choice.
-        // Version gate keeps intentional v1.9.2 WG selections unchanged.
-        getSharedPreferences(AetherService.PREFS, MODE_PRIVATE).let { prefs ->
-            val migrationKey = "gool_restored_from_v110"
-            if (!prefs.getBoolean(migrationKey, false)) {
-                val previousVersion = runCatching {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        packageManager.getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(0)).versionName
-                    } else {
-                        @Suppress("DEPRECATION")
-                        packageManager.getPackageInfo(packageName, 0).versionName
-                    }
-                }.getOrNull()
-                if (previousVersion == "1.10.0") {
-                    val edit = prefs.edit()
-                    if (prefs.getString(AetherService.KEY_LAST_MODE, "") == "WG") {
-                        edit.putString(AetherService.KEY_LAST_MODE, "GOOL")
-                    }
-                    if (prefs.getString(AetherService.KEY_MODE, "") == "WG") {
-                        edit.putString(AetherService.KEY_MODE, "GOOL")
-                    }
-                    edit.putBoolean(migrationKey, true).apply()
-                }
+        // Modes removed in 2.1.0 move silently to the nearest remaining mode.
+        corePrefs.edit().apply {
+            for (k in listOf(AetherService.KEY_LAST_MODE, AetherService.KEY_MODE)) {
+                val old = corePrefs.getString(k, null) ?: continue
+                val new = ModeCatalog.canonical(old)
+                if (new != old) putString(k, new)
             }
-        }
+        }.apply()
 
         tk = Tk(isDark, ui.palette)
         applyWindow()
@@ -614,6 +599,13 @@ class MainActivity : Activity() {
         setPadding(0, dp(16), 0, dp(8))
     }
 
+    private fun hint(text: String): TextView = TextView(this).apply {
+        this.text = text
+        textSize = 12.5f
+        setTextColor(tk.muted)
+        setPadding(0, 0, 0, dp(8))
+    }
+
     private fun groupTitle(text: String): TextView = TextView(this).apply {
         this.text = text
         textSize = 12f
@@ -675,64 +667,97 @@ class MainActivity : Activity() {
         return r
     }
 
-    private fun modeGroups(): List<Pair<String, List<ModeDef>>> {
-        val masque = Color.rgb(58, 141, 255)
-        val wg = Color.rgb(47, 194, 122)
-        val gool = Color.rgb(139, 108, 255)
-        val psi = Color.rgb(232, 93, 155)
-        val tor = Color.rgb(255, 154, 61)
-        return listOf(
-            "MASQUE" to listOf(
-                ModeDef("MASQUE_H3", "MASQUE H3", masque),
-                ModeDef("MASQUE_H2", "MASQUE H2", masque),
-                ModeDef("MIM_H3", "MiM H3", masque),
-                ModeDef("MIM_H2", "MiM H2", masque)
-            ),
-            "WireGuard" to listOf(
-                ModeDef("WG", "WireGuard", wg),
-                ModeDef("GOOL", "GOOL", gool)
-            ),
-            "Psiphon" to listOf(ModeDef("PSIPHON_ONLY", "Psiphon", psi)),
-            "Tor" to listOf(
-                ModeDef("TOR_ONLY", "Tor only", tor),
-                ModeDef("TOR_INSIDE_MASQUE_H3", "MASQUE H3 → Tor", tor),
-                ModeDef("TOR_INSIDE_MASQUE_H2", "MASQUE H2 → Tor", tor),
-                ModeDef("TOR_INSIDE_WG", "WireGuard → Tor", tor),
-                ModeDef("TOR_INSIDE_GOOL", "GOOL → Tor", tor),
-                ModeDef("TOR_REVERSE", "Tor → MASQUE H2", tor)
-            )
-        )
-    }
-
-    private fun modeChip(def: ModeDef): View {
+    private fun modeChip(def: ModeInfo): View {
         val wrap = ViewGroup.LayoutParams.WRAP_CONTENT
         val v = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            layoutDirection = View.LAYOUT_DIRECTION_LTR
-            setPadding(dp(14), 0, dp(10), 0)
+            setPadding(dp(14), dp(10), dp(12), dp(10))
+            minimumHeight = dp(56)
             isClickable = true
             isFocusable = true
             setOnClickListener { onModeChip(def.id) }
         }
         v.addView(
             View(this).apply { background = rounded(def.color, 5) },
-            lp(dp(10), dp(10)).apply { marginEnd = dp(10) }
+            lp(dp(10), dp(10)).apply { marginEnd = dp(12) }
         )
-        v.addView(
-            TextView(this).apply {
-                text = def.label
-                textSize = 13.5f
-                setTextColor(tk.ink)
-                setTypeface(typeface, Typeface.BOLD)
-                maxLines = 2
-            },
-            lp(0, wrap, 1f)
-        )
+        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        col.addView(TextView(this).apply {
+            text = def.label
+            textSize = 15f
+            setTextColor(tk.ink)
+            setTypeface(typeface, Typeface.BOLD)
+        })
+        col.addView(TextView(this).apply {
+            text = tr(def.fa, def.en)
+            textSize = 12.5f
+            setTextColor(tk.muted)
+        }, lp(wrap, wrap).apply { topMargin = dp(2) })
+        v.addView(col, lp(0, wrap, 1f))
         modeChips[def.id] = v
         modeColors[def.id] = def.color
         styleChip(def.id, false)
         return v
+    }
+
+    private fun regionLabel(code: String?): String =
+        if (code.isNullOrBlank()) tr("خودکار", "Auto")
+        else "${EgressLookup.flagFor(code) ?: "🌐"} ${Locale("", code).getDisplayCountry(if (isFa) Locale("fa") else Locale.ENGLISH)} ($code)"
+
+    private fun addPsiphonSettings(c: LinearLayout) {
+        val mp = ViewGroup.LayoutParams.MATCH_PARENT
+        val wrap = ViewGroup.LayoutParams.WRAP_CONTENT
+        var cur = PsiphonSettings.get(this)
+        val regionChip = chip(regionLabel(cur.region)) {
+            val codes = listOf("", "US", "DE", "GB", "NL", "FR", "CA", "SE", "CH", "AT", "BE", "ES", "IT", "NO", "DK", "FI", "PL", "CZ", "RO", "JP", "SG", "HK", "IN", "AU", "BR")
+            AlertDialog.Builder(this)
+                .setTitle(tr("کشور خروجی سایفون", "Psiphon exit country"))
+                .setItems((codes.map { regionLabel(it) } + tr("کد دیگر…", "Other code…")).toTypedArray()) { _, i ->
+                    if (i < codes.size) setRegion(codes[i]) else {
+                        val input = android.widget.EditText(this).apply { hint = "DE"; filters = arrayOf(android.text.InputFilter.LengthFilter(2)) }
+                        AlertDialog.Builder(this).setTitle(tr("کد دو حرفی کشور", "Two-letter country code")).setView(input)
+                            .setPositiveButton("OK") { _, _ ->
+                                val code = AetherArguments.validRegion(input.text.toString())
+                                if (code != null) setRegion(code)
+                            }.setNegativeButton(tr("لغو", "Cancel"), null).show()
+                    }
+                }.show()
+        }
+        regionChipRef = regionChip
+        c.addView(row(tr("کشور خروجی", "Exit country"), tr("خودکار یعنی سایفون خودش انتخاب می‌کند", "Auto lets Psiphon choose"), regionChip))
+        val shapeInfo = listOf(
+            "auto" to tr("خودکار: سایفون بهترین روش را انتخاب می‌کند", "Auto: Psiphon picks the best method"),
+            "cdn" to tr("CDN: عبور از پشت CDN، برای شبکه‌های خیلی سخت", "CDN: fronted through a CDN, for harsh networks"),
+            "direct" to tr("مستقیم: بدون پنهان‌سازی، سریع‌تر", "Direct: no fronting, faster")
+        )
+        val sub = TextView(this).apply {
+            textSize = 12.5f
+            setTextColor(tk.muted)
+            setPadding(dp(2), dp(6), 0, dp(4))
+            text = shapeInfo.first { it.first == cur.shape }.second
+        }
+        val seg = SegmentView(this, tk).apply {
+            setItems(listOf(tr("خودکار", "Auto"), "CDN", tr("مستقیم", "Direct")))
+            select(shapeInfo.indexOfFirst { it.first == cur.shape })
+            onSelect = { i ->
+                cur = PsiphonSettings.get(this@MainActivity)
+                PsiphonSettings.set(this@MainActivity, cur.region, shapeInfo[i].first)
+                sub.text = shapeInfo[i].second
+                Toast.makeText(this@MainActivity, tr("از اتصال بعدی اعمال می‌شود", "Applies on next connect"), Toast.LENGTH_SHORT).show()
+            }
+        }
+        c.addView(seg, lp(mp, wrap).apply { topMargin = dp(4) })
+        c.addView(sub, lp(mp, wrap))
+    }
+
+    private var regionChipRef: TextView? = null
+
+    private fun setRegion(code: String) {
+        val cur = PsiphonSettings.get(this)
+        PsiphonSettings.set(this, code, cur.shape)
+        regionChipRef?.text = regionLabel(code.ifBlank { null })
+        Toast.makeText(this, tr("از اتصال بعدی اعمال می‌شود", "Applies on next connect"), Toast.LENGTH_SHORT).show()
     }
 
     private fun styleChip(id: String, selected: Boolean) {
@@ -759,24 +784,18 @@ class MainActivity : Activity() {
             }
         )
 
-        c.addView(label(tr("مود اتصال", "Connection mode")))
-        for ((group, defs) in modeGroups()) {
+        c.addView(label(tr("حالت اتصال", "Connection mode")))
+        c.addView(hint(tr("روش عبور ترافیک. اگر مطمئن نیستی، MASQUE H3 را بزن.", "How traffic travels. Unsure? Pick MASQUE H3.")))
+        for (group in ModeCatalog.all.map { it.group }.distinct()) {
             c.addView(groupTitle(group))
-            var i = 0
-            while (i < defs.size) {
-                val r = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-                r.addView(modeChip(defs[i]), lp(0, dp(52), 1f).apply { marginEnd = dp(5) })
-                if (i + 1 < defs.size) {
-                    r.addView(modeChip(defs[i + 1]), lp(0, dp(52), 1f).apply { marginStart = dp(5) })
-                } else {
-                    r.addView(View(this), lp(0, dp(52), 1f).apply { marginStart = dp(5) })
-                }
-                c.addView(r, lp(mp, wrap).apply { bottomMargin = dp(10) })
-                i += 2
+            for (def in ModeCatalog.all.filter { it.group == group }) {
+                c.addView(modeChip(def), lp(mp, wrap).apply { bottomMargin = dp(8) })
             }
+            if (group == "Psiphon") addPsiphonSettings(c)
         }
 
         c.addView(label(tr("نوع اتصال", "Connection type")))
+        c.addView(hint(tr("پراکسی فقط برنامه‌های تنظیم‌شده را رد می‌کند؛ وی‌پی‌ان کل گوشی را.", "Proxy covers only apps you point at it; VPN covers the whole phone.")))
         connSeg = SegmentView(this, tk).apply {
             setItems(listOf(tr("پراکسی", "Proxy"), tr("وی‌پی‌ان", "VPN")))
             onSelect = { i -> applyConnectionMode(i) }
@@ -785,7 +804,7 @@ class MainActivity : Activity() {
         routingView = chip("…") {
             startActivityForResult(Intent(this, AppRoutingActivity::class.java), REQUEST_APP_ROUTING)
         }
-        c.addView(row(tr("برنامه‌ها", "Apps"), null, routingView))
+        c.addView(row(tr("برنامه‌ها", "Apps"), tr("انتخاب برنامه‌هایی که از وی‌پی‌ان رد می‌شوند", "Choose which apps go through the VPN"), routingView))
 
         val proxyCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -793,7 +812,7 @@ class MainActivity : Activity() {
             background = rounded(tk.tile, 18, tk.line)
         }
         proxyCard.addView(TextView(this).apply {
-            text = tr("پراکسی محلی", "Local proxy")
+            text = tr("پراکسی محلی — برای برنامه‌هایی که پراکسی می‌خواهند", "Local proxy — for apps that need a proxy address")
             textSize = 13f
             setTextColor(tk.sky)
             setTypeface(typeface, Typeface.BOLD)
@@ -850,26 +869,28 @@ class MainActivity : Activity() {
             }
         }
         c.addView(label(tr("زبان", "Language")))
+        c.addView(hint(tr("زبان رابط برنامه", "App interface language")))
         c.addView(langSeg, lp(mp, wrap))
 
-        c.addView(label(tr("عیب‌یابی", "Diagnostics")))
-        val diag = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        diag.addView(chip(tr("لاگ‌ها", "Logs")) { showQuickLog(40) }, lp(0, dp(42), 1f).apply { marginEnd = dp(5) })
-        diag.addView(chip(tr("ذخیره TXT", "Save TXT")) { chooseDiagnosticsExport() }, lp(0, dp(42), 1f).apply { marginStart = dp(5) })
-        c.addView(diag, lp(mp, wrap))
-
+        c.addView(label(tr("پشتیبانی", "Support")))
+        c.addView(row(
+            tr("عیب‌یابی", "Debug"),
+            tr("دیدن، کپی و ارسال لاگ‌ها", "View, copy and share logs"),
+            chip(tr("باز کردن", "Open")) { startActivity(Intent(this, DebugActivity::class.java)) }
+        ))
+        c.addView(divider(), lp(mp, dp(1)))
         c.addView(label(tr("درباره", "About")))
         versionView = valueText("…")
         coreView = valueText("…")
         batteryView = chip("…") { openBatterySettings() }
         updateView = chip(tr("بررسی", "Check")) { checkForUpdates() }
-        c.addView(row(tr("نسخه برنامه", "App version"), null, versionView))
+        c.addView(row(tr("نسخه برنامه", "App version"), tr("نسخه نصب‌شده", "Installed version"), versionView))
         c.addView(divider(), lp(mp, dp(1)))
-        c.addView(row(tr("هسته", "Core"), null, coreView))
+        c.addView(row(tr("هسته", "Core"), tr("موتور شبکه (Aether)", "Network engine (Aether)"), coreView))
         c.addView(divider(), lp(mp, dp(1)))
-        c.addView(row(tr("باتری", "Battery"), null, batteryView))
+        c.addView(row(tr("باتری", "Battery"), tr("بدون محدودیت باتری، اتصال پایدارتر می‌ماند", "Unrestricted battery keeps the connection alive"), batteryView))
         c.addView(divider(), lp(mp, dp(1)))
-        c.addView(row(tr("به‌روزرسانی", "Updates"), null, updateView))
+        c.addView(row(tr("به‌روزرسانی", "Updates"), tr("بررسی نسخه جدید در گیت‌هاب", "Check GitHub for a new version"), updateView))
         val links = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         links.addView(chip(tr("کانال", "Channel")) { openProjectLink(PROJECT_CHANNEL) }, lp(0, dp(42), 1f).apply { marginEnd = dp(5) })
         links.addView(chip(tr("گروه", "Group")) { openProjectLink(PROJECT_GROUP) }, lp(0, dp(42), 1f).apply { marginStart = dp(5) })
@@ -883,12 +904,7 @@ class MainActivity : Activity() {
         corePrefs.getString(AetherService.KEY_LAST_MODE, "WG").orEmpty().ifBlank { "WG" }
     )
 
-    private fun normMode(m: String): String = when (val u = m.trim().uppercase()) {
-        "MASQUE" -> "MASQUE_H3"
-        "MIM" -> "MIM_H3"
-        "TOR_INSIDE_MASQUE" -> "TOR_INSIDE_MASQUE_H3"
-        else -> u
-    }
+    private fun normMode(m: String): String = ModeCatalog.canonical(m)
 
     private fun onModeChip(mode: String) {
         if (isBusy()) {
@@ -1472,280 +1488,6 @@ class MainActivity : Activity() {
             .show()
     }
 
-    private fun showQuickLog(lines: Int) {
-        val text = LogStore.quickLog(this, lines)
-
-        val textView = TextView(this).apply {
-            typeface = Typeface.MONOSPACE
-            textSize = 10.5f
-            setPadding(dp(14), dp(12), dp(14), dp(12))
-            setTextColor(ink)
-            setTextIsSelectable(true)
-            this.text = text
-        }
-
-        AlertDialog.Builder(this)
-            .setTitle("Last $lines log lines")
-            .setView(ScrollView(this).apply { addView(textView) })
-            .setPositiveButton("Close", null)
-            .setNeutralButton("Copy") { _, _ ->
-                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                clipboard.setPrimaryClip(ClipData.newPlainText("Saman Tunnel log", text))
-                Toast.makeText(this, "Log copied", Toast.LENGTH_SHORT).show()
-            }
-            .setNegativeButton("Clear") { _, _ ->
-                LogStore.clear(this)
-                Toast.makeText(this, "Diagnostics cleared", Toast.LENGTH_SHORT).show()
-            }
-            .show()
-    }
-
-    private fun chooseDiagnosticsExport() {
-        AlertDialog.Builder(this)
-            .setTitle("Save diagnostics")
-            .setItems(
-                arrayOf(
-                    "Safe report — recommended\nRecent logs · IDs redacted · compact",
-                    "Full history\nAll retained logs · may include identifiers"
-                )
-            ) { _, which ->
-                when (which) {
-                    0 -> saveDiagnosticsTxt(
-                        fullHistory = false
-                    )
-
-                    1 -> confirmFullDiagnosticsExport()
-                }
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-
-    private fun confirmFullDiagnosticsExport() {
-        AlertDialog.Builder(this)
-            .setTitle("Save full history?")
-            .setMessage(
-                "Full diagnostics include all retained history and may contain " +
-                    "network metadata even after automatic redaction. Use Safe report when sharing."
-            )
-            .setPositiveButton("Save full") { _, _ ->
-                saveDiagnosticsTxt(
-                    fullHistory = true
-                )
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-
-    private fun saveDiagnosticsTxt(
-        fullHistory: Boolean
-    ) {
-        pendingDiagnosticsFull = fullHistory
-
-        LogStore.append(
-            this,
-            "UI",
-            if (fullHistory) {
-                "Save FULL diagnostics TXT requested"
-            } else {
-                "Save SAFE diagnostics TXT requested"
-            }
-        )
-
-        if (
-            Build.VERSION.SDK_INT >=
-            Build.VERSION_CODES.Q
-        ) {
-            saveDiagnosticsToDownloads(
-                fullHistory
-            )
-            return
-        }
-
-        val suffix =
-            if (fullHistory) {
-                "full"
-            } else {
-                "safe"
-            }
-
-        val intent =
-            Intent(
-                Intent.ACTION_CREATE_DOCUMENT
-            ).apply {
-                addCategory(
-                    Intent.CATEGORY_OPENABLE
-                )
-                type = "text/plain"
-                putExtra(
-                    Intent.EXTRA_TITLE,
-                    "Saman-Tunnel-diagnostics-$suffix.txt"
-                )
-            }
-
-        startActivityForResult(
-            intent,
-            REQUEST_SAVE_DIAGNOSTICS
-        )
-    }
-
-    private fun diagnosticsReport(
-        fullHistory: Boolean
-    ): String =
-        if (fullHistory) {
-            LogStore.fullDiagnostics(this)
-        } else {
-            LogStore.diagnostics(this)
-        }
-
-    @android.annotation.TargetApi(Build.VERSION_CODES.Q)
-    private fun saveDiagnosticsToDownloads(
-        fullHistory: Boolean
-    ) {
-        runCatching {
-            val report =
-                diagnosticsReport(
-                    fullHistory
-                )
-
-            val bytes =
-                report.toByteArray(
-                    Charsets.UTF_8
-                )
-
-            require(
-                bytes.isNotEmpty()
-            ) {
-                "Diagnostics report was empty"
-            }
-
-            val suffix =
-                if (fullHistory) {
-                    "full"
-                } else {
-                    "safe"
-                }
-
-            val fileName =
-                "Saman-Tunnel-diagnostics-$suffix-${System.currentTimeMillis()}.txt"
-
-            val values =
-                ContentValues().apply {
-                    put(
-                        MediaStore.Downloads.DISPLAY_NAME,
-                        fileName
-                    )
-                    put(
-                        MediaStore.Downloads.MIME_TYPE,
-                        "text/plain"
-                    )
-                    put(
-                        MediaStore.Downloads.RELATIVE_PATH,
-                        Environment.DIRECTORY_DOWNLOADS
-                    )
-                    put(
-                        MediaStore.Downloads.IS_PENDING,
-                        1
-                    )
-                }
-
-            val uri =
-                contentResolver.insert(
-                    MediaStore.Downloads.EXTERNAL_CONTENT_URI,
-                    values
-                )
-                    ?: error(
-                        "Could not create file in Downloads"
-                    )
-
-            try {
-                val descriptor =
-                    contentResolver.openFileDescriptor(
-                        uri,
-                        "w"
-                    )
-                        ?: error(
-                            "Could not open Downloads file"
-                        )
-
-                descriptor.use { pfd ->
-                    FileOutputStream(
-                        pfd.fileDescriptor
-                    ).use { output ->
-                        output.write(bytes)
-                        output.flush()
-                        output.fd.sync()
-                    }
-                }
-
-                values.clear()
-                values.put(
-                    MediaStore.Downloads.IS_PENDING,
-                    0
-                )
-
-                contentResolver.update(
-                    uri,
-                    values,
-                    null,
-                    null
-                )
-
-                val verifiedSize =
-                    contentResolver
-                        .openFileDescriptor(
-                            uri,
-                            "r"
-                        )
-                        ?.use {
-                            it.statSize
-                        }
-                        ?: -1L
-
-                require(
-                    verifiedSize != 0L
-                ) {
-                    "Android saved a zero-byte diagnostics file"
-                }
-
-                LogStore.append(
-                    this,
-                    "UI",
-                    "Diagnostics saved type=$suffix bytes=${bytes.size} verified=$verifiedSize"
-                )
-
-                Toast.makeText(
-                    this,
-                    if (fullHistory) {
-                        "Full diagnostics saved to Downloads ($verifiedSize bytes)"
-                    } else {
-                        "Safe diagnostics saved to Downloads ($verifiedSize bytes)"
-                    },
-                    Toast.LENGTH_LONG
-                ).show()
-            } catch (t: Throwable) {
-                contentResolver.delete(
-                    uri,
-                    null,
-                    null
-                )
-                throw t
-            }
-        }.onFailure {
-            LogStore.append(
-                this,
-                "ERROR",
-                "Saving diagnostics failed: ${it.stackTraceToString()}"
-            )
-
-            Toast.makeText(
-                this,
-                "Could not save diagnostics: ${it.message}",
-                Toast.LENGTH_LONG
-            ).show()
-        }
-    }
-
     override fun onActivityResult(
         requestCode: Int,
         resultCode: Int,
@@ -1805,102 +1547,6 @@ class MainActivity : Activity() {
             }
 
             return
-        }
-
-        if (
-            requestCode != REQUEST_SAVE_DIAGNOSTICS ||
-            resultCode != RESULT_OK
-        ) {
-            return
-        }
-
-        val uri = data?.data ?: return
-        val fullHistory = pendingDiagnosticsFull
-        pendingDiagnosticsFull = false
-
-        runCatching {
-            val report =
-                diagnosticsReport(
-                    fullHistory
-                )
-
-            val bytes =
-                report.toByteArray(
-                    Charsets.UTF_8
-                )
-
-            require(
-                bytes.isNotEmpty()
-            ) {
-                "Diagnostics report was empty"
-            }
-
-            val descriptor =
-                contentResolver.openFileDescriptor(
-                    uri,
-                    "w"
-                )
-                    ?: error(
-                        "Could not open selected file"
-                    )
-
-            descriptor.use { pfd ->
-                FileOutputStream(
-                    pfd.fileDescriptor
-                ).use { output ->
-                    output.write(bytes)
-                    output.flush()
-                    output.fd.sync()
-                }
-            }
-
-            val verifiedSize =
-                contentResolver
-                    .openFileDescriptor(
-                        uri,
-                        "r"
-                    )
-                    ?.use {
-                        it.statSize
-                    }
-                    ?: -1L
-
-            require(
-                verifiedSize != 0L
-            ) {
-                "Android saved a zero-byte diagnostics file"
-            }
-
-            val suffix =
-                if (fullHistory) {
-                    "full"
-                } else {
-                    "safe"
-                }
-
-            LogStore.append(
-                this,
-                "UI",
-                "Diagnostics saved type=$suffix bytes=${bytes.size} verified=$verifiedSize"
-            )
-
-            Toast.makeText(
-                this,
-                "Diagnostics TXT saved ($verifiedSize bytes)",
-                Toast.LENGTH_SHORT
-            ).show()
-        }.onFailure {
-            LogStore.append(
-                this,
-                "ERROR",
-                "Saving diagnostics TXT failed: ${it.stackTraceToString()}"
-            )
-
-            Toast.makeText(
-                this,
-                "Could not save TXT",
-                Toast.LENGTH_LONG
-            ).show()
         }
     }
 
@@ -2135,30 +1781,9 @@ class MainActivity : Activity() {
             packageManager.getPackageInfo(packageName, 0).versionName ?: "0.0.0"
         }.getOrDefault("0.0.0")
 
-    private fun prettyMode(mode: String): String = when (mode.uppercase()) {
-        "MASQUE_H3", "MASQUE" -> "MASQUE H3"
-        "MIM_H2" -> "MASQUE-in-MASQUE H2"
-        "MIM_H3", "MIM" -> "MASQUE-in-MASQUE H3"
-        "MASQUE_H2" -> "MASQUE H2"
-        "WG" -> "WireGuard"
-        "GOOL" -> "GOOL"
-        "PSIPHON_ONLY" -> "Psiphon"
-        "TOR_ONLY" -> "Tor"
-        "TOR_INSIDE_MASQUE_H3", "TOR_INSIDE_MASQUE" -> "MASQUE H3 → Tor"
-        "TOR_INSIDE_MASQUE_H2" -> "MASQUE H2 → Tor"
-        "TOR_INSIDE_WG" -> "WireGuard → Tor"
-        "TOR_INSIDE_GOOL" -> "GOOL → Tor"
-        "TOR_REVERSE" -> "Tor → MASQUE H2"
-        else -> mode.ifBlank { "—" }
-    }
+    private fun prettyMode(mode: String): String = ModeCatalog.label(mode)
 
-    private fun badgeFor(mode: String): String = when {
-        mode.startsWith("TOR") -> "TOR"
-        mode.startsWith("MIM") -> "MIM"
-        mode.startsWith("MASQUE") -> "MASQUE"
-        mode == "PSIPHON_ONLY" -> "PSIPHON"
-        else -> mode.ifBlank { "WG" }
-    }
+    private fun badgeFor(mode: String): String = ModeCatalog.badge(mode)
 
     private fun fmtTime(totalSeconds: Long): String {
         val s = totalSeconds.coerceAtLeast(0L)
@@ -2231,9 +1856,12 @@ class MainActivity : Activity() {
             connected -> {
                 title = tr("متصل شدی", "Connected")
                 sub = tr("اینترنتت با $modeName امن شد", "Secured with $modeName")
-                detail = if (vpnRunning) "${prettyMode(mode)} VPN"
-                else if (status.contains("HTTP", true)) "SOCKS5 :1819 + HTTP :1820"
-                else "SOCKS5 :1819"
+                detail = egressText.ifBlank {
+                    if (vpnRunning) "${prettyMode(mode)} VPN"
+                    else if (status.contains("HTTP", true)) "SOCKS5 :1819 + HTTP :1820"
+                    else "SOCKS5 :1819"
+                }
+                maybeLookupEgress()
                 state = SwState.ON
             }
             unstable -> {
@@ -2282,6 +1910,26 @@ class MainActivity : Activity() {
             selectedChip = shownMode
         }
         if (stopped) timerView.text = "00:00:00"
+        if (!connected && egressText.isNotEmpty()) { egressText = ""; egressFor = 0L }
+    }
+
+    /** Real exit IP + country through the local SOCKS5 proxy; one lookup per session, retry with backoff. */
+    private fun maybeLookupEgress() {
+        val now = SystemClock.elapsedRealtime()
+        if (connectedSince == egressFor || now < egressNextTry) return
+        val session = connectedSince
+        egressNextTry = now + 60_000L
+        Thread {
+            runCatching { EgressLookup.fetch() }.onSuccess { info ->
+                egressRetry.succeeded()
+                egressFor = session
+                egressText = "${info.flag} ${info.country} · ${info.ip}"
+                handler.post { refreshState(true) }
+            }.onFailure {
+                egressRetry.failed()
+                egressNextTry = SystemClock.elapsedRealtime() + egressRetry.delayMillis()
+            }
+        }.start()
     }
 
     private fun requestNotificationsIfNeeded() {

@@ -24,6 +24,10 @@
         android:theme="@style/AppTheme">
 
         <activity
+            android:name=".DebugActivity"
+            android:exported="false" />
+
+        <activity
             android:name=".AppRoutingActivity"
             android:exported="false" />
 
