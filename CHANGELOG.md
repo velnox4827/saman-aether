@@ -1,5 +1,20 @@
 # Changelog
 
+## v2.1.0
+
+- Android APK only; Termux scripts remain unchanged.
+- **Aether core 2.1.0 -> 2.3.0** (pinned commit `6175b67`, SHA-256 verified archives). Psiphon console clients unchanged and still checksum-pinned.
+- **Psiphon covers all three official modes**, grouped under one "Psiphon" section: *in tunnel* (`--psiphon`), *reverse* (`--psiphon-reverse`, for when WARP itself is blocked) and *only* (`--psiphon-only`, no WARP). Exit country (default Auto) and method (Auto / CDN / Direct) are selectable.
+- **Previous `PSIPHON_ONLY` changed meaning.** In 2.0.x it actually ran "Psiphon inside the WARP tunnel". It now runs plain Psiphon with no tunnel. Users who want the old behaviour: choose *Psiphon: in tunnel*. Saved selections are not renamed; the old chain mode id (`PSIPHON_CHAIN`) maps to *in tunnel*.
+- **GOOL is now the new core GOOL** (WireGuard inside MASQUE, foreign exit, `--gool`). The old WireGuard-in-WireGuard GOOL stays available as *GOOL Classic* (`--gool-classic`). WireGuard and GOOL are separate groups.
+- **Fewer Tor modes (6 -> 3):** *Tor*, *MASQUE -> Tor*, *Tor -> MASQUE*. Removed: *MASQUE H2 -> Tor*, *WireGuard -> Tor*, *GOOL -> Tor*. A saved removed mode silently moves to *MASQUE -> Tor*.
+- **New Debug page** (Settings -> Support -> Debug): App / Core / Errors filter, copy, share, save TXT (safe or full), clear. It replaces the old log dialog and the two overlapping export menus.
+- **Real exit IP and country** shown on the main screen while connected (looked up through the local SOCKS5 proxy).
+- Every setting now has a one-line explanation. Glass UI redesign (dark/light, three palettes, Persian RTL) from the 2.0.x work branch is included.
+- Cleanup: one mode catalog replaces four duplicated label tables; removed dead v1.10.0 migration code, unused helpers and stale debug docs.
+- Version: versionCode `20100`, versionName `2.1.0`.
+- On-device verification of every mode is the owner's manual test before release; CI covers build, unit tests, lint, signing and packaging only.
+
 ## v2.0.1
 
 - Android APK only; Termux scripts remain unchanged.
