@@ -22,14 +22,5 @@ object ConnectionStatus {
         }
     }
 
-    fun modeLabel(mode: String): String = when (mode.uppercase()) {
-        "MIM_H2" -> "MASQUE-in-MASQUE H2"
-        "MIM_H3", "MIM" -> "MASQUE-in-MASQUE H3"
-        "MASQUE_H2" -> "MASQUE H2"
-        "MASQUE_H3", "MASQUE" -> "MASQUE H3"
-        "WG" -> "WireGuard"
-        "GOOL" -> "GOOL"
-        "PSIPHON_ONLY" -> "Psiphon"
-        else -> mode.ifBlank { "Tunnel" }
-    }
+    fun modeLabel(mode: String): String = ModeCatalog.label(mode)
 }

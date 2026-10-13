@@ -134,13 +134,7 @@ class SamanTunnelWidget : AppWidgetProvider() {
             val mode =
                 if (currentMode.isNotBlank()) currentMode else lastMode
 
-            val displayMode = when (mode.uppercase()) {
-                "MASQUE_H2" -> "H2"
-                "MASQUE_H3", "MASQUE" -> "H3"
-                "GOOL" -> "GOOL"
-                "PSIPHON_ONLY" -> "PSI"
-                else -> "WG"
-            }
+            val displayMode = ModeCatalog.short(mode)
 
             val vpnPrefs = context.getSharedPreferences(SamanVpnService.PREFS, Context.MODE_PRIVATE)
             val displayedStatus = ConnectionStatus.display(status,
