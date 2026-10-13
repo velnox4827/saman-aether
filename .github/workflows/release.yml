@@ -315,7 +315,7 @@ jobs:
           - ARMv7
           - Universal ARM
 
-          This Android-only release bundles official Aether v2.1.0 (with official
+          This Android-only release bundles official Aether v2.3.0 (with official
           Psiphon console clients for ARM64/ARMv7) and HEV 2.18.0.
 
           Verify APK SHA-256 hashes and signing-certificate continuity before installation.
