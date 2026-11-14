@@ -2,11 +2,11 @@
 
 Pins:
 - Xray-core **v26.11.9**, official commit `676eaf66f8f05d4d558ee7a74b4736623d3feeb9`.
-- Go **1.27.1** (`GOTOOLCHAIN=local`); upstream requires Go 1.27.
+- Go **1.27.3** (`GOTOOLCHAIN=local`); upstream requires Go 1.27.
 - HEV **2.20.0**, official submodule commit `75dbc1e9ace6c70d3d1b94df7c283efe1de7effc`.
 - Aether remains **2.3.0**; NDK **26.3.11579264**, API **24** remain unchanged.
 
-Both workflows call `bash android-app/scripts/build-xray.sh`. With Go 1.27.1,
+Both workflows call `bash android-app/scripts/build-xray.sh`. With Go 1.27.3,
 GNU `readelf`, `file`, Git and the Linux-host NDK installed:
 
 ```sh
@@ -19,8 +19,8 @@ The helper fetches and verifies the exact commit, uses the checked-in `go.sum`
 with `-mod=readonly`, and builds `./main` using:
 
 ```sh
-CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -mod=readonly -trimpath -buildvcs=false -ldflags '-s -w' -o libxray.so ./main
-CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -mod=readonly -trimpath -buildvcs=false -ldflags '-s -w' -o libxray.so ./main
+CGO_ENABLED=1 GOOS=android GOARCH=arm64 CC=aarch64-linux-android24-clang go build -mod=readonly -trimpath -buildvcs=false -ldflags '-s -w -checklinkname=0 -extldflags=-Wl,-z,max-page-size=16384' -o libxray.so ./main
+CGO_ENABLED=1 GOOS=android GOARCH=arm GOARM=7 CC=armv7a-linux-androideabi24-clang go build -mod=readonly -trimpath -buildvcs=false -ldflags '-s -w -checklinkname=0 -extldflags=-Wl,-z,max-page-size=16384' -o libxray.so ./main
 ```
 
 The version is compiled into upstream `core/core.go`; linker version overrides
@@ -29,8 +29,9 @@ retains the real `26.11.9` version. This is an app-built upstream core, not an
 unmodified official release binary.
 
 Outputs are executable `libxray.so` under `arm64-v8a` and `armeabi-v7a`, not JNI
-shared libraries. Each must have the correct ELF machine, static linkage, no
-`PT_INTERP`, and no dynamic `NEEDED` dependencies. APK extraction supplies the
+shared libraries. Each must have the correct ELF machine, PIE linkage,
+Android `/system/bin/linker[64]` interpreter and Bionic `libc.so`, never glibc.
+APK extraction supplies the
 executable location, as for the existing Psiphon console clients. Existing
 Aether, Psiphon, bridge and C++ runtime binaries are not replaced by this helper.
 
@@ -65,18 +66,17 @@ no signing secrets. HEV 2.20.0, the app bridge/guard, and Xray still build afres
 ## Android 7 compatibility limits
 
 The official release provides Android ARM64 and AMD64 assets, **not Android
-ARMv7**. Its Android builds use CGO and NDK API 24. Upstream also builds static
-Linux ARMv7 and ARM64 executables; this app deliberately uses that portable
-Linux path for both ARM ABIs instead of claiming an official Androidv7 asset.
+ARMv7**. Its Android builds use CGO and NDK API 24. The app follows that Android
+path for both supported ARM targets, rather than relabeling Linux binaries as
+Android binaries. ARMv7 is an app-built upstream target, not an official asset.
 
-Static linkage removes Bionic ABI requirements; it does **not** prove Android 7
-compatibility. Linux build tags differ from Android tags. Go runtime/kernel
-requirements, OEM seccomp/SELinux policy, ARMv7 CPU support, executable extraction,
-DNS discovery and TLS trust behavior still require real API 24 ARM64/ARMv7 tests.
-In particular, Linux pure-Go DNS must not be assumed to discover Android's system
-DNS; verify explicit DNS/bootstrap behavior before claiming domain-based nodes
-work. Hosted API 30/34 emulator launch smoke tests do not cover Android 7 tunnels.
-No minSdk increase or compatibility guarantee is introduced by this build.
+The first CI iteration used static Linux binaries. Review found that pure-Go
+Linux DNS need not discover Android's resolver, so that path was rejected before
+release. Native Android build tags and the Bionic resolver address that mismatch.
+API-24 compilation still does not prove every Android 7/OEM runtime works;
+API24 ARM64/ARMv7 device-level DNS, TLS and tunnel tests remain separate gates.
+Hosted API30/34 launch smoke tests are not Android7 tunnel tests. No minSdk
+increase or untested compatibility guarantee is introduced.
 
 ## Release safety
 
