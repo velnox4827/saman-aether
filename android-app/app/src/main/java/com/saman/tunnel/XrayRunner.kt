@@ -53,9 +53,8 @@ class XrayRunner(private val binary: File, private val directory: File, private 
 
     private fun command(vararg args: String) = ProcessBuilder(listOfNotNull(guard?.absolutePath, binary.absolutePath) + args)
         .directory(directory)
-        // Never persist raw core diagnostics: failed URLs/credentials may be echoed by upstream.
+        // Native guard discards output without ProcessBuilder.Redirect (Android 26+).
         .redirectErrorStream(true)
-        .redirectOutput(File("/dev/null"))
 
     private fun alive(process: Process): Boolean = try {
         process.exitValue()

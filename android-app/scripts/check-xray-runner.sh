@@ -13,6 +13,10 @@ java -jar "$OUT/modes.jar"
 python3 - "$OUT/guard" <<'PY'
 import os, pathlib, subprocess, sys, time
 shell = '/system/bin/sleep' if pathlib.Path('/system/bin/sleep').exists() else '/bin/sleep'
+interpreter = '/system/bin/sh' if pathlib.Path('/system/bin/sh').exists() else '/bin/sh'
+quiet = subprocess.run([sys.argv[1], interpreter, '-c', 'printf private-fixture; printf private-fixture >&2'], capture_output=True)
+assert quiet.returncode == 0 and quiet.stdout == b'' and quiet.stderr == b''
+print('PASS: native guard discards raw stdout/stderr on Android 7-compatible APIs')
 code = 'import subprocess,time,sys; p=subprocess.Popen([sys.argv[1],sys.argv[2],"30"]); print(p.pid,flush=True); time.sleep(30)'
 owner = subprocess.Popen([sys.executable, '-c', code, sys.argv[1], shell], stdout=subprocess.PIPE, text=True)
 try:
