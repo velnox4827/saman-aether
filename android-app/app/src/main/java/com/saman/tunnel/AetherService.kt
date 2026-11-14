@@ -51,6 +51,7 @@ class AetherService : Service() {
     private val livenessBinder = Binder()
 
     @Volatile private var jobId: Long = 0L
+    @Volatile private var xray: XrayRunner? = null
     @Volatile private var generation: Long = 0L
     @Volatile private var currentMode: String = ""
     @Volatile private var currentPhase: TunnelPhase = TunnelPhase.STOPPED
@@ -82,7 +83,7 @@ class AetherService : Service() {
                         ?: "WG"
                 )
 
-                if (jobId != 0L || currentPhase.isBusy || terminating.get()) {
+                if (jobId != 0L || xray != null || currentPhase.isBusy || terminating.get()) {
                     LogStore.append(
                         this,
                         "SERVICE",
@@ -188,6 +189,10 @@ class AetherService : Service() {
         else listOf(SOCKS_PORT, HTTP_PORT)
 
     private fun launchCore(mode: String, myGeneration: Long) {
+        if (mode == "XRAY") {
+            launchXray(myGeneration)
+            return
+        }
         val psiphonBinary = if (AetherArguments.needsPsiphonBinary(mode)) {
             val installed = File(applicationInfo.nativeLibraryDir, PsiphonBinaryPolicy.PACKAGED_NAME)
             val abi = if (android.os.Process.is64Bit()) "arm64-v8a" else "armeabi-v7a"
@@ -299,6 +304,49 @@ class AetherService : Service() {
         }
 
         fail("SOCKS5 did not become ready", mode)
+    }
+
+    private fun launchXray(myGeneration: Long) {
+        val profile = ConfigStore(this).selectedProfile()
+        if (profile == null) {
+            fail("ابتدا در «اشتراک من» یک کانفیگ وارد و انتخاب کنید", "XRAY")
+            return
+        }
+        val runner = XrayRunner(File(applicationInfo.nativeLibraryDir, "libxray.so"), filesDir,
+            File(applicationInfo.nativeLibraryDir, "libxray-guard.so"))
+        synchronized(jobLock) {
+            if (generation != myGeneration || terminating.get()) return
+            xray = runner
+        }
+        try {
+            runner.start(XrayConfig.build(profile).toString())
+            if (generation != myGeneration || terminating.get()) {
+                runner.stop()
+                return
+            }
+            setState("Connecting…", "XRAY")
+            for (attempt in 0 until 120) {
+                if (generation != myGeneration || terminating.get()) return
+                check(runner.isRunning()) { "ماژول Xray متوقف شد؛ کانفیگ یا نسخهٔ هسته را بررسی کنید" }
+                if (ProxyHealth.probeSocks5("127.0.0.1", SOCKS_PORT, 750)) {
+                    setConnectedState("XRAY", isPortInUse(HTTP_PORT))
+                    while (generation == myGeneration && !terminating.get()) {
+                        check(runner.isRunning()) { "ماژول Xray متوقف شد؛ دوباره متصل شوید" }
+                        Thread.sleep(2000)
+                    }
+                    return
+                }
+                Thread.sleep(250)
+            }
+            fail("پراکسی محلی Xray آماده نشد", "XRAY")
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            if (generation == myGeneration && !terminating.get()) fail("راه‌اندازی Xray قطع شد", "XRAY")
+        } catch (e: Exception) {
+            // Do not forward upstream exceptions that might contain subscription credentials.
+            if (generation == myGeneration && !terminating.get())
+                fail(if (e is IllegalStateException) e.message ?: "اجرای Xray ممکن نشد" else "اجرای Xray ممکن نشد", "XRAY")
+        }
     }
 
     private fun monitor(id: Long, mode: String, myGeneration: Long) {
@@ -430,6 +478,7 @@ class AetherService : Service() {
             generation++
             claimJob()
         }
+        val xrayRunner = xray
         setState(error?.let { "Error: $it" } ?: "Stopping…", mode)
         runCatching {
             startService(Intent(this, SamanVpnService::class.java).apply {
@@ -437,7 +486,9 @@ class AetherService : Service() {
             })
         }
         Thread({
-            var jobDone = id == 0L
+            val xrayDone = xrayRunner?.let { runCatching { it.stop() }.getOrDefault(false) } ?: true
+            if (xrayDone) xray = null
+            var jobDone = id == 0L && xrayDone
             if (id != 0L) runCatching {
                 val reply = JSONObject(NativeBridge.cancelJob(id))
                 LogStore.append(this, "NATIVE", "cancel accepted=${reply.optBoolean("ok")}")
@@ -446,14 +497,14 @@ class AetherService : Service() {
             // the job and its SOCKS/HTTP listeners before announcing Stopped.
             val deadline = android.os.SystemClock.elapsedRealtime() + 4_000L
             while (android.os.SystemClock.elapsedRealtime() < deadline) {
-                if (!jobDone) jobDone = runCatching {
+                if (id != 0L && !jobDone) jobDone = runCatching {
                     JSONObject(NativeBridge.pollJob(id)).optString("state") == "done"
                 }.getOrDefault(false)
                 if (jobDone && localPorts(mode).none(::isPortInUse)) break
                 Thread.sleep(100)
             }
             if (id != 0L && jobDone) releaseJob(id)
-            val needsRecycle = !jobDone || localPorts(mode).any(::isPortInUse)
+            val needsRecycle = !jobDone || !xrayDone || localPorts(mode).any(::isPortInUse)
             LogStore.append(this, "CORE_STOP", "jobDone=$jobDone portsClosed=${!needsRecycle}")
             executor.shutdownNow()
             mainHandler.post {

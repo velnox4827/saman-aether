@@ -40,8 +40,8 @@ android {
         applicationId = "com.saman.tunnel"
         minSdk = 24
         targetSdk = 35
-        versionCode = 20100
-        versionName = "2.1.0"
+        versionCode = 20200
+        versionName = "2.2.0"
         manifestPlaceholders["appLabel"] = "Saman Tunnel"
 
         ndk {
@@ -122,6 +122,7 @@ android {
 }
 
 dependencies {
+    implementation("com.google.zxing:core:3.5.3")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
 }

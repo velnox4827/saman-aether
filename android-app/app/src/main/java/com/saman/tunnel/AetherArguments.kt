@@ -19,6 +19,7 @@ object AetherArguments {
 
     fun forMode(mode: String, psiphonBinary: String? = null, psiphonRegion: String? = null, psiphonShape: String? = null): List<String> =
         when (canonicalMode(mode)) {
+            "XRAY" -> error("Xray configurations must use the separate Xray module")
             "TOR_ONLY" -> listOf("--tor-only", "--bind", socks)
             "TOR_REVERSE" -> listOf("--masque", "--h2", "-4", "--bind", socks, "--tor-reverse", "--tor-bind", http)
             "TOR_INSIDE_MASQUE_H3" -> listOf("--masque", "-4", "--bind", socks, "--scan", "balanced", "--noize", "firewall", "--quick-reconnect", "--tor", "--tor-bind", http)

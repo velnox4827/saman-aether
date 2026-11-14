@@ -22,9 +22,11 @@ fun main() = runAndroidReleaseCheck()
 
 /** Modes, migration and Psiphon flag mapping. Runs under kotlinc and JUnit alike. */
 fun runModeCheck() {
-    // every offered mode builds args and has a label
+    // Every offered mode has a label; Xray must never use Aether's fallback.
     for (m in ModeCatalog.all) {
-        check(AetherArguments.forMode(m.id).isNotEmpty() && ModeCatalog.label(m.id) == m.label) { "bad mode ${m.id}" }
+        if (m.id == "XRAY") check(runCatching { AetherArguments.forMode(m.id) }.isFailure)
+        else check(AetherArguments.forMode(m.id).isNotEmpty()) { "bad mode ${m.id}" }
+        check(ModeCatalog.label(m.id) == m.label) { "bad label ${m.id}" }
         check(m.fa.isNotBlank() && m.en.isNotBlank()) { "missing description ${m.id}" }
     }
     // removed modes migrate to a mode that still exists

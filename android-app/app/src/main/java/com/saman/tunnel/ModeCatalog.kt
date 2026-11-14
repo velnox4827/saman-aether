@@ -45,7 +45,9 @@ object ModeCatalog {
         ModeInfo("TOR_INSIDE_MASQUE_H3", "MASQUE → Tor", "TOR", "TOR", "Tor", TOR,
             "اول MASQUE، بعد Tor؛ برای شبکه‌هایی که Tor را می‌بندند", "MASQUE first, then Tor; for networks that block Tor"),
         ModeInfo("TOR_REVERSE", "Tor → MASQUE", "TOR", "TOR", "Tor", TOR,
-            "اول Tor، بعد MASQUE H2؛ شبکه وارپ را نمی‌بیند", "Tor first, then MASQUE H2; network never sees WARP")
+            "اول Tor، بعد MASQUE H2؛ شبکه وارپ را نمی‌بیند", "Tor first, then MASQUE H2; network never sees WARP"),
+        ModeInfo("XRAY", "اشتراک من · Xray", "XRAY", "XRAY", "Xray", MASQUE,
+            "اتصال به کانفیگ انتخاب‌شده در اشتراک من", "Connect using the selected imported configuration")
     )
 
     /** Ids from older versions -> nearest mode still offered. Idempotent; unknown ids pass through. */

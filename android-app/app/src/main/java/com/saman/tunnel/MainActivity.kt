@@ -49,6 +49,7 @@ class MainActivity : Activity() {
     companion object {
         private const val REQUEST_VPN_PERMISSION = 2003
         private const val REQUEST_APP_ROUTING = 2004
+        private const val REQUEST_SUBSCRIPTION = 2005
         private const val RELEASES_API =
             "https://api.github.com/repos/velnox4827/saman-aether/releases?per_page=10"
         private const val PROJECT_CHANNEL = "https://t.me/SamanTunnelOfficial"
@@ -91,6 +92,7 @@ class MainActivity : Activity() {
     private var updateChecking = false
     private var staleSinceCheck = true
     private var coreVersionCache: String? = null
+    private var offeredClipboardHash: Int? = null
     private var egressText = ""
     private var egressFor = 0L
     private val egressRetry = EgressRetryPolicy()
@@ -159,6 +161,7 @@ class MainActivity : Activity() {
         showVersions()
         refreshBatteryStatus()
         requestNotificationsIfNeeded()
+        SubscriptionRefreshJob.schedule(this)
 
         if (savedInstanceState == null && ui.autoConnect && corePhase() == TunnelPhase.STOPPED) {
             handler.postDelayed({
@@ -181,7 +184,7 @@ class MainActivity : Activity() {
                 getSharedPreferences(AetherService.PREFS, MODE_PRIVATE)
                     .getString(AetherService.KEY_LAST_MODE, "WG").orEmpty().ifBlank { "WG" }
             )
-            start(mode)
+            start(mode, forceRestart = mode == "XRAY")
         }
         if (getSharedPreferences(SamanVpnService.PREFS, MODE_PRIVATE)
                 .getBoolean(SamanVpnService.KEY_RUNNING, false)) {
@@ -194,6 +197,27 @@ class MainActivity : Activity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (!hasFocus || !resumed || isFinishing) return
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val text = runCatching { clipboard.primaryClip?.getItemAt(0)?.text?.toString() }.getOrNull()
+            ?.trim()?.takeIf { it.length <= 1_048_576 } ?: return
+        if (!Regex("^(https://|vless://|vmess://|trojan://|ss://|hysteria2://|hy2://|tuic://|\\[Interface])", RegexOption.IGNORE_CASE).containsMatchIn(text)) return
+        if (offeredClipboardHash == text.hashCode()) return
+        offeredClipboardHash = text.hashCode()
+        AlertDialog.Builder(this)
+            .setMessage(tr("لینک یا کانفیگ در کلیپ‌بورد پیدا شد. اگر به منبع آن اعتماد دارید، وارد شود؟", "A link or configuration is on the clipboard. Import it if you trust its source?"))
+            .setNegativeButton(tr("نه", "No"), null)
+            .setPositiveButton(tr("وارد کردن", "Import")) { _, _ ->
+                startActivityForResult(Intent(this, SubscriptionActivity::class.java).apply {
+                    action = Intent.ACTION_SEND
+                    putExtra(Intent.EXTRA_TEXT, text)
+                    putExtra("confirmed_import", true)
+                }, REQUEST_SUBSCRIPTION)
+            }.show()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -391,6 +415,8 @@ class MainActivity : Activity() {
             setOnClickListener { onSwitchTap() }
         }
         hero.addView(powerSwitch, lp(wrap, wrap).apply { topMargin = dp(14) })
+        hero.addView(chip(tr("اشتراک من", "My subscription")) { openSubscriptions() },
+            lp(wrap, wrap).apply { topMargin = dp(12) })
         main.addView(hero, lp(mp, 0, 1f))
 
         // ---- scrim + bottom sheet ----
@@ -950,6 +976,10 @@ class MainActivity : Activity() {
             .onFailure { Toast.makeText(this, "No browser found", Toast.LENGTH_SHORT).show() }
     }
 
+    private fun openSubscriptions() {
+        startActivityForResult(Intent(this, SubscriptionActivity::class.java), REQUEST_SUBSCRIPTION)
+    }
+
     private fun withAlpha(color: Int, alpha: Int): Int =
         Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color))
 
@@ -979,8 +1009,13 @@ class MainActivity : Activity() {
         return phase.isBusy
     }
 
-    private fun start(mode: String) {
+    private fun start(mode: String, forceRestart: Boolean = false) {
         val mode = AetherArguments.canonicalMode(mode)
+        if (mode == "XRAY" && ConfigStore(this).selectedProfile() == null) {
+            Toast.makeText(this, tr("ابتدا یک کانفیگ وارد و انتخاب کنید", "Import and select a configuration first"), Toast.LENGTH_LONG).show()
+            openSubscriptions()
+            return
+        }
         if (isBusy()) {
             Toast.makeText(
                 this,
@@ -1017,7 +1052,7 @@ class MainActivity : Activity() {
         val phase = TunnelPhase.fromStatus(status)
         if (phase == TunnelPhase.CONNECTED || phase == TunnelPhase.DEGRADED) {
             val current = prefs.getString(AetherService.KEY_MODE, "")
-            if (current == mode) {
+            if (current == mode && !forceRestart) {
                 val vpn = getSharedPreferences(SamanVpnService.PREFS, MODE_PRIVATE)
                 if (isVpnMode() && !vpn.getBoolean(SamanVpnService.KEY_RUNNING, false)) {
                     vpnStartDispatched = false
@@ -1511,6 +1546,12 @@ class MainActivity : Activity() {
             data
         )
 
+        if (requestCode == REQUEST_SUBSCRIPTION) {
+            if (resultCode == RESULT_OK) start("XRAY", forceRestart = true)
+            refreshState(true)
+            return
+        }
+
         if (requestCode == REQUEST_APP_ROUTING) {
             refreshVpnControls()
 
@@ -1932,10 +1973,11 @@ class MainActivity : Activity() {
         val session = connectedSince
         egressNextTry = now + 60_000L
         Thread {
+            val requestStarted = SystemClock.elapsedRealtime()
             runCatching { EgressLookup.fetch() }.onSuccess { info ->
                 egressRetry.succeeded()
                 egressFor = session
-                egressText = "${info.flag} ${info.country} · ${info.ip}"
+                egressText = "${info.flag} ${info.country} · ${info.ip} · HTTP ${SystemClock.elapsedRealtime() - requestStarted} ms"
                 handler.post { refreshState(true) }
             }.onFailure {
                 egressRetry.failed()
